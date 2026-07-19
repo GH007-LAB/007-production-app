@@ -221,6 +221,12 @@ let DB = {
     ]);
     return {sos, its, tks, machines, coils, jobs};
   },
+  async fetchSO(branch, sonum){
+    const {data:so} = await sb.from("so_live").select("*").eq("branch",branch).eq("sonum",sonum).maybeSingle();
+    if(!so) return null;
+    const {data:its} = await sb.from("so_item_live").select("*").eq("branch",branch).eq("sonum",sonum).order("seq");
+    return {so, its: its||[]};
+  },
   async insertTicket(row){ const {data,error} = await sb.from("production_ticket").insert(row).select("id").single(); if(error) throw error; return data.id; },
   async updateTicket(id,patch){ const {error} = await sb.from("production_ticket").update(patch).eq("id",id); if(error) throw error; },
   async insertEvent(ev){ const {error} = await sb.from("ticket_event").insert(ev); if(error) console.error(error); },
@@ -335,6 +341,7 @@ function nowT(){ const d=new Date(); return String(d.getHours()).padStart(2,"0")
 /* ================= state ================= */
 let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={};
 let branch="SKN", view="order", openId=null, loaded=false;
+let q="", FETCHED={SKN:{},BK:{},PPS:{}}, REOK={}, RSHOW={};  // ค้นหา/ใบเก่าที่ดึงมา/อนุมัติซ้ำแล้ว/ฟอร์มขออนุมัติ
 function tks(){ return TK.filter(t=>t.branch===branch && !t.by.rejected); }
 function tksOf(br){ return TK.filter(t=>t.branch===br && !t.by.rejected); }
 function findSO(so){
@@ -396,6 +403,10 @@ function applyData(d){
     CARDS[r.branch].push({so:r.sonum, date:r.sodat, due:r.dlvdat, cusCode:r.cuscod||"",
       customer:r.cusnam||r.cuscod||"", docstat:r.docstat, items:itBySo[r.branch+"|"+r.sonum]||[]});
   });
+  // ใบเก่าที่เคยดึงมาด้วยมือ — คงไว้หลัง reload
+  ["SKN","BK","PPS"].forEach(b=>Object.values(FETCHED[b]).forEach(c=>{
+    if(!CARDS[b].find(x=>x.so===c.so)) CARDS[b].push(c);
+  }));
   Object.values(CARDS).forEach(v=>v.sort((a,b)=>(a.due||"9999")<(b.due||"9999")?-1:1));
   // jobs
   JOBS = d.jobs;
@@ -441,11 +452,13 @@ function alertBar(msg){
 }
 
 /* ================= actions ================= */
-function orderProduce(so){
+function orderProduce(so, isRe){
   const c=findSO(so); if(!c) return;
   const done=orderedIdx(so), byKey={};
+  const approver = REOK[so];
+  if(isRe && !approver) return;   // สั่งซ้ำต้องผ่านอนุมัติก่อนเท่านั้น
   c.items.forEach(it=>{
-    if(done.has(it.seq)) return;
+    if(done.has(it.seq) && !isRe) return;
     const mach=machineOf(it.stk,it.des,branch,c.customer);
     if(!mach || !canProduce(branch,mach)) return;
     const cb=document.getElementById("cb-"+so+"-"+it.seq);
@@ -456,13 +469,43 @@ function orderProduce(so){
     for(const k of ks){
       const [mach,key]=k.split("|");
       const its=byKey[k], kk=key==="-"?null:key;
+      const reDup = isRe && its.some(i=>done.has(i.seq));
+      const people = {ordered:USER.name, approved:USER.name};
+      if(reDup) people.reorder_approved = approver;
       await newTicket({branch, source:"so", sonum:so, machine:mach, material_key:kk||"",
         label:labelOf(its[0].des,kk), item_seqs:its.map(i=>i.seq), stage:1,
-        people:{ordered:USER.name, approved:USER.name}, created_by:USER.dbid||null,
+        people, created_by:USER.dbid||null,
         ...metricsOf(its,kk)},
-        "create", "🛒 สั่ง+อนุมัติใบผลิต ("+its.length+" รายการ) → เข้าฝั่งผลิตทันที");
+        "create", reDup
+          ? "🔁 สั่งผลิตซ้ำ ("+its.length+" รายการ) — ขอโดย "+USER.name+" · อนุมัติซ้ำโดย "+approver
+          : "🛒 สั่ง+อนุมัติใบผลิต ("+its.length+" รายการ) → เข้าฝั่งผลิตทันที");
     }
+    delete REOK[so];
   });
+}
+function searchGo(){ const el=document.getElementById("q-so"); q = el?el.value:""; render(); }
+async function fetchOldSO(){
+  const v=q.trim().toUpperCase(); if(!v) return;
+  try{
+    const r = await DB.fetchSO(branch, v);
+    if(!r){ alertBar("ไม่พบ SO "+v+" ในระบบ (เก็บย้อนหลัง 45 วัน)"); return; }
+    const c = {so:r.so.sonum, date:r.so.sodat, due:r.so.dlvdat, cusCode:r.so.cuscod||"",
+      customer:r.so.cusnam||r.so.cuscod||"", docstat:r.so.docstat, fetched:true,
+      items:(r.its||[]).map(x=>({seq:x.seq, stk:x.stkcod||"", des:x.stkdes||"", qty:+x.ordqty||0, unit:x.unit||""}))};
+    FETCHED[branch][c.so]=c;
+    if(!CARDS[branch].find(x=>x.so===c.so)) CARDS[branch].push(c);
+    render();
+  }catch(e){ console.error(e); alertBar("ค้นหาไม่สำเร็จ — เช็คเน็ต"); }
+}
+function reAsk(so){ RSHOW[so]=!RSHOW[so]; render(); }
+async function reVerify(so){
+  const sel=document.getElementById("ra-"+so), pin=document.getElementById("rp-"+so);
+  if(!sel||!pin) return;
+  const s=STAFF.find(x=>x.id===+sel.value);
+  if(!s || (pin.value||"").length<4) { alertBar("เลือกผู้อนุมัติ + ใส่ PIN 4 หลัก"); return; }
+  const ok=await DB.verifyPin(s.id, pin.value);
+  if(!ok){ alertBar("PIN ไม่ถูกต้อง"); pin.value=""; return; }
+  REOK[so]=s.name; delete RSHOW[so]; render();
 }
 function planA(id){
   const t=tks().find(t=>t.id===id); if(!t) return;
@@ -598,14 +641,23 @@ function dueBdg(c){
 }
 function vOrder(){
   const el=document.getElementById("main"); el.className="";
-  const cs=CARDS[branch];
+  const cutView=(()=>{const d=new Date();d.setDate(d.getDate()-2);return d.toISOString().slice(0,10);})();
+  const qq=q.trim().toUpperCase();
+  const all=CARDS[branch];
+  const cs = qq
+    ? all.filter(c=> c.so.toUpperCase().includes(qq) || (c.customer||"").toUpperCase().includes(qq))
+    : all.filter(c=> (c.date||"") >= cutView || c.fetched || REOK[c.so] || RSHOW[c.so]);
+  const nOld = all.length - (qq? 0 : cs.length);
+  const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
   el.innerHTML = `<div class="page">
-  <div class="hint">🛒 <b>ฝั่งขาย</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · รายการสีเทา=หยิบสต็อค · แถบแดง=สาขานี้ผลิตไม่ได้ (ส่งข้ามสาขาได้เลย) · 💰=ตัดบิลแล้ว(ขายสด) · 🏢=งานระหว่างสาขา</div>
+  <div class="hint">🛒 <b>ฝั่งขาย</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
+  <div class="urgbox"><input id="q-so" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-so').value='';render()">✕</button>`:""}</div>
   <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
   (cs.length? cs.map(c=>{
     const done=orderedIdx(c.so);
     const inter=INTER[c.cusCode]&&INTER[c.cusCode]!==branch?INTER[c.cusCode]:null;
-    let anyBox=false;
+    const reok=REOK[c.so];
+    let anyBox=false, hasOrdered=false;
     const rows=c.items.map(it=>{
       const x=it.seq;
       const mach=machineOf(it.stk,it.des,branch,c.customer);
@@ -621,21 +673,37 @@ function vOrder(){
           : who.length ? `<div style="margin-top:5px">${who.map(w=>`<button class="btn amber" style="padding:7px 11px;font-size:11.5px" onclick="dispatchCross('${esq(c.so)}',${x},'${w}')">🏢 ส่งให้ ${w} ผลิตเลย →</button>`).join(" ")}</div>` : ""
         }</span><span class="q">${qty}</span></div>`;
       }
-      if(done.has(x)) return `<div class="oi"><span class="dtag">✓ สั่งแล้ว</span><span class="mchip">${mach}</span><span class="d">${esc(it.des)}</span><span class="q">${qty}</span></div>`;
+      if(done.has(x)){
+        hasOrdered=true;
+        if(reok){ anyBox=true;
+          return `<div class="oi"><input type="checkbox" id="cb-${c.so}-${x}"><span class="bdg urgent">🔁 ซ้ำ</span><span class="mchip">${mach}</span><label class="d" for="cb-${c.so}-${x}">${esc(it.des)}</label><span class="q">${qty}</span></div>`;
+        }
+        return `<div class="oi"><span class="dtag">✓ สั่งแล้ว 🔒</span><span class="mchip">${mach}</span><span class="d" style="color:var(--muted)">${esc(it.des)}</span><span class="q">${qty}</span></div>`;
+      }
       anyBox=true;
       return `<div class="oi"><input type="checkbox" id="cb-${c.so}-${x}" checked><span class="mchip">${mach}</span><label class="d" for="cb-${c.so}-${x}">${esc(it.des)}</label><span class="q">${qty}</span></div>`;
     }).join("");
     return `<div class="socard ${anyBox?"":"dim"}">
       <div class="so-h"><span class="so">${c.so}</span><span class="cu">${esc(c.customer)}</span>
+        ${c.fetched?`<span class="bdg due">📥 ใบเก่า</span>`:""}
         ${inter?`<span class="bdg inter">🏢 งานสาขา ${inter}</span>`:""}
         ${c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว</span>`:""}
         ${dueBdg(c)}</div>
       ${rows}
-      <div class="so-foot">${anyBox
-        ? `<button class="btn blue" onclick="orderProduce('${esq(c.so)}')">🛒 สั่ง+อนุมัติใบผลิต → เข้าฝั่งผลิต</button>`
-        : `<span class="okpill">${c.items.some(it=>done.has(it.seq))?"✓ สั่งครบแล้ว":"ไม่มีรายการผลิตที่สาขานี้"}</span>`}</div>
+      ${RSHOW[c.so]&&!reok?`<div class="planx show">🔁 <b>ขออนุมัติสั่งผลิตซ้ำ</b> — ผู้อนุมัติ
+        <select id="ra-${c.so}">${approvers.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
+        PIN <input id="rp-${c.so}" type="password" inputmode="numeric" maxlength="4" style="width:74px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:15px;letter-spacing:3px;text-align:center">
+        <button class="btn dark" onclick="reVerify('${esq(c.so)}')">✔ ยืนยัน</button>
+        <div class="who">ผู้อนุมัติใส่ PIN ตัวเองที่จอนี้ — ระบบบันทึกชื่อคนขอ+คนอนุมัติลงประวัติถาวร</div></div>`:""}
+      <div class="so-foot">${
+        reok ? `<button class="btn amber" onclick="orderProduce('${esq(c.so)}',true)">🔁 สั่งผลิตซ้ำ → เข้าฝั่งผลิต</button><span class="okpill">อนุมัติซ้ำโดย ${esc(reok)}</span>`
+        : anyBox ? `<button class="btn blue" onclick="orderProduce('${esq(c.so)}')">🛒 สั่ง+อนุมัติใบผลิต → เข้าฝั่งผลิต</button>${hasOrdered?`<button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกซ้ำ…</button>`:""}`
+        : hasOrdered ? `<span class="okpill">✓ สั่งครบแล้ว</span><button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกผลิตซ้ำ (ขออนุมัติ)</button>`
+        : `<span class="okpill">ไม่มีรายการผลิตที่สาขานี้</span>`}</div>
     </div>`;
-  }).join("") : `<div class="empty">— ไม่มีบิลค้างในช่วง 30 วัน —</div>`) + `</div>`;
+  }).join("") : qq
+    ? `<div class="empty">— ไม่พบ "${esc(q)}" ในรายการที่โหลดไว้ —<br><br><button class="btn blue" onclick="fetchOldSO()">📥 ดึง SO ${esc(qq)} จากฐานข้อมูล (ย้อนหลัง 45 วัน)</button></div>`
+    : `<div class="empty">— ไม่มีบิลใหม่ในช่วง 3 วัน — ใบเก่าใช้ช่องค้นหาด้านบน —</div>`) + `</div>`;
 }
 function vOnline(){
   const el=document.getElementById("main"); el.className="";
