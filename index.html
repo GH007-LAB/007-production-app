@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>007 Production — ระบบสั่งผลิต</title>
+<style>
+:root{--bg:#f1f3f6;--panel:#fff;--ink:#1a2233;--muted:#6b7688;--line:#e2e6ec;
+--accent:#1f5eff;--red:#d92d20;--amber:#b54708;--green:#067647;--purple:#7c6bd6;--teal:#0aa5a0;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{font-family:'Segoe UI',system-ui,'Leelawadee UI','Noto Sans Thai',sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;overflow:hidden}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:9px 14px 0;flex:0 0 auto}
+.h1r{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+h1{font-size:16px;margin:0;font-weight:800}
+.conn{font-size:10.5px;border-radius:99px;padding:2px 9px;font-weight:700}
+.conn.live{background:#e6f4ea;color:var(--green)}
+.conn.off{background:#fee4e2;color:var(--red)}
+.syncs{display:flex;gap:7px;font-size:10.5px;color:var(--muted);flex-wrap:wrap}
+.syncs .bad{color:var(--red);font-weight:700}
+.userchip{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;background:#e8f0ff;color:var(--accent);border-radius:99px;padding:4px 11px}
+.userchip button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0}
+.h2r{display:flex;align-items:center;gap:7px;margin-top:8px;flex-wrap:wrap;padding-bottom:9px}
+.tabs,.vtabs{display:flex;gap:5px;flex-wrap:wrap}
+.tab{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:6px 13px;font-size:13.5px;font-weight:700;cursor:pointer;color:var(--muted)}
+.tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.vtab{border:none;background:#eef1f5;border-radius:99px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;color:var(--muted);white-space:nowrap}
+.vtab.on{background:var(--accent);color:#fff}
+.vtab .b{background:var(--red);color:#fff;font-size:10px;border-radius:99px;padding:0 5px;margin-left:3px}
+main{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px}
+main.boardmode{overflow-x:auto;overflow-y:hidden;display:flex;gap:10px;scroll-snap-type:x proximity}
+.page{max-width:840px;margin:0 auto}
+.hint{font-size:12px;color:var(--muted);background:#eef3ff;border:1px solid #d5e2ff;border-radius:10px;padding:8px 12px;line-height:1.5;margin-bottom:11px}
+.socard{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:11px 13px;margin-bottom:10px}
+.socard.dim{opacity:.6}
+.so-h{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.so-h .so{font-weight:800;font-size:14px}
+.so-h .cu{font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:110px}
+.bdg{font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.bdg.late{background:#fee4e2;color:var(--red)}
+.bdg.today{background:#fff4e5;color:var(--amber)}
+.bdg.due{background:#eef1f5;color:var(--muted)}
+.bdg.paid{background:#e6f4ea;color:var(--green)}
+.bdg.inter{background:#efe9ff;color:var(--purple)}
+.bdg.urgent{background:#fff4e5;color:var(--amber)}
+.oi{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px}
+.oi input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent);flex:0 0 auto}
+.oi .d{flex:1;line-height:1.35;min-width:0}
+.oi .q{white-space:nowrap;font-weight:700;font-size:12px}
+.oi.stock{color:var(--muted)}
+.oi.noprod{background:#fff5f4;border-radius:8px;padding:6px 8px}
+.mchip{font-size:10px;font-weight:800;border-radius:6px;padding:1px 6px;background:#e8f0ff;color:var(--accent);white-space:nowrap;flex:0 0 auto}
+.mchip.bad{background:#fee4e2;color:var(--red)}
+.stag{font-size:10px;background:#eef1f5;border-radius:5px;padding:1px 6px;flex:0 0 auto;color:var(--muted)}
+.dtag{font-size:10px;background:#e6f4ea;color:var(--green);border-radius:5px;padding:1px 6px;font-weight:700;flex:0 0 auto}
+.warn{font-size:11px;color:var(--red);font-weight:700;margin-top:2px}
+.so-foot{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
+.btn{border:none;border-radius:10px;padding:10px 15px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit}
+.btn.blue{background:var(--accent);color:#fff}.btn.dark{background:var(--ink);color:#fff}
+.btn.green{background:var(--green);color:#fff}.btn.grey{background:#eef1f5;color:var(--ink)}
+.btn.amber{background:#fff4e5;color:var(--amber);border:1px solid #f5d9b0}
+.btn.red{background:#fee4e2;color:var(--red)}
+.btn:disabled{opacity:.35;cursor:default}
+.okpill{margin-left:auto;font-size:12px;font-weight:800;color:var(--green)}
+.tkt{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:9px}
+.tk-h{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.tk-h .so{font-weight:800;font-size:13px}
+.cchip{display:inline-flex;align-items:center;gap:5px;font-size:11px;background:#f4f6f9;border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-weight:700;max-width:100%}
+.cchip i{width:10px;height:10px;border-radius:3px;border:1px solid rgba(0,0,0,.12);flex:0 0 auto}
+.met{display:flex;gap:10px;font-size:11px;color:var(--muted);margin-top:5px;flex-wrap:wrap}
+.met b{color:var(--ink)}
+.who{font-size:10.5px;color:var(--muted);margin-top:4px}
+.who b{color:var(--accent)}
+.planrow{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.planx{margin-top:8px;background:#f7f9fc;border:1px dashed var(--line);border-radius:10px;padding:9px 11px;display:none}
+.planx.show{display:block}
+.planx select{border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px;font-family:inherit;margin-right:6px;background:#fff}
+.coil{font-size:11px;margin-top:4px;font-weight:700}
+.coil.ok{color:var(--green)}.coil.low{color:var(--red)}.coil.na{color:var(--muted);font-weight:400}
+.col{flex:0 0 280px;max-width:87vw;display:flex;flex-direction:column;background:#e9edf2;border-radius:13px;scroll-snap-align:start;min-height:0}
+.col.down{background:#fbeceb}
+.col-h{padding:9px 12px;display:flex;align-items:center;gap:7px;border-top:4px solid var(--cc,#8a94a6);border-radius:13px 13px 0 0}
+.col-h .t{font-size:13px;font-weight:800}
+.col-h .cnt{margin-left:auto;font-size:11.5px;font-weight:700;background:var(--panel);border-radius:99px;padding:2px 8px;color:var(--muted)}
+.col-h .dn{font-size:10px;color:var(--red);font-weight:800}
+.col-h .mfix{border:none;background:none;cursor:pointer;font-size:13px;padding:0 2px}
+.cards{flex:1;overflow-y:auto;padding:0 8px 10px;display:flex;flex-direction:column;gap:8px}
+.bcard{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:9px 11px;cursor:pointer}
+.strip{height:4px;border-radius:99px;margin:-2px 0 7px;background:#e2e6ec;overflow:hidden}
+.strip i{display:block;height:100%;border-radius:99px}
+.bc-foot{display:flex;gap:6px;margin-top:7px;align-items:center}
+.bc-foot .btn{padding:8px 12px;font-size:12px;margin-left:auto}
+.empty{font-size:11.5px;color:var(--muted);text-align:center;padding:16px 0}
+.ovbg{position:fixed;inset:0;background:rgba(15,22,36,.45);display:none;align-items:flex-end;justify-content:center;z-index:50}
+.ovbg.show{display:flex}
+.sheet{background:var(--panel);width:min(540px,100%);max-height:86vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column}
+@media(min-width:700px){.ovbg{align-items:center}.sheet{border-radius:16px}}
+.s-h{padding:13px 16px 9px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.s-x{margin-left:auto;border:none;background:#eef1f5;border-radius:99px;width:32px;height:32px;font-size:15px;cursor:pointer}
+.s-b{overflow-y:auto;padding:12px 16px 16px;font-size:13px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:8px}
+.fields label{font-size:11px;color:var(--muted);font-weight:700;display:block;margin-bottom:3px}
+.fields input{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 9px;font-size:13px;font-family:inherit;outline:none}
+.hist{font-size:11.5px;color:var(--muted);line-height:1.75;margin-top:10px}
+.sec{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:12px 0 5px}
+table.items{width:100%;border-collapse:collapse;font-size:12px}
+table.items td{padding:4px 3px;border-bottom:1px solid var(--line)}
+table.items td.q{text-align:right;white-space:nowrap;font-weight:700}
+.pk-row{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--line)}
+.pk-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pk-st{font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.truck{background:#f2faf4;border:1.5px dashed #9ad2ae;border-radius:10px;padding:9px 12px;margin-top:9px;font-size:12.5px;display:flex;gap:14px;flex-wrap:wrap}
+.truck b{font-size:15px}
+.urgbox{display:flex;gap:6px;margin-bottom:11px}
+.urgbox input{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;font-family:inherit;outline:none}
+/* login */
+.login-bg{position:fixed;inset:0;background:linear-gradient(160deg,#141b2b,#1f2b45);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
+.login{background:var(--panel);border-radius:20px;padding:22px 22px 26px;width:min(420px,100%)}
+.login h2{margin:0 0 2px;font-size:18px}
+.login .sub{font-size:12px;color:var(--muted);margin-bottom:14px}
+.lg-branches{display:flex;gap:6px;margin-bottom:12px}
+.lg-branches button{flex:1;border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:10px;font-size:14px;font-weight:700;cursor:pointer;color:var(--muted);font-family:inherit}
+.lg-branches button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.lg-staff{display:grid;grid-template-columns:1fr 1fr;gap:7px;max-height:200px;overflow-y:auto;margin-bottom:12px}
+.lg-staff button{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:12px 8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+.lg-staff button.on{border-color:var(--accent);background:#e8f0ff;color:var(--accent);font-weight:800}
+.pinrow{display:flex;justify-content:center;gap:10px;margin:6px 0 12px}
+.pindot{width:14px;height:14px;border-radius:50%;border:2px solid var(--line)}
+.pindot.f{background:var(--accent);border-color:var(--accent)}
+.pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pinpad button{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:15px;font-size:19px;font-weight:800;cursor:pointer;font-family:inherit}
+.pinpad button:active{background:#e8f0ff}
+.lg-err{color:var(--red);font-size:12.5px;font-weight:700;text-align:center;min-height:17px;margin-top:8px}
+.lg-wait{font-size:12.5px;color:var(--green);font-weight:700;text-align:center;margin-top:8px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="h1r">
+    <h1>🏭 007 Production</h1>
+    <span class="conn off" id="conn">…</span>
+    <div class="syncs" id="syncs"></div>
+    <span class="userchip" id="userchip" style="display:none"></span>
+  </div>
+  <div class="h2r">
+    <div class="tabs" id="tabs"></div>
+    <div class="vtabs" id="vtabs"></div>
+  </div>
+</header>
+<main id="main"></main>
+
+<div class="ovbg" id="ovbg"><div class="sheet">
+  <div class="s-h"><span style="font-weight:800" id="m-t"></span><button class="s-x" onclick="closeM()">✕</button></div>
+  <div class="s-b" id="m-b"></div>
+</div></div>
+
+<div class="login-bg" id="loginbg">
+  <div class="login">
+    <h2>🏭 007 Production</h2>
+    <div class="sub" id="lg-sub">login ด้วยอีเมลของคุณ — ระบบจะส่งลิงก์เข้าเมล กดลิงก์แล้วเข้าระบบอัตโนมัติ</div>
+    <div id="lg-email-pane">
+      <input id="lg-email" type="email" placeholder="you@gmail.com" autocomplete="email"
+        style="width:100%;border:1px solid var(--line);border-radius:11px;padding:13px 14px;font-size:15px;font-family:inherit;outline:none;margin-bottom:9px">
+      <button id="lg-send" onclick="sendOtp()" style="width:100%;border:none;border-radius:11px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;background:var(--accent);color:#fff">ส่งลิงก์เข้าเมล</button>
+      <div class="lg-wait" id="lg-wait">📬 ส่งแล้ว — เปิดอีเมลแล้ว<b>กดลิงก์ Sign in</b> ได้เลย (หน้านี้จะเข้าระบบให้เอง)</div>
+      <div style="text-align:center;margin-top:12px"><a href="#" onclick="lgMode('pin');return false" style="font-size:12px;color:var(--muted)">ใช้ PIN (จอกลางไลน์ผลิต) →</a></div>
+    </div>
+    <div id="lg-pin-pane" style="display:none">
+      <div class="lg-branches" id="lg-branches"></div>
+      <div class="lg-staff" id="lg-staff"></div>
+      <div class="pinrow" id="pinrow"></div>
+      <div class="pinpad" id="pinpad"></div>
+      <div style="text-align:center;margin-top:12px"><a href="#" onclick="lgMode('email');return false" style="font-size:12px;color:var(--muted)">← login ด้วยอีเมลแทน</a></div>
+    </div>
+    <div class="lg-err" id="lg-err"></div>
+  </div>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const CONFIG = {
+  url: "https://dbbhgacstsddonprgiuo.supabase.co",
+  key: "sb_publishable_qeQZH08Oan3cMxmhCNGnVQ_XmOfx4s6"
+};
+
+/* ================= DAL (Data Access Layer) =================
+   ทุกการคุยกับ Supabase ผ่าน DB เท่านั้น — ทดสอบแทนที่ด้วย window.__MOCK_DB__ ได้ */
+let sb = null;
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+const STAFF_COLS = "id,branch,name,role,can_approve,active,email";
+let DB = {
+  async init(){
+    await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js");
+    sb = window.supabase.createClient(CONFIG.url, CONFIG.key);
+  },
+  async getStaff(){ const {data,error} = await sb.from("staff").select(STAFF_COLS).eq("active",true).order("id"); if(error) throw error; return data; },
+  async verifyPin(id,pin){ const {data,error} = await sb.rpc("verify_pin",{p_staff:id,p_pin:pin}); return !error && data===true; },
+  async sendOtp(email){ const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin+location.pathname}}); if(error) throw error; },
+  async getSessionEmail(){ const {data:{session}} = await sb.auth.getSession(); return session && session.user && session.user.email ? session.user.email.toLowerCase() : null; },
+  async signOut(){ try{ await sb.auth.signOut(); }catch(e){} },
+  async fetchAll(table, buildQ){
+    const out=[];
+    for(let i=0;;i+=1000){
+      let q = sb.from(table).select("*"); if(buildQ) q = buildQ(q);
+      const {data,error} = await q.range(i,i+999);
+      if(error){ console.error(table,error); break; }
+      out.push(...data); if(data.length<1000) break;
+    }
+    return out;
+  },
+  async loadAll(){
+    const cutD = new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+    const cutT = new Date(Date.now()-60*864e5).toISOString();
+    const [sos, its, tks, machines, coils, jobs] = await Promise.all([
+      this.fetchAll("so_live", q=>q.gte("sodat",cutD)),
+      this.fetchAll("so_item_live", q=>q.gte("synced_at",cutT)),
+      this.fetchAll("production_ticket", q=>q.gte("created_at",cutT)),
+      this.fetchAll("machine"),
+      this.fetchAll("coil_stock"),
+      this.fetchAll("online_job", q=>q.gte("created_at",cutT)),
+    ]);
+    return {sos, its, tks, machines, coils, jobs};
+  },
+  async insertTicket(row){ const {data,error} = await sb.from("production_ticket").insert(row).select("id").single(); if(error) throw error; return data.id; },
+  async updateTicket(id,patch){ const {error} = await sb.from("production_ticket").update(patch).eq("id",id); if(error) throw error; },
+  async insertEvent(ev){ const {error} = await sb.from("ticket_event").insert(ev); if(error) console.error(error); },
+  async getEvents(tid){ const {data} = await sb.from("ticket_event").select("*").eq("ticket_id",tid).order("at",{ascending:false}).limit(60); return data||[]; },
+  async insertJob(row){ const {error} = await sb.from("online_job").insert(row); if(error) throw error; },
+  async updateJob(id,patch){ const {error} = await sb.from("online_job").update(patch).eq("id",id); if(error) throw error; },
+  async setMachine(id,patch){ const {error} = await sb.from("machine").update(patch).eq("id",id); if(error) throw error; },
+  onChange(cb){
+    sb.channel("rt")
+      .on("postgres_changes",{event:"*",schema:"public",table:"production_ticket"},cb)
+      .on("postgres_changes",{event:"*",schema:"public",table:"so_live"},cb)
+      .on("postgres_changes",{event:"*",schema:"public",table:"machine"},cb)
+      .on("postgres_changes",{event:"*",schema:"public",table:"online_job"},cb)
+      .subscribe();
+  },
+};
+if(window.__MOCK_DB__) DB = window.__MOCK_DB__;
+
+/* ================= master / intelligence ================= */
+let MACHINES={SKN:[],BK:[],PPS:[]}, DOWN={}, MACH_NOTE={}, MACH_ID={};
+const ONLINE_RE = /shopee|lazada|tiktok|ลาซาด้า|ช้อปปี้|ติ๊กต๊อก/i;
+const INTER = {"J042090090":"SKN","J042491555":"BK","J042471222":"PPS","C042491555":"BK"};
+const STG = ["รออนุมัติ","รอวางแผน","คิวเครื่อง","กำลังผลิต","ผลิตเสร็จ","แพ็คแล้ว","กำลังส่ง","ส่งสำเร็จ"];
+const STGC = ["#d97706","#7c6bd6","#8a94a6","#1f5eff","#0aa5a0","#a1721f","#d97706","#16a34a"];
+const WIDTH_M = 0.914, DENS = 7.85;
+const todayISO = new Date().toISOString().slice(0,10);
+const yesterISO = (()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().slice(0,10);})();
+
+function machineType(stk, des){
+  if(stk.startsWith("03VP-PE")) return "PE 5 มม.";
+  if(stk.startsWith("03VP-PU")) return /snap|สแน็ป/i.test(des) ? "PU สแน็ปล็อค" : "PU ตรง";
+  if(stk.startsWith("03VP")) return null;
+  if(stk.startsWith("03S")) return "สเปน";
+  if(stk.startsWith("03V")) return "เวนิส";
+  if(stk.startsWith("01P3")) return "พาแนล 3 สัน";
+  if(stk.startsWith("01P5")) return "พาแนล 5 สัน";
+  if(stk.startsWith("01SL")) return "สแน็ปล็อค";
+  if(stk.startsWith("01WP")) return "ลอนรั้ว 182";
+  if(stk.startsWith("01WR")) return "ลอนฝ้า";
+  if(stk.startsWith("01WC")) return "ผนัง 007";
+  if(stk.startsWith("01CU")) return "ตรง";
+  if(stk.startsWith("01A")) return "ตรง";
+  if(/บานเกล็ด/.test(des)) return "บานเกล็ด";
+  if(stk.startsWith("02")){
+    if(/ตามแบบ/.test(des)) return "พับครอบ";
+    if(/จั่ว/.test(des)) return "ครอบจั่ว";
+    return "ครอบข้าง";
+  }
+  return null;
+}
+function resolveMachine(br, type, customer){
+  const list = MACHINES[br]||[];
+  if(type==="ตรง"){
+    if(list.includes("ตรง")) return "ตรง";
+    const L = list.find(m=>m.startsWith("ตรง-L")), R = list.find(m=>m.startsWith("ตรง-R"));
+    if(L && R) return ONLINE_RE.test(customer||"") ? L : R;
+    return L||R||type;
+  }
+  if(type==="ครอบจั่ว"){ const m=list.find(x=>x.startsWith("ครอบจั่ว")); return m || (list.includes("พับครอบ")?"พับครอบ":type); }
+  if(type==="ครอบข้าง"){ const m=list.find(x=>x.startsWith("ครอบข้าง")); return m||type; }
+  return type;
+}
+function machineOf(stk, des, br, customer){
+  const t = machineType(stk, des);
+  return t ? resolveMachine(br||branch, t, customer) : null;
+}
+function coilKeyOf(stk){
+  if(stk.startsWith("03VP-PU")) return "PU:"+stk.slice(5);
+  if(stk.startsWith("03VP")) return null;
+  const m = stk.match(/^0[123][A-Z0-9]*-([A-Z0-9]+)-(\d{3})-?([A-Z0-9]*)/);
+  return m ? m[1]+"-"+m[2]+(m[3]?"-"+m[3]:"") : null;
+}
+function thickOf(key){ const m=(key||"").match(/-(\d{3})(-|$)/); return m? +m[1]/100 : 0.35; }
+function labelOf(des, key){
+  if((key||"").startsWith("PU:")) return des;
+  let s = des.replace(/^[\d.]+\s*-\s*[\d.]+\s*/,"").trim();
+  const t = s.split(/\s+/);
+  if(t.length>1 && !/0\.\d{2}/.test(t[0])) t.shift();
+  return t.join(" ") || des.slice(0,40);
+}
+const SW=[["ดำ","#23272e"],["เทาเข้ม","#4a5568"],["เทา","#9aa5b1"],["ซิงค์","#c3cad2"],["ขาว","#f2f2ef"],["ครีม","#e9ddc0"],["แดง","#c0392b"],["ส้ม","#e67e22"],["เหลือง","#f1c40f"],["เขียว","#1e8e3e"],["ฟ้า","#3498db"],["น้ำเงิน","#1f4e9e"],["น้ำตาล","#7a4a21"],["ไม้","#8b5e34"],["อิฐ","#a4453a"],["ม่วง","#7d3c98"]];
+function swc(l){ for(const [k,v] of SW) if((l||"").includes(k)) return v; return "#b8c0cc"; }
+function lenCnt(des, qty){
+  const m = des.match(/^([\d.]+)\s*-\s*([\d.]+)/);
+  if(m){ const L=+m[1], n=+m[2];
+    if(L>0 && Math.abs(L*n-qty)/Math.max(qty,1) < .05) return [L, Math.round(n)];
+    if(L>0) return [L, Math.round(qty/L)];
+  }
+  return [null, null];
+}
+function coilStock(br, key){
+  if(!key || key.startsWith("PU:")) return null;
+  const c = COILS[br]||{};
+  if(("ZZC-"+key) in c) return c["ZZC-"+key];
+  const nk = key.replace(/-[A-Z0-9]+$/,"");
+  if(("ZZC-"+nk) in c) return c["ZZC-"+nk];
+  return null;
+}
+function canProduce(br, mach){ return (MACHINES[br]||[]).includes(mach) && !((DOWN[br]||[]).includes(mach)); }
+function whoCan(type, customer){
+  return Object.keys(MACHINES).filter(b=>{
+    const m = resolveMachine(b, type, customer);
+    return canProduce(b, m);
+  });
+}
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+function esq(s){ return (s||"").replace(/'/g,"\\'"); }
+function fmt(n,d=1){ return (+n).toLocaleString("th-TH",{maximumFractionDigits:d}); }
+function fmtD(iso){ if(!iso) return "—"; const [y,m,d]=iso.split("-"); return d+"/"+m+"/"+(+y+543-2500); }
+function nowT(){ const d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
+
+/* ================= state ================= */
+let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={};
+let branch="SKN", view="order", openId=null, loaded=false;
+function tks(){ return TK.filter(t=>t.branch===branch && !t.by.rejected); }
+function tksOf(br){ return TK.filter(t=>t.branch===br && !t.by.rejected); }
+function findSO(so){
+  return CARDS[branch].find(c=>c.so===so) || CARDS.SKN.concat(CARDS.BK,CARDS.PPS).find(c=>c.so===so) || jobMeta(so);
+}
+function jobMeta(so){
+  const j = JOBS.find(j=>j.order_no===so);
+  return j ? {so:j.order_no, customer:"🛍 "+j.platform+" · "+j.receiver, due:todayISO, cusCode:"", docstat:"N", items:[]} : null;
+}
+function orderedIdx(so){
+  const s=new Set();
+  TK.filter(t=>t.so===so && !t.by.rejected).forEach(t=>t.idxs.forEach(x=>s.add(x)));
+  return s;
+}
+function sentTo(so, seq){
+  const t = TK.find(t=>t.xborder && t.so===so && t.fromBranch===branch && t.idxs.includes(seq) && !t.by.rejected);
+  return t ? t.branch : null;
+}
+function tItems(t){
+  if(t.oitems && t.oitems.length) return t.oitems;
+  const c = findSO(t.so);
+  return c ? c.items.filter(i=>t.idxs.includes(i.seq)) : [];
+}
+function tMetrics(t){
+  const its = tItems(t);
+  if(!its.length && t.met) return t.met;   // ใช้ค่าที่บันทึกไว้ตอนสร้าง (SO เก่าหลุดหน้าต่างโหลด)
+  let m=0, sh=0, mx=0;
+  its.forEach(i=>{ if(i.unit==="มร"){ m+=i.qty; const [L,n]=lenCnt(i.des,i.qty); if(n){sh+=n; mx=Math.max(mx,L);} } });
+  const kg = m*WIDTH_M*thickOf(t.key)*DENS;
+  return {m, sh, mx, kg};
+}
+
+/* ================= data mapping ================= */
+function applyData(d){
+  // machines
+  MACHINES={SKN:[],BK:[],PPS:[]}; DOWN={}; MACH_NOTE={}; MACH_ID={};
+  d.machines.sort((a,b)=>a.sort-b.sort).forEach(m=>{
+    (MACHINES[m.branch]=MACHINES[m.branch]||[]).push(m.name);
+    if(m.status==="down") (DOWN[m.branch]=DOWN[m.branch]||[]).push(m.name);
+    if(m.note) MACH_NOTE[m.branch+"|"+m.name]=m.note;
+    MACH_ID[m.branch+"|"+m.name]=m.id;
+  });
+  // coils
+  COILS={SKN:{},BK:{},PPS:{}};
+  d.coils.forEach(c=>{ (COILS[c.branch]=COILS[c.branch]||{})[c.coil_sku]=+c.totbal; });
+  // SO cards
+  const itBySo={};
+  d.its.sort((a,b)=>a.seq-b.seq).forEach(r=>{
+    (itBySo[r.branch+"|"+r.sonum]=itBySo[r.branch+"|"+r.sonum]||[]).push(
+      {seq:r.seq, stk:r.stkcod||"", des:r.stkdes||"", qty:+r.ordqty||0, rem:+r.remqty||0, unit:r.unit||""});
+  });
+  CARDS={SKN:[],BK:[],PPS:[]}; SYNCMAX={};
+  const cutM = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  d.sos.forEach(r=>{
+    if(!CARDS[r.branch]) return;
+    if(!SYNCMAX[r.branch] || r.synced_at>SYNCMAX[r.branch]) SYNCMAX[r.branch]=r.synced_at;
+    if(r.docstat==="C") return;
+    if(r.docstat==="M" && (r.sodat||"") < cutM) return;  // ขายสดตัดบิลแล้ว โชว์ 7 วัน
+    CARDS[r.branch].push({so:r.sonum, date:r.sodat, due:r.dlvdat, cusCode:r.cuscod||"",
+      customer:r.cusnam||r.cuscod||"", docstat:r.docstat, items:itBySo[r.branch+"|"+r.sonum]||[]});
+  });
+  Object.values(CARDS).forEach(v=>v.sort((a,b)=>(a.due||"9999")<(b.due||"9999")?-1:1));
+  // jobs
+  JOBS = d.jobs;
+  // tickets
+  TK = d.tks.map(r=>({
+    id:r.id, branch:r.branch, so:r.sonum, mach:r.machine, key:r.material_key||null,
+    label:r.label, idxs:r.item_seqs||[], oitems:r.oitems,
+    online:r.source==="online", xborder:r.source==="xborder", urgent:r.source==="urgent",
+    fromBranch:r.from_branch, soCover:r.so_cover||"", st:r.stage, route:r.route,
+    assignee:r.assignee||"", priority:r.priority||0, coil_lot:r.coil_lot||"", waste:r.waste_note||"",
+    by:r.people||{}, met:{m:+r.prod_m||0, sh:+r.sheets||0, mx:+r.max_len||0, kg:+r.weight_kg||0},
+    created:r.created_at
+  }));
+  loaded=true;
+}
+async function reload(){ applyData(await DB.loadAll()); }
+
+/* ================= write helpers ================= */
+function metricsOf(items, key){
+  let m=0,sh=0,mx=0;
+  items.forEach(i=>{ if(i.unit==="มร"){ m+=i.qty; const [L,n]=lenCnt(i.des,i.qty); if(n){sh+=n; mx=Math.max(mx,L);} } });
+  return {mat_m:m, prod_m:m, weight_kg:Math.round(m*WIDTH_M*thickOf(key)*DENS*100)/100, sheets:sh, max_len:mx};
+}
+async function newTicket(row, action, detail){
+  const id = await DB.insertTicket(row);
+  await DB.insertEvent({ticket_id:id, staff_id:USER.dbid||null, staff_name:USER.name, action, to_stage:row.stage, detail:detail||""});
+  return id;
+}
+async function patchTicket(t, patch, action, detail){
+  await DB.updateTicket(t.id, patch);
+  await DB.insertEvent({ticket_id:t.id, staff_id:USER.dbid||null, staff_name:USER.name, action,
+    from_stage:t.st, to_stage:patch.stage!==undefined?patch.stage:t.st, detail:detail||""});
+}
+async function act(fn){
+  try{ await fn(); await reload(); }
+  catch(e){ console.error(e); alertBar("บันทึกไม่สำเร็จ — เช็คเน็ตแล้วลองใหม่"); }
+  render();
+}
+let alertT=null;
+function alertBar(msg){
+  const c=document.getElementById("conn"); c.textContent="⚠ "+msg; c.className="conn off";
+  clearTimeout(alertT); alertT=setTimeout(()=>{ c.textContent="LIVE"; c.className="conn live"; }, 4000);
+}
+
+/* ================= actions ================= */
+function orderProduce(so){
+  const c=findSO(so); if(!c) return;
+  const done=orderedIdx(so), byKey={};
+  c.items.forEach(it=>{
+    if(done.has(it.seq)) return;
+    const mach=machineOf(it.stk,it.des,branch,c.customer);
+    if(!mach || !canProduce(branch,mach)) return;
+    const cb=document.getElementById("cb-"+so+"-"+it.seq);
+    if(cb && cb.checked){ const k=mach+"|"+(coilKeyOf(it.stk)||"-"); (byKey[k]=byKey[k]||[]).push(it); }
+  });
+  const ks=Object.keys(byKey); if(!ks.length) return;
+  act(async ()=>{
+    for(const k of ks){
+      const [mach,key]=k.split("|");
+      const its=byKey[k], kk=key==="-"?null:key;
+      await newTicket({branch, source:"so", sonum:so, machine:mach, material_key:kk||"",
+        label:labelOf(its[0].des,kk), item_seqs:its.map(i=>i.seq), stage:1,
+        people:{ordered:USER.name, approved:USER.name}, created_by:USER.dbid||null,
+        ...metricsOf(its,kk)},
+        "create", "🛒 สั่ง+อนุมัติใบผลิต ("+its.length+" รายการ) → เข้าฝั่งผลิตทันที");
+    }
+  });
+}
+function planA(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  const mSel=document.getElementById("pm-"+id), aSel=document.getElementById("pa-"+id);
+  const mach=(mSel?mSel.value:t.mach).split(" — ")[0];
+  const assignee=aSel?aSel.value:"";
+  const pr = Math.max(0,...TK.filter(x=>x.branch===branch&&x.mach===mach&&x.st>=2&&x.st<=3).map(x=>x.priority))+1;
+  act(()=>patchTicket(t,{stage:2,route:"A",machine:mach,assignee,priority:pr,
+    people:{...t.by,planned:USER.name}},"plan",
+    "วางแผน: ผลิตใหม่ → "+mach+(assignee?" มอบหมาย "+assignee:" (รอคนรับงาน)")));
+}
+function planB(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  act(()=>patchTicket(t,{stage:4,route:"B",people:{...t.by,planned:USER.name,done:USER.name}},
+    "plan","📦 ใช้แผ่นสต็อค — ข้ามไลน์ผลิต ไปรอรวมของ"));
+}
+function planC(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  act(()=>patchTicket(t,{route:"C",people:{...t.by,planned:USER.name}},
+    "plan","⏸ รอวัตถุดิบ (แจ้งจัดซื้อ/พิจารณาโอนสาขา)"));
+}
+function claim(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  act(()=>patchTicket(t,{assignee:USER.name},"claim","🙋 รับงานเข้าตัว"));
+}
+function startProd(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  act(()=>patchTicket(t,{stage:3,people:{...t.by,started:USER.name}},"start","▶ เริ่มผลิตที่เครื่อง"+t.mach));
+}
+function doneProd(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  act(async ()=>{ await patchTicket(t,{stage:4,people:{...t.by,done:USER.name}},"done","✅ ผลิตเสร็จ"); })
+    .then(()=>openM(id));
+}
+function packSO(so){
+  const list=tks().filter(t=>t.so===so&&t.st===4);
+  act(async ()=>{ for(const t of list) await patchTicket(t,{stage:5,people:{...t.by,packed:USER.name}},"pack","📦 แพ็ค/รวมของครบ"); });
+}
+function shipSO(so){
+  const list=tks().filter(t=>t.so===so&&t.st===5);
+  act(async ()=>{ for(const t of list) await patchTicket(t,{stage:6,people:{...t.by,shipped:USER.name}},"ship","🚚 ออกจัดส่ง"); });
+}
+function arriveSO(so){
+  const list=tks().filter(t=>t.so===so&&t.st===6);
+  act(async ()=>{ for(const t of list) await patchTicket(t,{stage:7,people:{...t.by,arrived:USER.name}},"arrive","🏁 ส่งสำเร็จ"); });
+}
+function dispatchCross(so, seq, target){
+  const c=findSO(so); if(!c) return;
+  const it=c.items.find(i=>i.seq===seq); if(!it) return;
+  const type=machineType(it.stk,it.des);
+  const mach=resolveMachine(target,type,c.customer);
+  const kk=coilKeyOf(it.stk);
+  act(()=>newTicket({branch:target, source:"xborder", sonum:so, from_branch:branch,
+    machine:mach, material_key:kk||"", label:labelOf(it.des,kk), item_seqs:[seq],
+    oitems:[{stk:it.stk,des:it.des,qty:it.qty,unit:it.unit,from:(c.customer||"")+" — บิลเปิดที่ "+branch}],
+    stage:0, people:{ordered:USER.name+" ("+branch+")"}, created_by:USER.dbid||null,
+    ...metricsOf([it],kk)},
+    "dispatch_x","🏢 "+branch+" ส่งงานให้ "+target+" ผลิต (SO/PO คลุมตามทีหลัง)"));
+}
+function acceptCross(id, ok){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  if(ok) act(()=>patchTicket(t,{stage:1,people:{...t.by,accepted:USER.name}},"accept_x","✅ "+branch+" รับงานจาก "+t.fromBranch+" (อนุมัติฝั่งรับ)"));
+  else   act(()=>patchTicket(t,{people:{...t.by,rejected:USER.name}},"reject_x","↩️ "+branch+" ปฏิเสธงานจาก "+t.fromBranch));
+}
+function coverSO(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  const inp=document.getElementById("cov-"+id);
+  const v=inp?inp.value.trim().toUpperCase():"";
+  if(!v) return;
+  act(()=>patchTicket(t,{so_cover:v},"cover_so","📄 ผูก SO คลุมงานข้ามสาขา: "+v)).then(()=>openM(id));
+}
+function saveField(id, field, val){
+  const t=TK.find(t=>t.id===id); if(!t) return;
+  const patch={}; patch[field==="waste"?"waste_note":field]=val;
+  DB.updateTicket(id,patch).then(()=>{ t[field]=val; })
+    .catch(()=>alertBar("บันทึกไม่สำเร็จ"));
+  DB.insertEvent({ticket_id:id, staff_id:USER.dbid||null, staff_name:USER.name, action:"edit_field", detail:field+" = "+val});
+}
+function urgentGo(){
+  const inp=document.getElementById("urg-so");
+  const v=inp?inp.value.trim().toUpperCase():"";
+  if(!v) return;
+  act(()=>newTicket({branch, source:"urgent", sonum:v, stage:1, label:"⚡ ด่วน — รอข้อมูล SO sync",
+    people:{ordered:USER.name, approved:USER.name}, created_by:USER.dbid||null},
+    "create","⚡ สั่งผลิตด่วน "+v+" (ก่อนข้อมูล SO มาถึง)"));
+}
+function toggleMachine(br, name){
+  if(!USER.canFix) return;
+  const id=MACH_ID[br+"|"+name]; if(!id) return;
+  const down=(DOWN[br]||[]).includes(name);
+  act(()=>DB.setMachine(id,{status:down?"up":"down"}));
+}
+function makeOnlineTickets(jobId){
+  const j=JOBS.find(j=>j.id===jobId); if(!j||j.status!=="new") return;
+  const byKey={};
+  (j.items||[]).forEach(it=>{
+    const mach=machineOf(it.stk,it.des,branch,j.platform);
+    if(!mach||!canProduce(branch,mach)) return;
+    const k=mach+"|"+(coilKeyOf(it.stk)||"-");
+    (byKey[k]=byKey[k]||[]).push(it);
+  });
+  act(async ()=>{
+    for(const [k,its] of Object.entries(byKey)){
+      const [mach,key]=k.split("|"); const kk=key==="-"?null:key;
+      await newTicket({branch, source:"online", sonum:j.order_no, machine:mach, material_key:kk||"",
+        label:labelOf(its[0].des,kk), oitems:its, stage:1,
+        people:{ordered:USER.name, approved:USER.name}, created_by:USER.dbid||null,
+        ...metricsOf(its,kk)},
+        "create","🛍 สร้างใบผลิตจาก tag "+j.platform+" "+j.order_no+" → เข้าฝั่งผลิต (ส่งวันนี้)");
+    }
+    await DB.updateJob(j.id,{status:"ticketed"});
+  });
+}
+function addJobGo(){
+  const g=id=>document.getElementById(id).value.trim();
+  const plat=g("aj-plat"), ord=g("aj-ord").toUpperCase(), recv=g("aj-recv"), lines=g("aj-items");
+  if(!ord||!lines) return;
+  const items=lines.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
+    const p=l.split("|").map(x=>x.trim());
+    return {stk:p[0]||"", des:p[1]||p[0]||"", qty:+(p[2]||0), unit:p[3]||"มร"};
+  }).filter(i=>i.stk&&i.qty>0);
+  if(!items.length) return;
+  act(()=>DB.insertJob({branch, platform:plat||"อื่นๆ", order_no:ord, receiver:recv, items, created_by:USER.dbid||null}));
+}
+
+/* ================= views (โครง v6.3 เดิม) ================= */
+function noteOf(m){ return MACH_NOTE[branch+"|"+m]||""; }
+function dueBdg(c){
+  if(!c.due) return "";
+  const cls = c.due<yesterISO?"late":c.due<=todayISO?"today":"due";
+  const late = Math.max(0,Math.round((new Date(todayISO)-new Date(c.due))/864e5));
+  return `<span class="bdg ${cls}">${cls==="late"?"🔴 ช้า "+late+"วัน · ":""}ส่ง ${fmtD(c.due)}</span>`;
+}
+function vOrder(){
+  const el=document.getElementById("main"); el.className="";
+  const cs=CARDS[branch];
+  el.innerHTML = `<div class="page">
+  <div class="hint">🛒 <b>ฝั่งขาย</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · รายการสีเทา=หยิบสต็อค · แถบแดง=สาขานี้ผลิตไม่ได้ (ส่งข้ามสาขาได้เลย) · 💰=ตัดบิลแล้ว(ขายสด) · 🏢=งานระหว่างสาขา</div>
+  <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
+  (cs.length? cs.map(c=>{
+    const done=orderedIdx(c.so);
+    const inter=INTER[c.cusCode]&&INTER[c.cusCode]!==branch?INTER[c.cusCode]:null;
+    let anyBox=false;
+    const rows=c.items.map(it=>{
+      const x=it.seq;
+      const mach=machineOf(it.stk,it.des,branch,c.customer);
+      const qty=fmt(it.qty)+" "+esc(it.unit);
+      if(!mach) return `<div class="oi stock"><span class="stag">📦 สต็อค</span><span class="d">${esc(it.des)}</span><span class="q">${qty}</span></div>`;
+      if(!canProduce(branch,mach)){
+        const type=machineType(it.stk,it.des);
+        const who=whoCan(type,c.customer).filter(b=>b!==branch);
+        const downHere=(DOWN[branch]||[]).includes(mach);
+        const sent=sentTo(c.so,x);
+        return `<div class="oi noprod"><span class="mchip bad">${mach}</span><span class="d">${esc(it.des)}<div class="warn">⚠️ ${downHere?"เครื่อง"+mach+"ที่ "+branch+" เสียอยู่":"สาขา "+branch+" ไม่มีเครื่อง"+mach}${who.length?" — ผลิตได้ที่ "+who.join("/"):" — ไม่มีสาขาไหนผลิตได้"}</div>${
+          sent ? `<div class="dtag" style="display:inline-block;margin-top:4px">✓ ส่งให้ ${sent} ผลิตแล้ว</div>`
+          : who.length ? `<div style="margin-top:5px">${who.map(w=>`<button class="btn amber" style="padding:7px 11px;font-size:11.5px" onclick="dispatchCross('${esq(c.so)}',${x},'${w}')">🏢 ส่งให้ ${w} ผลิตเลย →</button>`).join(" ")}</div>` : ""
+        }</span><span class="q">${qty}</span></div>`;
+      }
+      if(done.has(x)) return `<div class="oi"><span class="dtag">✓ สั่งแล้ว</span><span class="mchip">${mach}</span><span class="d">${esc(it.des)}</span><span class="q">${qty}</span></div>`;
+      anyBox=true;
+      return `<div class="oi"><input type="checkbox" id="cb-${c.so}-${x}" checked><span class="mchip">${mach}</span><label class="d" for="cb-${c.so}-${x}">${esc(it.des)}</label><span class="q">${qty}</span></div>`;
+    }).join("");
+    return `<div class="socard ${anyBox?"":"dim"}">
+      <div class="so-h"><span class="so">${c.so}</span><span class="cu">${esc(c.customer)}</span>
+        ${inter?`<span class="bdg inter">🏢 งานสาขา ${inter}</span>`:""}
+        ${c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว</span>`:""}
+        ${dueBdg(c)}</div>
+      ${rows}
+      <div class="so-foot">${anyBox
+        ? `<button class="btn blue" onclick="orderProduce('${esq(c.so)}')">🛒 สั่ง+อนุมัติใบผลิต → เข้าฝั่งผลิต</button>`
+        : `<span class="okpill">${c.items.some(it=>done.has(it.seq))?"✓ สั่งครบแล้ว":"ไม่มีรายการผลิตที่สาขานี้"}</span>`}</div>
+    </div>`;
+  }).join("") : `<div class="empty">— ไม่มีบิลค้างในช่วง 30 วัน —</div>`) + `</div>`;
+}
+function vOnline(){
+  const el=document.getElementById("main"); el.className="";
+  const jobs=JOBS.filter(j=>j.branch===branch && j.status!=="done");
+  el.innerHTML = `<div class="page">
+  <div class="hint">🛍 <b>งานออนไลน์ไม่ผ่าน SO</b> — เริ่มจาก<b>ไฟล์ tag ที่ปริ้นแปะส่งสินค้า</b> (Shopee/TikTok/Lazada) · กด "สร้างใบผลิต" → เข้าเครื่องสายออนไลน์ กำหนดส่ง=วันนี้ · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>
+  <div style="margin-bottom:11px"><button class="btn grey" onclick="document.getElementById('aj').classList.toggle('show')">➕ เพิ่มออเดอร์เอง</button></div>
+  <div class="planx" id="aj" style="margin-bottom:11px">
+    <div class="fields" style="grid-template-columns:1fr 1fr 1fr">
+      <div><label>แพลตฟอร์ม</label><input id="aj-plat" placeholder="Shopee / TikTok / Lazada"></div>
+      <div><label>เลขออเดอร์</label><input id="aj-ord" placeholder="SP2507..."></div>
+      <div><label>ผู้รับ · จังหวัด</label><input id="aj-recv" placeholder="คุณ… · จังหวัด"></div>
+    </div>
+    <label style="font-size:11px;color:var(--muted);font-weight:700;display:block;margin:8px 0 3px">รายการ (บรรทัดละ 1 รายการ: รหัส | ชื่อสินค้า | จำนวน | หน่วย)</label>
+    <textarea id="aj-items" rows="3" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px;font-family:inherit" placeholder="01WP-GRST-030-JJL | 1.20 -10 ลอนรั้ว เทาเข้ม 0.30JJL | 12 | มร"></textarea>
+    <div style="margin-top:8px"><button class="btn dark" onclick="addJobGo()">บันทึกออเดอร์</button></div>
+  </div>` +
+  (jobs.length? jobs.map(j=>`<div class="socard ${j.status!=="new"?"dim":""}">
+      <div class="so-h"><span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ${esc(j.platform)}</span><span class="so">${esc(j.order_no)}</span><span class="cu">${esc(j.receiver)}</span><span class="bdg today">ส่งวันนี้</span></div>
+      ${(j.items||[]).map(it=>{
+        const mach=machineOf(it.stk,it.des,branch,j.platform);
+        return `<div class="oi"><span class="mchip">${mach||"สต็อค"}</span><span class="d">${esc(it.des)}</span><span class="q">${fmt(it.qty)} ${esc(it.unit)}</span></div>`;
+      }).join("")}
+      <div class="so-foot">${j.status!=="new"? `<span class="okpill">✓ สร้างใบผลิตแล้ว — ดูที่แท็บวางแผน/บอร์ด</span>` : `<button class="btn blue" onclick="makeOnlineTickets('${j.id}')">🛍 สร้างใบผลิต → เข้าฝั่งผลิต</button>`}</div>
+    </div>`).join("") : `<div class="empty">— ยังไม่มีออเดอร์ออนไลน์วันนี้ —</div>`) + `</div>`;
+}
+function tktHead(t, c){
+  return `<div class="tk-h"><span class="so">${esc(t.so)}</span>
+    <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
+    <span class="mchip">${esc(t.mach)}</span>
+    <span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}${t.route==="C"?" ⏸":""}</span>
+    ${t.urgent?`<span class="bdg urgent">⚡ ด่วน</span>`:""}
+    ${t.online?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
+    ${t.xborder?`<span class="bdg ${t.soCover?"paid":"late"}">${t.soCover?"✓ SO คลุม "+esc(t.soCover):"🏢 จาก "+t.fromBranch+" · รอ SO คลุม"}</span>`:""}
+    ${c && INTER[c.cusCode] && INTER[c.cusCode]!==branch ? `<span class="bdg inter">🏢 ${INTER[c.cusCode]}</span>`:""}
+  </div>`;
+}
+function metLine(t){
+  const M=tMetrics(t);
+  return `<div class="met"><span>ผลิต <b>${fmt(M.m)} ม.</b></span><span><b>${M.sh}</b> แผ่น</span><span>ยาวสุด <b>${M.mx?fmt(M.mx,2):"—"} ม.</b></span><span>≈ <b>${fmt(M.kg,0)} กก.</b></span></div>`;
+}
+function vPlan(){
+  const el=document.getElementById("main"); el.className="";
+  const list=tks().filter(t=>t.st===1).sort((a,b)=>{
+    const da=(findSO(a.so)||{}).due||"9999", db=(findSO(b.so)||{}).due||"9999";
+    return da<db?-1:da>db?1:0;
+  });
+  const byKey={};
+  list.forEach(t=>{ if(t.key&&!t.key.startsWith("PU:")) (byKey[t.key]=byKey[t.key]||[]).push(t); });
+  const runs=Object.entries(byKey).filter(([k,v])=>v.length>1).sort((a,b)=>b[1].length-a[1].length);
+  const runsHtml=runs.length?`<div class="hint" style="background:#f2faf4;border-color:#9ad2ae">🤖 <b>AI จัดชุดคอยล์</b> (ลดเวลาสลับวัตถุดิบ): ${runs.map(([k,v])=>{
+    const lb=v[0].label; return `<span class="cchip" style="margin:2px 4px 2px 0"><i style="background:${swc(lb)}"></i>${esc(lb)} × <b>${v.length} ใบ</b> (${v.map(t=>String(t.so).slice(-4)).join(",")})</span>`;
+  }).join("")} — กด A ผลิตใหม่เรียงติดกันเป็นชุดเดียว</div>`:"";
+  const incoming=tks().filter(t=>t.st===0&&t.xborder);
+  const incomingHtml=incoming.length?`<div class="hint" style="background:#efe9ff;border-color:#cfc2f2">📥 <b>งานจากสาขาอื่น — รอรับ (อนุมัติ 2 ฝั่ง: ฝั่งส่งกดแล้ว รอฝั่งเรารับ)</b></div>`+incoming.map(t=>`
+    <div class="tkt" style="border-color:#cfc2f2">${tktHead(t,null)}
+      <div class="who">ส่งมาจาก <b>${t.fromBranch}</b> โดย <b>${esc(t.by.ordered||"")}</b> · ${esc((t.oitems&&t.oitems[0]&&t.oitems[0].from)||"")}</div>
+      ${metLine(t)}
+      <div class="planrow"><button class="btn green" onclick="acceptCross('${t.id}',true)">✅ รับงาน (ในนาม ${esc(USER.name.split(" ")[0])})</button>
+      <button class="btn red" onclick="acceptCross('${t.id}',false)">↩️ ปฏิเสธ</button></div>
+    </div>`).join(""):"";
+  const ops=STAFF.filter(s=>s.role==="operator"&&(s.branch===branch||s.branch==="ALL"));
+  el.innerHTML = `<div class="page">`+incomingHtml+`<div class="hint">📋 <b>ฝั่งผลิต — หัวหน้าทีมกระจายงาน</b>: <b>A ผลิตใหม่</b> (เลือกเครื่อง · ระบุคนหรือปล่อยให้คนประจำเครื่องกดรับงาน) · <b>B ใช้แผ่นสต็อค</b> ข้ามไลน์ · <b>C รอวัตถุดิบ</b> · เรียงตามกำหนดส่ง</div>`+runsHtml+
+  (list.length? list.map(t=>{
+    const c=findSO(t.so)||{};
+    const cs=coilStock(branch,t.key);
+    const coilHtml = t.key===null||t.key==="" ? `<div class="coil na">— ไม่ใช้คอยล์/ยังไม่รู้วัตถุดิบ —</div>`
+      : String(t.key).startsWith("PU:") ? `<div class="coil na">— PU: เช็ควัตถุดิบโฟม/ฟอยล์หน้างาน —</div>`
+      : cs===null ? `<div class="coil na">คอยล์ ZZC-${t.key}: ไม่พบใน Express</div>`
+      : `<div class="coil ${cs>0?"ok":"low"}">🧻 สต็อคคอยล์ ZZC-${t.key}: ${fmt(cs)} (${cs>0?"มีของ":"หมด/ติดลบ — เช็คหน้างาน"})</div>`;
+    return `<div class="tkt">${tktHead(t,c)}
+      <div class="who">อนุมัติโดย <b>${esc(t.by.approved||"")}</b> · ลูกค้า ${esc(c.customer||"")}</div>
+      ${metLine(t)} ${coilHtml}
+      ${t.route==="C"?`<div class="warn" style="margin-top:6px">⏸ รอวัตถุดิบอยู่ (กด A/B เมื่อของพร้อม)</div>`:""}
+      <div class="planrow">
+        <button class="btn blue" onclick="document.getElementById('px-${t.id}').classList.toggle('show')">🏭 A ผลิตใหม่…</button>
+        <button class="btn green" onclick="planB('${t.id}')">📦 B ใช้สต็อค</button>
+        <button class="btn amber" onclick="planC('${t.id}')">⏸ C รอวัตถุดิบ</button>
+        <button class="btn grey" onclick="openM('${t.id}')">รายละเอียด</button>
+      </div>
+      <div class="planx" id="px-${t.id}">
+        เครื่อง <select id="pm-${t.id}">${MACHINES[branch].map(m=>`<option ${m===t.mach?"selected":""} ${!canProduce(branch,m)?"disabled":""}>${m}${!canProduce(branch,m)?" (เสีย)":""}${noteOf(m)?" — "+noteOf(m):""}</option>`).join("")}</select>
+        คนผลิต <select id="pa-${t.id}"><option value="">— ไม่ระบุ (คนประจำเครื่องกดรับงาน)</option>${ops.map(o=>`<option>${esc(o.name)}</option>`).join("")}</select>
+        <button class="btn dark" onclick="planA('${t.id}')">✔ เข้าคิวเครื่อง</button>
+      </div>
+    </div>`;
+  }).join("") : `<div class="empty">— ไม่มีใบผลิตรอวางแผน — สั่งจากแท็บ 🛒 ก่อน —</div>`)+`</div>`;
+}
+function vBoard(){
+  const el=document.getElementById("main"); el.className="boardmode";
+  const mach=MACHINES[branch];
+  const inMach=m=>tks().filter(t=>t.route==="A"&&t.mach===m&&t.st>=2&&t.st<=4)
+    .sort((a,b)=>(a.key||"")<(b.key||"")?-1:(a.key||"")>(b.key||"")?1:a.priority-b.priority);
+  el.innerHTML = mach.map((m,i)=>{
+    const down=(DOWN[branch]||[]).includes(m);
+    const list=inMach(m);
+    return `<div class="col ${down?"down":""}" style="--cc:${down?"#d92d20":["#1f5eff","#7c6bd6","#0aa5a0","#a1721f","#d97706","#16a34a","#0e93c9","#8a94a6"][i%8]}">
+      <div class="col-h"><span class="t">${m}</span>${down?'<span class="dn">⛔ เครื่องเสีย</span>':noteOf(m)?`<span class="dn" style="color:var(--muted);font-weight:600">${noteOf(m)}</span>`:""}${USER.canFix?`<button class="mfix" title="${down?"แจ้งเครื่องกลับมาใช้งาน":"แจ้งเครื่องเสีย"}" onclick="toggleMachine('${branch}','${esq(m)}')">${down?"🔧":"⛔"}</button>`:""}<span class="cnt">${list.length}</span></div>
+      <div class="cards">${list.map((t,ix)=>{
+        const pct=t.st===2?8:t.st===3?55:100;
+        const sameCoil=ix>0&&t.key&&list[ix-1].key===t.key;
+        return `<div class="bcard" onclick="openM('${t.id}')">
+          <div class="strip"><i style="width:${pct}%;background:${STGC[t.st]}"></i></div>
+          <div class="tk-h"><span class="so">${t.online?"🛍 ":""}${esc(t.so)}</span>${sameCoil?'<span class="bdg" style="background:#e6f4ea;color:var(--green)">🔗 ต่อคอยล์เดิม</span>':""}<span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}</span></div>
+          <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
+          ${metLine(t)}
+          <div class="who">👷 <b>${esc(t.assignee||"ยังไม่มีคนรับ")}</b>${t.st>=3?` · เริ่มโดย ${esc(t.by.started||"")}`:""}</div>
+          <div class="bc-foot">${
+            t.st===2&&!t.assignee ? `<button class="btn amber" onclick="event.stopPropagation();claim('${t.id}')">🙋 รับงาน (${esc(USER.name.split(" ")[0])})</button>` :
+            t.st===2 ? `<button class="btn blue" onclick="event.stopPropagation();startProd('${t.id}')">▶ เริ่มผลิต</button>` :
+            t.st===3 ? `<button class="btn green" onclick="event.stopPropagation();doneProd('${t.id}')">✅ เสร็จ</button>` :
+            `<span class="okpill">รอรวมของ →</span>`}</div>
+        </div>`;
+      }).join("")||'<div class="empty">— ว่าง —</div>'}</div>
+    </div>`;
+  }).join("")+`
+    <div class="col" style="--cc:#b54708"><div class="col-h"><span class="t">⏸ รอวัตถุดิบ</span><span class="cnt">${tks().filter(t=>t.route==="C"&&t.st===1).length}</span></div>
+    <div class="cards">${tks().filter(t=>t.route==="C"&&t.st===1).map(t=>`<div class="bcard" onclick="openM('${t.id}')"><div class="tk-h"><span class="so">${esc(t.so)}</span></div><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><div class="who">ไปที่แท็บ 📋 วางแผน เพื่อปล่อยงาน</div></div>`).join("")||'<div class="empty">— ว่าง —</div>'}</div></div>`;
+}
+function vPack(){
+  const el=document.getElementById("main"); el.className="";
+  const bySo={};
+  tks().forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));
+  const sos=Object.keys(bySo);
+  el.innerHTML = `<div class="page">
+  <div class="hint">📦 <b>รวมของระดับบิล</b> — ทุกใบผลิตของ SO ต้องเสร็จครบก่อนแพ็ค · สรุป <b>น้ำหนัก/จำนวนแผ่น/ยาวสุด</b> สำหรับจัดรถ</div>`+
+  (sos.length? sos.map(so=>{
+    const list=bySo[so], c=findSO(so)||{};
+    const allDone=list.every(t=>t.st>=4), allPack=list.every(t=>t.st>=5), allShip=list.every(t=>t.st>=6), allArr=list.every(t=>t.st>=7);
+    let Tm=0,Tsh=0,Tmx=0,Tkg=0;
+    list.forEach(t=>{const M=tMetrics(t);Tm+=M.m;Tsh+=M.sh;Tmx=Math.max(Tmx,M.mx);Tkg+=M.kg;});
+    const stockItems=(c.items||[]).filter(i=>!machineOf(i.stk,i.des));
+    return `<div class="socard">
+      <div class="so-h"><span class="so">${esc(so)}</span><span class="cu">${esc(c.customer||"")}</span>${dueBdg(c)}</div>
+      ${list.map(t=>`<div class="pk-row"><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><span class="mchip">${esc(t.mach)}</span><span class="nm">${t.route==="B"?"ใช้สต็อค":"ผลิตโดย "+esc(t.assignee||t.by.done||"—")}</span><span class="pk-st" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${t.st>=4?"✓ ":""}${STG[t.st]}</span></div>`).join("")}
+      ${stockItems.length?`<div class="pk-row"><span class="stag">📦 หยิบสต็อค ${stockItems.length} รายการ</span><span class="nm" style="color:var(--muted)">${esc(stockItems.slice(0,2).map(i=>i.des).join(" · "))}${stockItems.length>2?" …":""}</span></div>`:""}
+      <div class="truck">🚚 จัดรถ: <span>น้ำหนักรวม <b>${fmt(Tkg,0)}</b> กก.</span><span><b>${Tsh}</b> แผ่น</span><span>ยาวสุด <b>${Tmx?fmt(Tmx,2):"—"}</b> ม.</span></div>
+      <div class="so-foot">
+        ${allArr? `<span class="okpill">🏁 ส่งสำเร็จ (โดย ${esc(list[0].by.shipped||"")})</span>`
+        : allShip? `<button class="btn green" onclick="arriveSO('${esq(so)}')">🏁 ถึงลูกค้าแล้ว</button>`
+        : allPack? `<button class="btn dark" onclick="shipSO('${esq(so)}')">🚚 ออกจัดส่ง</button>`
+        : `<button class="btn blue" ${allDone?"":"disabled"} onclick="packSO('${esq(so)}')">📦 แพ็คทั้งบิล ${allDone?"":"(รอผลิตครบ)"}</button>`}
+      </div>
+    </div>`;
+  }).join("") : `<div class="empty">— ยังไม่มีใบผลิตในระบบ —</div>`)+`</div>`;
+}
+
+/* ================= modal ================= */
+async function openM(id){
+  const t=TK.find(t=>t.id===id); if(!t) return;
+  openId=id;
+  const c=findSO(t.so)||{};
+  document.getElementById("m-t").innerHTML = `${esc(t.so)} <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>`;
+  document.getElementById("m-b").innerHTML = `
+    <div><b>${esc(c.customer||"")}</b> · เครื่อง${esc(t.mach)} · สถานะ <b style="color:${STGC[t.st]}">${STG[t.st]}</b></div>
+    ${metLine(t)}
+    <div class="sec">ผู้เกี่ยวข้อง</div>
+    <div class="who">สั่ง: <b>${esc(t.by.ordered||"—")}</b> · อนุมัติ: <b>${esc(t.by.approved||"—")}</b> · วางแผน: <b>${esc(t.by.planned||"—")}</b> · ผลิต: <b>${esc(t.assignee||"—")}</b> · แพ็ค/ส่ง: <b>${esc(t.by.packed||"—")}/${esc(t.by.shipped||"—")}</b></div>
+    <div class="sec">ข้อมูลหน้างาน</div>
+    <div class="fields">
+      <div><label>ล็อตคอยล์ที่ใช้</label><input value="${esc(t.coil_lot)}" onchange="saveField('${t.id}','coil_lot',this.value)"></div>
+      <div><label>ของเสีย/จำนวนจริง</label><input value="${esc(t.waste)}" onchange="saveField('${t.id}','waste',this.value)"></div>
+    </div>
+    ${t.xborder&&!t.soCover?`<div class="sec">📄 เอกสารคลุมงานข้ามสาขา</div>
+      <div style="display:flex;gap:6px"><input id="cov-${t.id}" placeholder="เลข SO ที่ ${branch} เปิดขายให้ ${esc(t.fromBranch||"")}" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit"><button class="btn dark" onclick="coverSO('${t.id}')">ผูก</button></div>
+      <div class="who">ระบบจะเตือนจนกว่าจะมี SO คลุม — บัญชีระหว่างสาขาเดินครบตาม Express</div>`:""}
+    <div class="sec">รายการ (${tItems(t).length})</div>
+    <table class="items">${tItems(t).map(i=>`<tr><td>${esc(i.des)}</td><td class="q">${fmt(i.qty)} ${esc(i.unit)}</td></tr>`).join("")}</table>
+    <div class="sec">ประวัติ (ใครกดอะไรเมื่อไหร่)</div>
+    <div class="hist" id="m-hist">กำลังโหลด…</div>`;
+  document.getElementById("ovbg").classList.add("show");
+  const evs = await DB.getEvents(t.id);
+  const he = document.getElementById("m-hist");
+  if(he) he.innerHTML = evs.length? evs.map(e=>{
+    const d=new Date(e.at);
+    return esc(String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+" "+(e.staff_name||"")+" — "+(e.detail||e.action));
+  }).join("<br>") : "—";
+}
+function closeM(){ openId=null; document.getElementById("ovbg").classList.remove("show"); render(); }
+document.getElementById("ovbg").addEventListener("click",e=>{ if(e.target.id==="ovbg") closeM(); });
+
+/* ================= shell ================= */
+function renderSyncs(){
+  document.getElementById("syncs").innerHTML = ["SKN","BK","PPS"].map(b=>{
+    if(!SYNCMAX[b]) return `<span class="bad">⚪ ${b} ยังไม่มีข้อมูล</span>`;
+    const t=new Date(SYNCMAX[b]);
+    const stale=(Date.now()-t.getTime())>10*60*1000;
+    return `<span class="${stale?'bad':''}">${stale?'🔴':'🟢'} ${b} ${t.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</span>`;
+  }).join("");
+}
+function render(){
+  if(!USER||!loaded) return;
+  document.getElementById("tabs").innerHTML = ["SKN","BK","PPS"].map(b=>
+    `<button class="tab ${b===branch?"on":""}" onclick="branch='${b}';render()">${b}</button>`).join("");
+  const nPlan=tks().filter(t=>t.st===1).length + tks().filter(t=>t.st===0&&t.xborder).length;
+  const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length;
+  const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],["online","🛍 ออนไลน์ (tag)",nJob],["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0]];
+  document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
+    `<button class="vtab ${v===view?"on":""}" onclick="view='${v}';render()">${l}${n?`<span class="b">${n}</span>`:""}</button>`).join("");
+  ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack})[view]();
+  renderSyncs();
+}
+
+/* ================= login ================= */
+let lgBranch="SKN", lgStaff=null, lgPin="";
+function renderLogin(){
+  document.getElementById("lg-branches").innerHTML = ["SKN","BK","PPS"].map(b=>
+    `<button class="${b===lgBranch?'on':''}" onclick="lgSetBranch('${b}')">${b}</button>`).join("");
+  const list=STAFF.filter(s=>s.branch===lgBranch||s.branch==="ALL");
+  document.getElementById("lg-staff").innerHTML = list.length? list.map(s=>
+    `<button class="${lgStaff===s.id?'on':''}" onclick="lgSetStaff(${s.id})">${esc(s.name)}<br><span style="font-size:10px;color:var(--muted)">${({sales:"ทีมขาย",planner:"หัวหน้าผลิต",operator:"ช่างผลิต",packer:"แพ็ค/ส่ง",admin:"แอดมิน"})[s.role]||s.role}</span></button>`).join("")
+    : '<div style="grid-column:1/-1;color:var(--muted);font-size:12px">ไม่มีรายชื่อ — เพิ่มในตาราง staff</div>';
+  document.getElementById("pinrow").innerHTML = [0,1,2,3].map(i=>`<span class="pindot ${i<lgPin.length?'f':''}"></span>`).join("");
+  document.getElementById("pinpad").innerHTML = ["1","2","3","4","5","6","7","8","9","⌫","0","✓"].map(k=>
+    `<button onclick="lgKey('${k}')">${k}</button>`).join("");
+}
+function lgMode(m){
+  document.getElementById("lg-email-pane").style.display = m==="email"?"":"none";
+  document.getElementById("lg-pin-pane").style.display = m==="pin"?"":"none";
+  document.getElementById("lg-err").textContent="";
+  if(m==="pin") renderLogin();
+}
+let otpPoll=null;
+async function sendOtp(){
+  const err=document.getElementById("lg-err");
+  const em=(document.getElementById("lg-email").value||"").trim().toLowerCase();
+  if(!em||!em.includes("@")){ err.textContent="กรอกอีเมลก่อนครับ"; return; }
+  const s=STAFF.find(s=>s.email&&s.email.toLowerCase()===em);
+  if(!s){ err.textContent="อีเมลนี้ยังไม่ได้รับสิทธิ์ — แจ้งแอดมินเพิ่มในระบบก่อน"; return; }
+  const btn=document.getElementById("lg-send");
+  btn.disabled=true; btn.textContent="กำลังส่ง…";
+  try{ await DB.sendOtp(em); }
+  catch(e){ btn.disabled=false; btn.textContent="ส่งลิงก์อีกครั้ง"; err.textContent="ส่งไม่สำเร็จ: "+(e.message||e); return; }
+  btn.disabled=false; btn.textContent="ส่งลิงก์อีกครั้ง";
+  err.textContent=""; document.getElementById("lg-wait").style.display="block";
+  clearInterval(otpPoll);
+  otpPoll=setInterval(async ()=>{
+    const se=await DB.getSessionEmail();
+    if(se){ clearInterval(otpPoll); enterByEmail(se); }
+  }, 2500);
+}
+function enterByEmail(em){
+  const s=STAFF.find(s=>s.email&&s.email.toLowerCase()===em);
+  if(!s){ document.getElementById("lg-err").textContent="อีเมลนี้ยังไม่ได้รับสิทธิ์"; DB.signOut(); return; }
+  enterAsStaff(s, "email");
+}
+function enterAsStaff(s, mode){
+  USER={dbid:s.id, name:s.name, role:s.role, branch:s.branch, mode,
+    canFix: s.role==="planner"||s.role==="admin"};
+  document.getElementById("loginbg").style.display="none";
+  const uc=document.getElementById("userchip");
+  uc.style.display=""; uc.innerHTML=`👤 ${esc(USER.name)} <button onclick="logout()" title="ออกจากระบบ">✕</button>`;
+  if(USER.branch!=="ALL") branch=USER.branch;
+  view = ({sales:"order", planner:"plan", operator:"board", packer:"pack"})[USER.role]||"order";
+  try{ localStorage.setItem("prod007_pin_user", mode==="pin"? JSON.stringify({id:s.id}) : ""); }catch(e){}
+  render();
+}
+function lgSetBranch(b){ lgBranch=b; lgStaff=null; lgPin=""; renderLogin(); }
+function lgSetStaff(id){ lgStaff=id; lgPin=""; document.getElementById("lg-err").textContent=""; renderLogin(); }
+async function lgKey(k){
+  const err=document.getElementById("lg-err");
+  if(k==="⌫"){ lgPin=lgPin.slice(0,-1); renderLogin(); return; }
+  if(k==="✓"){ return lgTry(); }
+  if(!lgStaff){ err.textContent="เลือกชื่อก่อนครับ"; return; }
+  if(lgPin.length>=4) return;
+  lgPin+=k; renderLogin();
+  if(lgPin.length===4) lgTry();
+}
+async function lgTry(){
+  const err=document.getElementById("lg-err");
+  const s=STAFF.find(x=>x.id===lgStaff);
+  if(!s||lgPin.length<4) return;
+  const ok=await DB.verifyPin(s.id,lgPin);
+  if(!ok){ err.textContent="PIN ไม่ถูกต้อง"; lgPin=""; renderLogin(); return; }
+  enterAsStaff(s, "pin");
+}
+async function logout(){
+  try{ localStorage.removeItem("prod007_pin_user"); }catch(e){}
+  await DB.signOut(); location.reload();
+}
+
+/* ================= boot ================= */
+let rtTimer=null;
+async function boot(){
+  const cn=document.getElementById("conn");
+  try{
+    await DB.init();
+    STAFF = await DB.getStaff();
+    await reload();
+    DB.onChange(()=>{ clearTimeout(rtTimer); rtTimer=setTimeout(()=>reload().then(render),700); });
+    setInterval(()=>reload().then(()=>{ render(); }), 90000);
+    cn.textContent="LIVE"; cn.className="conn live";
+  }catch(e){
+    console.error(e);
+    cn.textContent="ต่อระบบไม่ได้"; cn.className="conn off";
+    document.getElementById("lg-err").textContent="ต่อฐานข้อมูลไม่ได้ — เช็คอินเทอร์เน็ตแล้วรีเฟรช";
+    return;
+  }
+  // คืน session: email (supabase เก็บเอง) หรือ PIN (จอไลน์)
+  const se=await DB.getSessionEmail();
+  if(se){ enterByEmail(se); return; }
+  try{
+    const pu=JSON.parse(localStorage.getItem("prod007_pin_user")||"null");
+    if(pu&&pu.id){ const s=STAFF.find(x=>x.id===pu.id); if(s){ enterAsStaff(s,"pin"); return; } }
+  }catch(e){}
+  lgMode("email"); renderLogin();
+}
+boot();
+</script>
+</body>
+</html>
