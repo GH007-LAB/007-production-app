@@ -285,12 +285,13 @@ function foldCapNeeded(des, mw){
   if(d.includes(other)) return true;                        // หน้ากว้างคนละแบบกับเครื่องรีดของสาขา
   return false;
 }
-function resolveMachine(br, type, customer, des){
+const isOnlineSO = so => /^O/.test(so||"") && !/^SO/.test(so||"");   // SO ออนไลน์ = เลขขึ้นต้น O (คนละชุดกับ SO หน้าร้าน)
+function resolveMachine(br, type, customer, des, isOnline){
   const list = MACHINES[br]||[];
   if(type==="ตรง"){
     if(list.includes("ตรง")) return "ตรง";
     const L = list.find(m=>m.startsWith("ตรง-L")), R = list.find(m=>m.startsWith("ตรง-R"));
-    if(L && R) return ONLINE_RE.test(customer||"") ? L : R;
+    if(L && R) return (isOnline || ONLINE_RE.test(customer||"")) ? L : R;
     return L||R||type;
   }
   if(type==="ครอบจั่ว"||type==="ครอบข้าง"){
@@ -303,9 +304,9 @@ function resolveMachine(br, type, customer, des){
   }
   return type;
 }
-function machineOf(stk, des, br, customer){
+function machineOf(stk, des, br, customer, isOnline){
   const t = machineType(stk, des);
-  return t ? resolveMachine(br||branch, t, customer, des) : null;
+  return t ? resolveMachine(br||branch, t, customer, des, isOnline) : null;
 }
 function coilKeyOf(stk){
   if(stk.startsWith("03VP-PU")) return "PU:"+stk.slice(5);
@@ -428,7 +429,7 @@ function applyData(d){
   TK = d.tks.map(r=>({
     id:r.id, branch:r.branch, so:r.sonum, mach:r.machine, key:r.material_key||null,
     label:r.label, idxs:r.item_seqs||[], oitems:r.oitems,
-    online:r.source==="online", xborder:r.source==="xborder", urgent:r.source==="urgent",
+    online:r.source==="online" || isOnlineSO(r.sonum), xborder:r.source==="xborder", urgent:r.source==="urgent",
     fromBranch:r.from_branch, soCover:r.so_cover||"", st:r.stage, route:r.route,
     assignee:r.assignee||"", priority:r.priority||0, coil_lot:r.coil_lot||"", waste:r.waste_note||"",
     by:r.people||{}, met:{m:+r.prod_m||0, sh:+r.sheets||0, mx:+r.max_len||0, kg:+r.weight_kg||0},
@@ -473,7 +474,7 @@ function orderProduce(so, isRe){
   if(isRe && !approver) return;   // สั่งซ้ำต้องผ่านอนุมัติก่อนเท่านั้น
   c.items.forEach(it=>{
     if(done.has(it.seq) && !isRe) return;
-    const mach=machineOf(it.stk,it.des,branch,c.customer);
+    const mach=machineOf(it.stk,it.des,branch,c.customer,isOnlineSO(so));
     if(!mach || !canProduce(branch,mach)) return;
     const cb=document.getElementById("cb-"+so+"-"+it.seq);
     if(cb && cb.checked){ const k=mach+"|"+(coilKeyOf(it.stk)||"-"); (byKey[k]=byKey[k]||[]).push(it); }
@@ -653,28 +654,15 @@ function dueBdg(c){
   const late = Math.max(0,Math.round((new Date(todayISO)-new Date(c.due))/864e5));
   return `<span class="bdg ${cls}">${cls==="late"?"🔴 ช้า "+late+"วัน · ":""}ส่ง ${fmtD(c.due)}</span>`;
 }
-function vOrder(){
-  const el=document.getElementById("main"); el.className="";
-  const cutView=(()=>{const d=new Date();d.setDate(d.getDate()-2);return d.toISOString().slice(0,10);})();
-  const qq=q.trim().toUpperCase();
-  const all=CARDS[branch];
-  const cs = qq
-    ? all.filter(c=> c.so.toUpperCase().includes(qq) || (c.customer||"").toUpperCase().includes(qq))
-    : all.filter(c=> (c.date||"") >= cutView || c.fetched || REOK[c.so] || RSHOW[c.so]);
-  const nOld = all.length - (qq? 0 : cs.length);
-  const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
-  el.innerHTML = `<div class="page">
-  <div class="hint">🛒 <b>ฝั่งขาย</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
-  <div class="urgbox"><input id="q-so" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-so').value='';render()">✕</button>`:""}</div>
-  <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
-  (cs.length? cs.map(c=>{
+function soCardHtml(c, approvers){
     const done=orderedIdx(c.so);
     const inter=INTER[c.cusCode]&&INTER[c.cusCode]!==branch?INTER[c.cusCode]:null;
     const reok=REOK[c.so];
+    const oso=isOnlineSO(c.so);
     let anyBox=false, hasOrdered=false;
     const rows=c.items.map(it=>{
       const x=it.seq;
-      const mach=machineOf(it.stk,it.des,branch,c.customer);
+      const mach=machineOf(it.stk,it.des,branch,c.customer,oso);
       const qty=fmt(it.qty)+" "+esc(it.unit);
       if(!mach) return `<div class="oi stock"><span class="stag">📦 สต็อค</span><span class="d">${esc(it.des)}</span><span class="q">${qty}</span></div>`;
       if(!canProduce(branch,mach)){
@@ -699,6 +687,7 @@ function vOrder(){
     }).join("");
     return `<div class="socard ${anyBox?"":"dim"}">
       <div class="so-h"><span class="so">${c.so}</span><span class="cu">${esc(c.customer)}</span>
+        ${oso?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
         ${c.fetched?`<span class="bdg due">📥 ใบเก่า</span>`:""}
         ${inter?`<span class="bdg inter">🏢 งานสาขา ${inter}</span>`:""}
         ${c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว</span>`:""}
@@ -715,15 +704,34 @@ function vOrder(){
         : hasOrdered ? `<span class="okpill">✓ สั่งครบแล้ว</span><button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกผลิตซ้ำ (ขออนุมัติ)</button>`
         : `<span class="okpill">ไม่มีรายการผลิตที่สาขานี้</span>`}</div>
     </div>`;
-  }).join("") : qq
+}
+function cutView3(){ const d=new Date(); d.setDate(d.getDate()-2); return d.toISOString().slice(0,10); }
+function vOrder(){
+  const el=document.getElementById("main"); el.className="";
+  const qq=q.trim().toUpperCase();
+  const all=CARDS[branch];
+  const cs = qq
+    ? all.filter(c=> c.so.toUpperCase().includes(qq) || (c.customer||"").toUpperCase().includes(qq))
+    : all.filter(c=> !isOnlineSO(c.so) && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
+  const nOld = qq? 0 : all.filter(c=>!isOnlineSO(c.so)).length - cs.length;
+  const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
+  el.innerHTML = `<div class="page">
+  <div class="hint">🛒 <b>ฝั่งขาย (หน้าร้าน)</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · SO ออนไลน์ (ขึ้นต้น O) แยกอยู่แท็บ 🛍 · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
+  <div class="urgbox"><input id="q-so" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-so').value='';render()">✕</button>`:""}</div>
+  <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
+  (cs.length? cs.map(c=>soCardHtml(c, approvers)).join("") : qq
     ? `<div class="empty">— ไม่พบ "${esc(q)}" ในรายการที่โหลดไว้ —<br><br><button class="btn blue" onclick="fetchOldSO()">📥 ดึง SO ${esc(qq)} จากฐานข้อมูล (ย้อนหลัง 45 วัน)</button></div>`
     : `<div class="empty">— ไม่มีบิลใหม่ในช่วง 3 วัน — ใบเก่าใช้ช่องค้นหาด้านบน —</div>`) + `</div>`;
 }
 function vOnline(){
   const el=document.getElementById("main"); el.className="";
   const jobs=JOBS.filter(j=>j.branch===branch && j.status!=="done");
+  const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
+  const osos = CARDS[branch].filter(c=> isOnlineSO(c.so) && ((c.date||"") >= cutView3() || REOK[c.so] || RSHOW[c.so]));
   el.innerHTML = `<div class="page">
-  <div class="hint">🛍 <b>งานออนไลน์ไม่ผ่าน SO</b> — เริ่มจาก<b>ไฟล์ tag ที่ปริ้นแปะส่งสินค้า</b> (Shopee/TikTok/Lazada) · กด "สร้างใบผลิต" → เข้าเครื่องสายออนไลน์ กำหนดส่ง=วันนี้ · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>
+  <div class="hint">🛍 <b>งานออนไลน์</b> — <b>SO ออนไลน์ (เลขขึ้นต้น O)</b> จาก Express แยกมาอยู่หน้านี้ทั้งหมด สั่งผลิตเหมือนฝั่งขายปกติ งานตรงเข้าเครื่องสายออนไลน์อัตโนมัติ · ด้านล่างคือออเดอร์จากไฟล์ tag (Shopee/TikTok/Lazada) ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
+  (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าค้นหาได้ที่แท็บฝั่งขาย)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ขึ้นต้น O) ในช่วง 3 วัน —</div>`) +
+  `<div class="sec" style="margin:14px 0 8px">📄 ออเดอร์จากไฟล์ tag (ไม่ผ่าน SO)</div>
   <div style="margin-bottom:11px"><button class="btn grey" onclick="document.getElementById('aj').classList.toggle('show')">➕ เพิ่มออเดอร์เอง</button></div>
   <div class="planx" id="aj" style="margin-bottom:11px">
     <div class="fields" style="grid-template-columns:1fr 1fr 1fr">
@@ -913,8 +921,9 @@ function render(){
   document.getElementById("tabs").innerHTML = ["SKN","BK","PPS"].map(b=>
     `<button class="tab ${b===branch?"on":""}" onclick="branch='${b}';render()">${b}</button>`).join("");
   const nPlan=tks().filter(t=>t.st===1).length + tks().filter(t=>t.st===0&&t.xborder).length;
-  const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length;
-  const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],["online","🛍 ออนไลน์ (tag)",nJob],["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0]];
+  const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length
+    + CARDS[branch].filter(c=>isOnlineSO(c.so)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.so===c.so&&!t.by.rejected)).length;
+  const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],["online","🛍 ออนไลน์",nJob],["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0]];
   document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
     `<button class="vtab ${v===view?"on":""}" onclick="view='${v}';render()">${l}${n?`<span class="b">${n}</span>`:""}</button>`).join("");
   ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack})[view]();
