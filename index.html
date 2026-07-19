@@ -277,7 +277,15 @@ function machineType(stk, des){
   }
   return null;
 }
-function resolveMachine(br, type, customer){
+function foldCapNeeded(des, mw){
+  // ครอบที่ไม่ตรงหน้ารีดมาตรฐานของเครื่องรีด → ต้องไปเครื่องพับครอบ
+  const d = des||"";
+  if(new RegExp(mw+"\\s*-\\s*\\d").test(d)) return true;   // มี suffix เช่น 457-10 / 457-15 / 304-12 = ครอบพับ
+  const other = mw==="457" ? "304" : "457";
+  if(d.includes(other)) return true;                        // หน้ากว้างคนละแบบกับเครื่องรีดของสาขา
+  return false;
+}
+function resolveMachine(br, type, customer, des){
   const list = MACHINES[br]||[];
   if(type==="ตรง"){
     if(list.includes("ตรง")) return "ตรง";
@@ -285,13 +293,19 @@ function resolveMachine(br, type, customer){
     if(L && R) return ONLINE_RE.test(customer||"") ? L : R;
     return L||R||type;
   }
-  if(type==="ครอบจั่ว"){ const m=list.find(x=>x.startsWith("ครอบจั่ว")); return m || (list.includes("พับครอบ")?"พับครอบ":type); }
-  if(type==="ครอบข้าง"){ const m=list.find(x=>x.startsWith("ครอบข้าง")); return m||type; }
+  if(type==="ครอบจั่ว"||type==="ครอบข้าง"){
+    const m = list.find(x=>x.startsWith(type));
+    const fold = list.includes("พับครอบ") ? "พับครอบ" : null;
+    if(!m) return fold||type;
+    const mw = (m.match(/(\d{3})/)||[])[1];                 // หน้ารีดของเครื่องสาขานี้: 457 หรือ 304
+    if(mw && fold && foldCapNeeded(des, mw)) return fold;
+    return m;
+  }
   return type;
 }
 function machineOf(stk, des, br, customer){
   const t = machineType(stk, des);
-  return t ? resolveMachine(br||branch, t, customer) : null;
+  return t ? resolveMachine(br||branch, t, customer, des) : null;
 }
 function coilKeyOf(stk){
   if(stk.startsWith("03VP-PU")) return "PU:"+stk.slice(5);
@@ -556,7 +570,7 @@ function dispatchCross(so, seq, target){
   const c=findSO(so); if(!c) return;
   const it=c.items.find(i=>i.seq===seq); if(!it) return;
   const type=machineType(it.stk,it.des);
-  const mach=resolveMachine(target,type,c.customer);
+  const mach=resolveMachine(target,type,c.customer,it.des);
   const kk=coilKeyOf(it.stk);
   act(()=>newTicket({branch:target, source:"xborder", sonum:so, from_branch:branch,
     machine:mach, material_key:kk||"", label:labelOf(it.des,kk), item_seqs:[seq],
