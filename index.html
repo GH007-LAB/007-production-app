@@ -921,9 +921,13 @@ function render(){
   document.getElementById("tabs").innerHTML = ["SKN","BK","PPS"].map(b=>
     `<button class="tab ${b===branch?"on":""}" onclick="branch='${b}';render()">${b}</button>`).join("");
   const nPlan=tks().filter(t=>t.st===1).length + tks().filter(t=>t.st===0&&t.xborder).length;
+  const ONLINE_BR = ["SKN","BK"];   // สาขาที่ผลิต+ส่งงานออนไลน์ตอนนี้
+  if(view==="online" && !ONLINE_BR.includes(branch)) view="order";
   const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length
     + CARDS[branch].filter(c=>isOnlineSO(c.so)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.so===c.so&&!t.by.rejected)).length;
-  const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],["online","🛍 ออนไลน์",nJob],["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0]];
+  const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
+    ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
+    ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0]];
   document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
     `<button class="vtab ${v===view?"on":""}" onclick="view='${v}';render()">${l}${n?`<span class="b">${n}</span>`:""}</button>`).join("");
   ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack})[view]();
