@@ -297,7 +297,7 @@ function resolveMachine(br, type, customer, des, isOnline){
   if(type==="ตรง"){
     if(list.includes("ตรง")) return "ตรง";
     const L = list.find(m=>m.startsWith("ตรง-L")), R = list.find(m=>m.startsWith("ตรง-R"));
-    if(L && R) return (isOnline || ONLINE_RE.test(customer||"")) ? L : R;
+    if(L && R) return R;   // Gem เคาะ 20 ก.ค.: ไม่เลือก = ตรง-R ปีกขวาเสมอ — ทีมผลิตเลือก/ย้ายไป L ได้ตอนวางแผนหรือปุ่ม ⇄ บนบอร์ด
     return L||R||type;
   }
   if(type==="ครอบจั่ว"||type==="ครอบข้าง"){
@@ -680,6 +680,13 @@ async function urgentGo(){
     "create","⚡ สั่งผลิตด่วน "+v+" (ก่อนข้อมูล SO มาถึง)"));
   if(inp) inp.value="";
 }
+function moveTrack(id){
+  // ⇄ ทีมผลิตเลือกปีกเอง: ย้ายงานตรงระหว่าง ตรง-R ↔ ตรง-L ก่อนเริ่มผลิต
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  const other=(MACHINES[branch]||[]).find(x=>x.startsWith("ตรง-")&&x!==t.mach&&canProduce(branch,x));
+  if(!other) return;
+  act(()=>patchTicket(t,{machine:other},"move","⇄ ย้ายเครื่อง "+t.mach+" → "+other));
+}
 function toggleMachine(br, name){
   if(!USER.canFix) return;
   const id=MACH_ID[br+"|"+name]; if(!id) return;
@@ -803,7 +810,7 @@ function vOnline(){
   const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
   const osos = CARDS[branch].filter(c=> cardOnline(c) && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
   el.innerHTML = `<div class="page">
-  <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม งานตรงเข้าเครื่องสายออนไลน์อัตโนมัติ · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
+  <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม (งานตรงเข้า ตรง-R ก่อน — ทีมผลิตย้ายปีกได้ที่บอร์ด) · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
   (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าพิมพ์เลข SO ในช่องค้นหาแท็บ 🛒 แล้วกดดึง ระบบจะพามาที่นี่)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ลูกค้ารหัส O) ในช่วง 3 วัน —</div>`) +
   `<div class="sec" style="margin:14px 0 8px">📄 ออเดอร์จากไฟล์ tag (ไม่ผ่าน SO)</div>
   <div style="margin-bottom:11px"><button class="btn grey" onclick="document.getElementById('aj').classList.toggle('show')">➕ เพิ่มออเดอร์เอง</button></div>
@@ -924,7 +931,9 @@ function vBoard(){
             t.st===2&&!t.assignee ? `<button class="btn amber" onclick="event.stopPropagation();claim('${t.id}')">🙋 รับงาน (${esc(USER.name.split(" ")[0])})</button>` :
             t.st===2 ? `<button class="btn blue" onclick="event.stopPropagation();startProd('${t.id}')">▶ เริ่มผลิต</button>` :
             t.st===3 ? `<button class="btn green" onclick="event.stopPropagation();doneProd('${t.id}')">✅ เสร็จ</button>` :
-            `<span class="okpill">รอรวมของ →</span>`}</div>
+            `<span class="okpill">รอรวมของ →</span>`}${
+            t.st===2 && t.mach.startsWith("ตรง-") && (MACHINES[branch]||[]).some(x=>x.startsWith("ตรง-")&&x!==t.mach) ?
+            ` <button class="btn grey" style="padding:7px 10px" title="ย้ายไปอีกปีก" onclick="event.stopPropagation();moveTrack('${t.id}')">⇄ ${esc(((MACHINES[branch]||[]).find(x=>x.startsWith("ตรง-")&&x!==t.mach)||"").split(" ")[0])}</button>` : ""}</div>
         </div>`;
       }).join("")||'<div class="empty">— ว่าง —</div>'}</div>
     </div>`;
