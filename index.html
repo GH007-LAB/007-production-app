@@ -524,13 +524,13 @@ function orderProduce(so, isRe){
       const its=byKey[k], kk=key==="-"?null:key;
       const reDup = isRe && its.some(i=>done.has(i.seq));
       const people = {ordered:USER.name, approved:USER.name};
-      if(reDup) people.reorder_approved = approver;
+      if(reDup){ people.reorder_approved = approver.name; people.reorder_reason = approver.reason; }
       await newTicket({branch, source:"so", sonum:so, machine:mach, material_key:kk||"",
         label:labelOf(its[0].des,kk), item_seqs:its.map(i=>i.seq), stage:1,
         people, created_by:USER.dbid||null,
         ...metricsOf(its,kk)},
         "create", reDup
-          ? "🔁 สั่งผลิตซ้ำ ("+its.length+" รายการ) — ขอโดย "+USER.name+" · อนุมัติซ้ำโดย "+approver
+          ? "🔁 สั่งผลิตซ้ำ ("+its.length+" รายการ) — ขอโดย "+USER.name+" · อนุมัติซ้ำโดย "+approver.name+" · สาเหตุ: "+approver.reason
           : "🛒 สั่ง+อนุมัติใบผลิต ("+its.length+" รายการ) → เข้าฝั่งผลิตทันที");
     }
     delete REOK[so];
@@ -554,12 +554,17 @@ async function fetchOldSO(){
 function reAsk(so){ RSHOW[so]=!RSHOW[so]; render(); }
 async function reVerify(so){
   const sel=document.getElementById("ra-"+so), pin=document.getElementById("rp-"+so);
+  const rSel=document.getElementById("rr-"+so), rNote=document.getElementById("rn-"+so);
   if(!sel||!pin) return;
+  const reason=((rSel&&rSel.value)||"").trim();
+  if(!reason){ alertBar("เลือกสาเหตุการสั่งซ้ำก่อน (บังคับ)"); return; }
   const s=STAFF.find(x=>x.id===+sel.value);
-  if(!s || (pin.value||"").length<4) { alertBar("เลือกผู้อนุมัติ + ใส่ PIN 4 หลัก"); return; }
+  if(!s || (pin.value||"").length<4) { alertBar("เลือกผู้อนุมัติ (admin) + ใส่ PIN 4 หลัก"); return; }
   const ok=await DB.verifyPin(s.id, pin.value);
   if(!ok){ alertBar("PIN ไม่ถูกต้อง"); pin.value=""; return; }
-  REOK[so]=s.name; delete RSHOW[so]; render();
+  const full = reason + ((rNote&&rNote.value.trim())? " — "+rNote.value.trim() : "");
+  REOK[so]={name:s.name, reason:full};
+  delete RSHOW[so]; render();
 }
 function planA(id){
   const t=tks().find(t=>t.id===id); if(!t) return;
@@ -774,13 +779,26 @@ function soCardHtml(c, approvers){
         ${c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว</span>`:""}
         ${dueBdg(c)}</div>
       ${rows}
-      ${RSHOW[c.so]&&!reok?`<div class="planx show">🔁 <b>ขออนุมัติสั่งผลิตซ้ำ</b> — ผู้อนุมัติ
-        <select id="ra-${c.so}">${approvers.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
+      ${RSHOW[c.so]&&!reok?(()=>{
+        const prev=TK.filter(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected).sort((a,b)=>(a.created<b.created?-1:1));
+        const lp=prev[prev.length-1];
+        return `<div class="planx show">
+        <div class="warn" style="margin-bottom:7px">⚠️ <b>รายการนี้ออกใบผลิตไปแล้ว ${prev.length} ใบ</b>${lp?` — ล่าสุด ${fmtT((lp.tm&&lp.tm.ordered)||lp.created)} โดย <b>${esc(lp.by.ordered||"")}</b>`:""} · ทีมขายห้ามออกซ้ำเอง ต้องให้ <b>admin (หัวหน้าแผนก)</b> อนุมัติที่จอนี้</div>
+        🔁 <b>ขออนุมัติสั่งผลิตซ้ำ</b> — ผู้อนุมัติ
+        <select id="ra-${c.so}">${approvers.length?approvers.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join(""):`<option value="">— สาขานี้ยังไม่มี admin —</option>`}</select>
+        สาเหตุ <select id="rr-${c.so}">
+          <option value="">— เลือกสาเหตุ (บังคับ) —</option>
+          <option>🏷 ของมีตำหนิจากซัพพลายเออร์ — ทำเคลม/หักสต็อค</option>
+          <option>🔧 ทีมผลิตทำผิด — ต้องผลิตเพิ่ม</option>
+          <option>✏️ อื่นๆ</option>
+        </select>
+        <input id="rn-${c.so}" placeholder="รายละเอียดเพิ่ม เช่น เลขเคลม/จำนวนที่เสีย" style="min-width:180px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px">
         PIN <input id="rp-${c.so}" type="password" inputmode="numeric" maxlength="4" style="width:74px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:15px;letter-spacing:3px;text-align:center">
         <button class="btn dark" onclick="reVerify('${esq(c.so)}')">✔ ยืนยัน</button>
-        <div class="who">ผู้อนุมัติใส่ PIN ตัวเองที่จอนี้ — ระบบบันทึกชื่อคนขอ+คนอนุมัติลงประวัติถาวร</div></div>`:""}
+        <div class="who">ระบบบันทึกถาวร: ใครขอ · ใครอนุมัติ · เวลา · สาเหตุ — ดูย้อนหลังได้ในประวัติใบผลิต</div></div>`;
+      })():""}
       <div class="so-foot">${
-        reok ? `<button class="btn amber" onclick="orderProduce('${esq(c.so)}',true)">🔁 สั่งผลิตซ้ำ → เข้าฝั่งผลิต</button><span class="okpill">อนุมัติซ้ำโดย ${esc(reok)}</span>`
+        reok ? `<button class="btn amber" onclick="orderProduce('${esq(c.so)}',true)">🔁 สั่งผลิตซ้ำ → เข้าฝั่งผลิต</button><span class="okpill">อนุมัติซ้ำโดย ${esc(reok.name)} · ${esc(reok.reason)}</span>`
         : anyBox ? `<button class="btn blue" onclick="orderProduce('${esq(c.so)}')">🛒 สั่ง+อนุมัติใบผลิต → เข้าฝั่งผลิต</button>${hasOrdered?`<button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกซ้ำ…</button>`:""}`
         : hasOrdered ? `<span class="okpill">✓ สั่งครบแล้ว${soOrdT?` · 🕐 ออกใบ ${fmtT(soOrdT)}`:""}</span><button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกผลิตซ้ำ (ขออนุมัติ)</button>`
         : `<span class="okpill">ไม่มีรายการผลิตที่สาขานี้</span>`}</div>
@@ -795,7 +813,7 @@ function vOrder(){
     ? all.filter(c=> c.so.toUpperCase().includes(qq) || (c.customer||"").toUpperCase().includes(qq))
     : all.filter(c=> (c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]);
   const nOld = qq? 0 : all.length - cs.length;
-  const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
+  const approvers = STAFF.filter(s=>s.role==="admin" && (s.branch===branch||s.branch==="ALL"));  // Gem เคาะ: สั่งซ้ำ = admin (หัวหน้าแผนก) เท่านั้น
   el.innerHTML = `<div class="page">
   <div class="hint">🛒 <b>ฝั่งขาย (หน้าร้าน)</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · งานออนไลน์ (รหัสลูกค้าขึ้นต้น O เช่น Shopee/TikTok) แยกอยู่แท็บ 🛍 · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
   <div class="urgbox"><input id="q-so" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-so').value='';render()">✕</button>`:""}</div>
@@ -807,7 +825,7 @@ function vOrder(){
 function vOnline(){
   const el=document.getElementById("main"); el.className="";
   const jobs=JOBS.filter(j=>j.branch===branch && j.status!=="done");
-  const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
+  const approvers = STAFF.filter(s=>s.role==="admin" && (s.branch===branch||s.branch==="ALL"));  // Gem เคาะ: สั่งซ้ำ = admin (หัวหน้าแผนก) เท่านั้น
   const osos = CARDS[branch].filter(c=> cardOnline(c) && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
   el.innerHTML = `<div class="page">
   <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม (งานตรงเข้า ตรง-R ก่อน — ทีมผลิตย้ายปีกได้ที่บอร์ด) · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
@@ -839,6 +857,7 @@ function tktHead(t, c){
     <span class="mchip">${esc(t.mach)}</span>
     <span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}${t.route==="C"?" ⏸":""}</span>
     ${t.urgent?`<span class="bdg urgent">⚡ ด่วน</span>`:""}
+    ${t.by.reorder_approved?`<span class="bdg urgent" title="${esc(t.by.reorder_reason||"")}">🔁 ผลิตซ้ำ</span>`:""}
     ${t.online?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
     ${t.xborder?`<span class="bdg ${t.soCover?"paid":"late"}">${t.soCover?"✓ SO คลุม "+esc(t.soCover):"🏢 จาก "+t.fromBranch+" · รอ SO คลุม"}</span>`:""}
     ${c && INTER[c.cusCode] && INTER[c.cusCode]!==branch ? `<span class="bdg inter">🏢 ${INTER[c.cusCode]}</span>`:""}
@@ -1047,6 +1066,7 @@ async function openM(id){
     })()}</div>
     <div class="sec">ผู้เกี่ยวข้อง</div>
     <div class="who">สั่ง: <b>${esc(t.by.ordered||"—")}</b> · อนุมัติ: <b>${esc(t.by.approved||"—")}</b> · วางแผน: <b>${esc(t.by.planned||"—")}</b> · ผลิต: <b>${esc(t.assignee||"—")}</b> · แพ็ค/ส่ง: <b>${esc(t.by.packed||"—")}/${esc(t.by.shipped||"—")}</b></div>
+    ${t.by.reorder_approved?`<div class="warn" style="margin-top:5px">🔁 <b>ใบผลิตซ้ำ</b> — ขอโดย ${esc(t.by.ordered||"")} · อนุมัติโดย <b>${esc(t.by.reorder_approved)}</b>${t.tm&&t.tm.reorder_approved?` เมื่อ ${fmtT(t.tm.reorder_approved)}`:""}<br>สาเหตุ: ${esc(t.by.reorder_reason||"—")}</div>`:""}
     <div class="sec">ข้อมูลหน้างาน</div>
     <div class="fields">
       <div><label>ล็อตคอยล์ที่ใช้</label><input value="${esc(t.coil_lot)}" onchange="saveField('${t.id}','coil_lot',this.value)"></div>
