@@ -960,6 +960,65 @@ function vPack(){
   }).join("") : `<div class="empty">— ยังไม่มีใบผลิตในระบบ —</div>`)+`</div>`;
 }
 
+/* ================= 📊 รายงานเวลา/คอขวด ================= */
+function durMin(a,b){ if(!a||!b) return null; const m=(new Date(b)-new Date(a))/60000; return m>=0? m : null; }
+function fmtMin(m){
+  if(m===null||isNaN(m)) return "—";
+  m=Math.round(m);
+  if(m<60) return m+" น.";
+  const h=Math.floor(m/60);
+  if(h<24) return h+" ชม. "+(m%60)+" น.";
+  return Math.floor(h/24)+" วัน "+(h%24)+" ชม.";
+}
+function avg(arr){ return arr.length? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
+function vReport(){
+  const el=document.getElementById("main"); el.className="";
+  const cut7 = new Date(Date.now()-7*864e5).toISOString();
+  const all = tksOf(branch);
+  const week = all.filter(t=>((t.tm&&t.tm.ordered)||t.created) >= cut7);
+  const isToday = iso => (iso||"").slice(0,10)===todayISO;
+  // ---- สรุปวันนี้ ----
+  const oToday = all.filter(t=>isToday(t.tm&&t.tm.ordered));
+  const dToday = all.filter(t=>isToday(t.tm&&t.tm.done));
+  const inProd = all.filter(t=>t.st===3), inQ = all.filter(t=>t.st===2), inPlan = all.filter(t=>t.st===1);
+  const mToday = dToday.reduce((s,t)=>s+tMetrics(t).m,0);
+  // ---- รายเครื่อง (7 วัน) ----
+  const rows = (MACHINES[branch]||[]).map(m=>{
+    const list = week.filter(t=>t.mach===m);
+    const done = list.filter(t=>t.tm&&t.tm.done);
+    const qs = list.map(t=>durMin(t.tm&&(t.tm.approved||t.tm.accepted||t.tm.ordered), t.tm&&t.tm.started)).filter(x=>x!==null);
+    const ps = list.map(t=>durMin(t.tm&&t.tm.started, t.tm&&t.tm.done)).filter(x=>x!==null);
+    const backlog = all.filter(t=>t.mach===m && t.st>=2 && t.st<=3).length;
+    const meters = done.reduce((s,t)=>s+tMetrics(t).m,0);
+    return {m, n:list.length, nd:done.length, meters, q:avg(qs), p:avg(ps), backlog, down:(DOWN[branch]||[]).includes(m)};
+  }).filter(r=>r.n>0 || r.backlog>0 || r.down);
+  // ---- คอขวด: คิวเฉลี่ยนานสุด (อย่างน้อย 2 ใบ) หรือค้างเยอะสุด ----
+  let bott = rows.filter(r=>r.q!==null && r.n>=2).sort((a,b)=>b.q-a.q)[0] || null;
+  if(!bott) bott = rows.filter(r=>r.backlog>0).sort((a,b)=>b.backlog-a.backlog)[0] || null;
+  // ---- lead time (7 วัน) ----
+  const leads = week.map(t=>durMin(t.tm&&t.tm.ordered, t.tm&&t.tm.done)).filter(x=>x!==null);
+  const leadShip = week.map(t=>durMin(t.tm&&t.tm.ordered, t.tm&&t.tm.arrived)).filter(x=>x!==null);
+  el.innerHTML = `<div class="page">
+  <div class="hint">📊 <b>รายงานเวลา — สาขา ${branch}</b> · คิว = อนุมัติ→เริ่มผลิต · ผลิต = เริ่ม→เสร็จ · เฉลี่ยจากใบ 7 วันล่าสุด · 🕐 เวลาละเอียดเริ่มเก็บ 20 ก.ค. ใบก่อนหน้ายังไม่มีคิว/เวลาผลิต</div>
+  <div class="socard"><div class="sec" style="margin-top:0">วันนี้ (${fmtD(todayISO)})</div>
+    <div class="met" style="flex-wrap:wrap"><span>ออกใบ <b>${oToday.length}</b></span><span>เสร็จ <b>${dToday.length}</b> ใบ (<b>${fmt(mToday)}</b> ม.)</span><span>กำลังผลิต <b>${inProd.length}</b></span><span>รอคิวเครื่อง <b>${inQ.length}</b></span><span>รอวางแผน <b>${inPlan.length}</b></span></div>
+    ${bott? `<div class="warn" style="margin-top:8px">🚧 <b>คอขวดตอนนี้: ${esc(bott.m)}</b> — ${bott.q!==null?`คิวเฉลี่ย ${fmtMin(bott.q)}`:""}${bott.backlog?` · ค้าง ${bott.backlog} ใบ`:""}${bott.down?" · ⛔ เครื่องเสียอยู่":""}</div>` : `<div class="who" style="margin-top:8px">✅ ไม่มีคอขวดชัดเจนในรอบ 7 วัน</div>`}
+    <div class="who" style="margin-top:6px">⏱ เฉลี่ย 7 วัน: ออกใบ→เสร็จ <b>${leads.length?fmtMin(avg(leads)):"—"}</b> (${leads.length} ใบ)${leadShip.length?` · ออกใบ→ถึงลูกค้า <b>${fmtMin(avg(leadShip))}</b> (${leadShip.length} ใบ)`:""}</div>
+  </div>
+  <div class="socard"><div class="sec" style="margin-top:0">รายเครื่อง — 7 วันล่าสุด</div>
+  <table class="items"><tr style="font-size:10.5px;color:var(--muted);font-weight:700"><td>เครื่อง</td><td class="q">ใบ</td><td class="q">เสร็จ</td><td class="q">เมตร</td><td class="q">คิวเฉลี่ย</td><td class="q">ผลิตเฉลี่ย</td><td class="q">ค้างตอนนี้</td></tr>
+  ${rows.length? rows.map(r=>`<tr${bott&&r.m===bott.m?' style="background:#fff8ec"':''}><td>${bott&&r.m===bott.m?"🚧 ":""}${r.down?"⛔ ":""}${esc(r.m)}</td><td class="q">${r.n}</td><td class="q">${r.nd}</td><td class="q">${fmt(r.meters)}</td><td class="q">${fmtMin(r.q)}</td><td class="q">${fmtMin(r.p)}</td><td class="q">${r.backlog||""}</td></tr>`).join("") : `<tr><td colspan="7" style="color:var(--muted)">— ยังไม่มีใบผลิตใน 7 วัน —</td></tr>`}
+  </table></div>
+  <div class="socard"><div class="sec" style="margin-top:0">เทียบ 3 สาขา — ใบเสร็จ 7 วัน</div>
+    <div class="met" style="flex-wrap:wrap">${["SKN","BK","PPS"].map(b=>{
+      const w=tksOf(b).filter(t=>((t.tm&&t.tm.ordered)||t.created)>=cut7);
+      const d=w.filter(t=>t.tm&&t.tm.done);
+      const l=w.map(t=>durMin(t.tm&&t.tm.ordered,t.tm&&t.tm.done)).filter(x=>x!==null);
+      return `<span>${b}: <b>${d.length}</b>/${w.length} ใบ${l.length?` · เฉลี่ย <b>${fmtMin(avg(l))}</b>`:""}</span>`;
+    }).join("")}</div>
+  </div></div>`;
+}
+
 /* ================= modal ================= */
 async function openM(id){
   const t=TK.find(t=>t.id===id); if(!t) return;
@@ -1022,10 +1081,10 @@ function render(){
     + CARDS[branch].filter(c=>cardOnline(c)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected)).length;
   const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
     ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
-    ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0]];
+    ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],["report","📊 เวลา",0]];
   document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
     `<button class="vtab ${v===view?"on":""}" onclick="view='${v}';render()">${l}${n?`<span class="b">${n}</span>`:""}</button>`).join("");
-  ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack})[view]();
+  ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, report:vReport})[view]();
   renderSyncs();
 }
 
