@@ -16,6 +16,7 @@ h1{font-size:16px;margin:0;font-weight:800}
 .conn{font-size:10.5px;border-radius:99px;padding:2px 9px;font-weight:700}
 .conn.live{background:#e6f4ea;color:var(--green)}
 .conn.off{background:#fee4e2;color:var(--red)}
+body.busy button{pointer-events:none;opacity:.55}
 .syncs{display:flex;gap:7px;font-size:10.5px;color:var(--muted);flex-wrap:wrap}
 .syncs .bad{color:var(--red);font-weight:700}
 .userchip{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;background:#e8f0ff;color:var(--accent);border-radius:99px;padding:4px 11px}
@@ -285,7 +286,9 @@ function foldCapNeeded(des, mw){
   if(d.includes(other)) return true;                        // หน้ากว้างคนละแบบกับเครื่องรีดของสาขา
   return false;
 }
-const isOnlineSO = so => /^O/.test(so||"") && !/^SO/.test(so||"");   // SO ออนไลน์ = เลขขึ้นต้น O (คนละชุดกับ SO หน้าร้าน)
+const isOnlineSO = so => /^O/.test(so||"") && !/^SO/.test(so||"");   // เผื่อเลข SO ขึ้นต้น O (ชุดพิเศษ)
+const isOnlineCus = cc => /^O/.test(cc||"");                          // งานออนไลน์จริง = รหัสลูกค้าขึ้นต้น O (O610310888=Shopee, O610310777=TikTok, ...)
+const cardOnline = c => isOnlineCus(c && c.cusCode) || isOnlineSO(c && c.so);
 function resolveMachine(br, type, customer, des, isOnline){
   const list = MACHINES[br]||[];
   if(type==="ตรง"){
@@ -354,13 +357,14 @@ function fmtD(iso){ if(!iso) return "—"; const [y,m,d]=iso.split("-"); return 
 function nowT(){ const d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
 
 /* ================= state ================= */
-let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={};
+let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={}, CUSOF={};
 let branch="SKN", view="order", openId=null, loaded=false;
 let q="", FETCHED={SKN:{},BK:{},PPS:{}}, REOK={}, RSHOW={};  // ค้นหา/ใบเก่าที่ดึงมา/อนุมัติซ้ำแล้ว/ฟอร์มขออนุมัติ
 function tks(){ return TK.filter(t=>t.branch===branch && !t.by.rejected); }
 function tksOf(br){ return TK.filter(t=>t.branch===br && !t.by.rejected); }
-function findSO(so){
-  return CARDS[branch].find(c=>c.so===so) || CARDS.SKN.concat(CARDS.BK,CARDS.PPS).find(c=>c.so===so) || jobMeta(so);
+function findSO(so, br){
+  // เลข SO ซ้ำข้ามสาขาได้ (Express รันแยกสาขา) — หาในสาขาที่ระบุ/สาขาปัจจุบันก่อนเสมอ
+  return CARDS[br||branch].find(c=>c.so===so) || CARDS.SKN.concat(CARDS.BK,CARDS.PPS).find(c=>c.so===so) || jobMeta(so);
 }
 function jobMeta(so){
   const j = JOBS.find(j=>j.order_no===so);
@@ -377,8 +381,10 @@ function sentTo(so, seq){
 }
 function tItems(t){
   if(t.oitems && t.oitems.length) return t.oitems;
-  const c = findSO(t.so);
-  return c ? c.items.filter(i=>t.idxs.includes(i.seq)) : [];
+  const c = findSO(t.so, t.branch);
+  if(!c) return [];
+  if(t.urgent && !t.idxs.length) return c.items;   // ใบด่วนที่สร้างก่อน SO sync = คลุมทั้งใบ → พอ SO มาแล้วดึงรายการ/ความยาวให้อัตโนมัติ
+  return c.items.filter(i=>t.idxs.includes(i.seq));
 }
 function tMetrics(t){
   const its = tItems(t);
@@ -408,10 +414,11 @@ function applyData(d){
     (itBySo[r.branch+"|"+r.sonum]=itBySo[r.branch+"|"+r.sonum]||[]).push(
       {seq:r.seq, stk:r.stkcod||"", des:r.stkdes||"", qty:+r.ordqty||0, rem:+r.remqty||0, unit:r.unit||""});
   });
-  CARDS={SKN:[],BK:[],PPS:[]}; SYNCMAX={};
+  CARDS={SKN:[],BK:[],PPS:[]}; SYNCMAX={}; CUSOF={};
   const cutM = new Date(Date.now()-7*864e5).toISOString().slice(0,10);
   d.sos.forEach(r=>{
     if(!CARDS[r.branch]) return;
+    CUSOF[r.branch+"|"+r.sonum]=r.cuscod||"";
     if(!SYNCMAX[r.branch] || r.synced_at>SYNCMAX[r.branch]) SYNCMAX[r.branch]=r.synced_at;
     if(r.docstat==="C") return;
     if(r.docstat==="M" && (r.sodat||"") < cutM) return;  // ขายสดตัดบิลแล้ว โชว์ 7 วัน
@@ -429,7 +436,7 @@ function applyData(d){
   TK = d.tks.map(r=>({
     id:r.id, branch:r.branch, so:r.sonum, mach:r.machine, key:r.material_key||null,
     label:r.label, idxs:r.item_seqs||[], oitems:r.oitems,
-    online:r.source==="online" || isOnlineSO(r.sonum), xborder:r.source==="xborder", urgent:r.source==="urgent",
+    online:r.source==="online" || isOnlineSO(r.sonum) || isOnlineCus(CUSOF[r.branch+"|"+r.sonum]), xborder:r.source==="xborder", urgent:r.source==="urgent",
     fromBranch:r.from_branch, soCover:r.so_cover||"", st:r.stage, route:r.route,
     assignee:r.assignee||"", priority:r.priority||0, coil_lot:r.coil_lot||"", waste:r.waste_note||"",
     by:r.people||{}, met:{m:+r.prod_m||0, sh:+r.sheets||0, mx:+r.max_len||0, kg:+r.weight_kg||0},
@@ -455,9 +462,13 @@ async function patchTicket(t, patch, action, detail){
   await DB.insertEvent({ticket_id:t.id, staff_id:USER.dbid||null, staff_name:USER.name, action,
     from_stage:t.st, to_stage:patch.stage!==undefined?patch.stage:t.st, detail:detail||""});
 }
+let BUSY=false;   // กันกดปุ่มรัว: ระหว่างบันทึก ปุ่มทุกปุ่มถูกล็อค คลิกซ้ำถูกทิ้ง
 async function act(fn){
+  if(BUSY) return;
+  BUSY=true; document.body.classList.add("busy");
   try{ await fn(); await reload(); }
   catch(e){ console.error(e); alertBar("บันทึกไม่สำเร็จ — เช็คเน็ตแล้วลองใหม่"); }
+  BUSY=false; document.body.classList.remove("busy");
   render();
 }
 let alertT=null;
@@ -474,7 +485,7 @@ function orderProduce(so, isRe){
   if(isRe && !approver) return;   // สั่งซ้ำต้องผ่านอนุมัติก่อนเท่านั้น
   c.items.forEach(it=>{
     if(done.has(it.seq) && !isRe) return;
-    const mach=machineOf(it.stk,it.des,branch,c.customer,isOnlineSO(so));
+    const mach=machineOf(it.stk,it.des,branch,c.customer,cardOnline(c));
     if(!mach || !canProduce(branch,mach)) return;
     const cb=document.getElementById("cb-"+so+"-"+it.seq);
     if(cb && cb.checked){ const k=mach+"|"+(coilKeyOf(it.stk)||"-"); (byKey[k]=byKey[k]||[]).push(it); }
@@ -509,6 +520,7 @@ async function fetchOldSO(){
       items:(r.its||[]).map(x=>({seq:x.seq, stk:x.stkcod||"", des:x.stkdes||"", qty:+x.ordqty||0, unit:x.unit||""}))};
     FETCHED[branch][c.so]=c;
     if(!CARDS[branch].find(x=>x.so===c.so)) CARDS[branch].push(c);
+    if(cardOnline(c)){ view="online"; alertBar("SO "+c.so+" เป็นงานออนไลน์ — ย้ายไปแท็บ 🛍"); }
     render();
   }catch(e){ console.error(e); alertBar("ค้นหาไม่สำเร็จ — เช็คเน็ต"); }
 }
@@ -528,8 +540,17 @@ function planA(id){
   const mach=(mSel?mSel.value:t.mach).split(" — ")[0];
   const assignee=aSel?aSel.value:"";
   const pr = Math.max(0,...TK.filter(x=>x.branch===branch&&x.mach===mach&&x.st>=2&&x.st<=3).map(x=>x.priority))+1;
-  act(()=>patchTicket(t,{stage:2,route:"A",machine:mach,assignee,priority:pr,
-    people:{...t.by,planned:USER.name}},"plan",
+  const patch={stage:2,route:"A",machine:mach,assignee,priority:pr,people:{...t.by,planned:USER.name}};
+  // ใบด่วนที่ SO sync มาแล้ว → ผูกรายการ+ความยาวลงฐานข้อมูลถาวรตอนวางแผน
+  if(t.urgent && !t.idxs.length){
+    const c=findSO(t.so, t.branch);
+    if(c && c.items && c.items.length){
+      const kk=coilKeyOf(c.items[0].stk||"");
+      Object.assign(patch,{item_seqs:c.items.map(i=>i.seq), material_key:kk||"",
+        label:"⚡ "+labelOf(c.items[0].des,kk), ...metricsOf(c.items,kk)});
+    }
+  }
+  act(()=>patchTicket(t,patch,"plan",
     "วางแผน: ผลิตใหม่ → "+mach+(assignee?" มอบหมาย "+assignee:" (รอคนรับงาน)")));
 }
 function planB(id){
@@ -599,13 +620,38 @@ function saveField(id, field, val){
     .catch(()=>alertBar("บันทึกไม่สำเร็จ"));
   DB.insertEvent({ticket_id:id, staff_id:USER.dbid||null, staff_name:USER.name, action:"edit_field", detail:field+" = "+val});
 }
-function urgentGo(){
+async function urgentGo(){
+  if(BUSY) return;
   const inp=document.getElementById("urg-so");
   const v=inp?inp.value.trim().toUpperCase():"";
   if(!v) return;
+  // 1) มีใบผลิตของ SO นี้ที่สาขานี้แล้ว → ห้ามสร้างซ้ำ (ซ้ำต้องผ่านอนุมัติที่การ์ด SO)
+  if(TK.some(t=>t.branch===branch && t.so===v && !t.by.rejected)){
+    alertBar("SO "+v+" มีใบผลิตแล้ว — สั่งซ้ำต้องกด 🔁 ที่การ์ด SO (ขออนุมัติ)"); return;
+  }
+  // 2) ข้อมูล SO sync มาแล้ว → ไม่ต้องใช้ใบด่วนเปล่า ชี้ไปสั่งจากการ์ดจริง (ได้รายการ+ความยาวครบ)
+  let c=CARDS[branch].find(x=>x.so===v);   // เลข SO ซ้ำข้ามสาขาได้ — เช็คเฉพาะสาขาตัวเอง
+  if(!c){
+    BUSY=true; document.body.classList.add("busy");
+    try{
+      const r=await DB.fetchSO(branch, v);
+      if(r){ c={so:r.so.sonum, date:r.so.sodat, due:r.so.dlvdat, cusCode:r.so.cuscod||"",
+        customer:r.so.cusnam||r.so.cuscod||"", docstat:r.so.docstat, fetched:true,
+        items:(r.its||[]).map(x=>({seq:x.seq, stk:x.stkcod||"", des:x.stkdes||"", qty:+x.ordqty||0, unit:x.unit||""}))};
+        FETCHED[branch][c.so]=c;
+        if(!CARDS[branch].find(x=>x.so===c.so)) CARDS[branch].push(c);
+      }
+    }catch(e){ console.error(e); }
+    BUSY=false; document.body.classList.remove("busy");
+  }
+  if(c && c.items && c.items.length){
+    q=v; render(); alertBar("ข้อมูล SO "+v+" มีแล้ว — ติ๊กรายการจากการ์ดด้านล่างแล้วกดสั่งได้เลย"); return;
+  }
+  // 3) ยังไม่มีข้อมูลจริงๆ (เพิ่งคีย์ ยังไม่ครบรอบ sync 2 นาที) → ใบด่วนเปล่า พอ SO มาระบบผูกรายการให้เอง
   act(()=>newTicket({branch, source:"urgent", sonum:v, stage:1, label:"⚡ ด่วน — รอข้อมูล SO sync",
     people:{ordered:USER.name, approved:USER.name}, created_by:USER.dbid||null},
     "create","⚡ สั่งผลิตด่วน "+v+" (ก่อนข้อมูล SO มาถึง)"));
+  if(inp) inp.value="";
 }
 function toggleMachine(br, name){
   if(!USER.canFix) return;
@@ -658,7 +704,7 @@ function soCardHtml(c, approvers){
     const done=orderedIdx(c.so);
     const inter=INTER[c.cusCode]&&INTER[c.cusCode]!==branch?INTER[c.cusCode]:null;
     const reok=REOK[c.so];
-    const oso=isOnlineSO(c.so);
+    const oso=cardOnline(c);
     let anyBox=false, hasOrdered=false;
     const rows=c.items.map(it=>{
       const x=it.seq;
@@ -709,14 +755,14 @@ function cutView3(){ const d=new Date(); d.setDate(d.getDate()-2); return d.toIS
 function vOrder(){
   const el=document.getElementById("main"); el.className="";
   const qq=q.trim().toUpperCase();
-  const all=CARDS[branch];
+  const all=CARDS[branch].filter(c=>!cardOnline(c));   // งานออนไลน์ (รหัสลูกค้าขึ้นต้น O) ไม่ขึ้นฝั่งขายเลย — อยู่แท็บ 🛍
   const cs = qq
     ? all.filter(c=> c.so.toUpperCase().includes(qq) || (c.customer||"").toUpperCase().includes(qq))
-    : all.filter(c=> !isOnlineSO(c.so) && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
-  const nOld = qq? 0 : all.filter(c=>!isOnlineSO(c.so)).length - cs.length;
+    : all.filter(c=> (c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]);
+  const nOld = qq? 0 : all.length - cs.length;
   const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
   el.innerHTML = `<div class="page">
-  <div class="hint">🛒 <b>ฝั่งขาย (หน้าร้าน)</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · SO ออนไลน์ (ขึ้นต้น O) แยกอยู่แท็บ 🛍 · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
+  <div class="hint">🛒 <b>ฝั่งขาย (หน้าร้าน)</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · งานออนไลน์ (รหัสลูกค้าขึ้นต้น O เช่น Shopee/TikTok) แยกอยู่แท็บ 🛍 · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
   <div class="urgbox"><input id="q-so" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-so').value='';render()">✕</button>`:""}</div>
   <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
   (cs.length? cs.map(c=>soCardHtml(c, approvers)).join("") : qq
@@ -727,10 +773,10 @@ function vOnline(){
   const el=document.getElementById("main"); el.className="";
   const jobs=JOBS.filter(j=>j.branch===branch && j.status!=="done");
   const approvers = STAFF.filter(s=>s.can_approve && (s.branch===branch||s.branch==="ALL"));
-  const osos = CARDS[branch].filter(c=> isOnlineSO(c.so) && ((c.date||"") >= cutView3() || REOK[c.so] || RSHOW[c.so]));
+  const osos = CARDS[branch].filter(c=> cardOnline(c) && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
   el.innerHTML = `<div class="page">
-  <div class="hint">🛍 <b>งานออนไลน์</b> — <b>SO ออนไลน์ (เลขขึ้นต้น O)</b> จาก Express แยกมาอยู่หน้านี้ทั้งหมด สั่งผลิตเหมือนฝั่งขายปกติ งานตรงเข้าเครื่องสายออนไลน์อัตโนมัติ · ด้านล่างคือออเดอร์จากไฟล์ tag (Shopee/TikTok/Lazada) ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
-  (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าค้นหาได้ที่แท็บฝั่งขาย)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ขึ้นต้น O) ในช่วง 3 วัน —</div>`) +
+  <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม งานตรงเข้าเครื่องสายออนไลน์อัตโนมัติ · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
+  (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าพิมพ์เลข SO ในช่องค้นหาแท็บ 🛒 แล้วกดดึง ระบบจะพามาที่นี่)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ลูกค้ารหัส O) ในช่วง 3 วัน —</div>`) +
   `<div class="sec" style="margin:14px 0 8px">📄 ออเดอร์จากไฟล์ tag (ไม่ผ่าน SO)</div>
   <div style="margin-bottom:11px"><button class="btn grey" onclick="document.getElementById('aj').classList.toggle('show')">➕ เพิ่มออเดอร์เอง</button></div>
   <div class="planx" id="aj" style="margin-bottom:11px">
@@ -924,7 +970,7 @@ function render(){
   const ONLINE_BR = ["SKN","BK"];   // สาขาที่ผลิต+ส่งงานออนไลน์ตอนนี้
   if(view==="online" && !ONLINE_BR.includes(branch)) view="order";
   const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length
-    + CARDS[branch].filter(c=>isOnlineSO(c.so)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.so===c.so&&!t.by.rejected)).length;
+    + CARDS[branch].filter(c=>cardOnline(c)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected)).length;
   const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
     ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
     ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0]];
