@@ -158,6 +158,11 @@ table.items td.q{text-align:right;white-space:nowrap;font-weight:700}
   <div class="s-b" id="m-b"></div>
 </div></div>
 
+<div class="ovbg" id="shbg"><div class="sheet">
+  <div class="s-h"><span style="font-weight:800" id="sh-t"></span><button class="s-x" onclick="closeShape()">✕</button></div>
+  <div class="s-b" id="sh-b"></div>
+</div></div>
+
 <div class="login-bg" id="loginbg">
   <div class="login">
     <h2>🏭 007 Production</h2>
@@ -215,16 +220,18 @@ let DB = {
   async loadAll(){
     const cutD = new Date(Date.now()-30*864e5).toISOString().slice(0,10);
     const cutT = new Date(Date.now()-60*864e5).toISOString();
-    const [sos, its, tks, machines, coils, jobs] = await Promise.all([
+    const [sos, its, tks, machines, coils, jobs, shapes] = await Promise.all([
       this.fetchAll("so_live", q=>q.gte("sodat",cutD)),
       this.fetchAll("so_item_live", q=>q.gte("synced_at",cutT)),
       this.fetchAll("production_ticket", q=>q.gte("created_at",cutT)),
       this.fetchAll("machine"),
       this.fetchAll("coil_stock"),
       this.fetchAll("online_job", q=>q.gte("created_at",cutT)),
+      this.fetchAll("shape_drawing", q=>q.gte("updated_at",cutT)),
     ]);
-    return {sos, its, tks, machines, coils, jobs};
+    return {sos, its, tks, machines, coils, jobs, shapes};
   },
+  async upsertShape(row){ const {error} = await sb.from("shape_drawing").upsert(row,{onConflict:"branch,sonum,seq"}); if(error) throw error; },
   async fetchSO(branch, sonum){
     const {data:so} = await sb.from("so_live").select("*").eq("branch",branch).eq("sonum",sonum).maybeSingle();
     if(!so) return null;
@@ -374,7 +381,7 @@ function durTxt(a,b){
 }
 
 /* ================= state ================= */
-let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={}, CUSOF={};
+let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={}, CUSOF={}, SHAPES={};
 let branch="SKN", view="order", openId=null, loaded=false;
 let q="", FETCHED={SKN:{},BK:{},PPS:{}}, REOK={}, RSHOW={};  // ค้นหา/ใบเก่าที่ดึงมา/อนุมัติซ้ำแล้ว/ฟอร์มขออนุมัติ
 function tks(){ return TK.filter(t=>t.branch===branch && !t.by.rejected); }
@@ -447,6 +454,9 @@ function applyData(d){
     if(!CARDS[b].find(x=>x.so===c.so)) CARDS[b].push(c);
   }));
   Object.values(CARDS).forEach(v=>v.sort((a,b)=>(a.due||"9999")<(b.due||"9999")?-1:1));
+  // 📐 แบบครอบตามแบบ (วาดจากระยะจริง)
+  SHAPES={};
+  (d.shapes||[]).forEach(s=>{ SHAPES[s.branch+"|"+s.sonum+"|"+s.seq]=s; });
   // jobs
   JOBS = d.jobs;
   // tickets
@@ -746,6 +756,8 @@ function soCardHtml(c, approvers){
     const reok=REOK[c.so];
     const oso=cardOnline(c);
     let anyBox=false, hasOrdered=false;
+    const shBtn = it => isCustomShape(it.des)
+      ? `<button class="btn ${SHAPES[shapeKey(branch,c.so,it.seq)]?"green":"amber"}" style="padding:4px 9px;font-size:11px" onclick="openShape('${esq(c.so)}',${it.seq},'${esq(it.des)}')">📐${SHAPES[shapeKey(branch,c.so,it.seq)]?" ✓":" วาดแบบ"}</button>` : "";
     const rows=c.items.map(it=>{
       const x=it.seq;
       const mach=machineOf(it.stk,it.des,branch,c.customer,oso);
@@ -764,12 +776,12 @@ function soCardHtml(c, approvers){
       if(done.has(x)){
         hasOrdered=true;
         if(reok){ anyBox=true;
-          return `<div class="oi"><input type="checkbox" id="cb-${c.so}-${x}"><span class="bdg urgent">🔁 ซ้ำ</span><span class="mchip">${mach}</span><label class="d" for="cb-${c.so}-${x}">${esc(it.des)}</label><span class="q">${qty}</span></div>`;
+          return `<div class="oi"><input type="checkbox" id="cb-${c.so}-${x}"><span class="bdg urgent">🔁 ซ้ำ</span><span class="mchip">${mach}</span><label class="d" for="cb-${c.so}-${x}">${esc(it.des)}</label>${shBtn(it)}<span class="q">${qty}</span></div>`;
         }
-        return `<div class="oi"><span class="dtag">✓ สั่งแล้ว 🔒</span><span class="mchip">${mach}</span><span class="d" style="color:var(--muted)">${esc(it.des)}</span><span class="q">${qty}</span></div>`;
+        return `<div class="oi"><span class="dtag">✓ สั่งแล้ว 🔒</span><span class="mchip">${mach}</span><span class="d" style="color:var(--muted)">${esc(it.des)}</span>${shBtn(it)}<span class="q">${qty}</span></div>`;
       }
       anyBox=true;
-      return `<div class="oi"><input type="checkbox" id="cb-${c.so}-${x}" checked><span class="mchip">${mach}</span><label class="d" for="cb-${c.so}-${x}">${esc(it.des)}</label><span class="q">${qty}</span></div>`;
+      return `<div class="oi"><input type="checkbox" id="cb-${c.so}-${x}" checked><span class="mchip">${mach}</span><label class="d" for="cb-${c.so}-${x}">${esc(it.des)}</label>${shBtn(it)}<span class="q">${qty}</span></div>`;
     }).join("");
     return `<div class="socard ${anyBox?"":"dim"}">
       <div class="so-h"><span class="so">${c.so}</span><span class="cu">${esc(c.customer)}</span>
@@ -858,6 +870,7 @@ function tktHead(t, c){
     <span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}${t.route==="C"?" ⏸":""}</span>
     ${t.urgent?`<span class="bdg urgent">⚡ ด่วน</span>`:""}
     ${t.by.reorder_approved?`<span class="bdg urgent" title="${esc(t.by.reorder_reason||"")}">🔁 ผลิตซ้ำ</span>`:""}
+    ${tItems(t).some(i=>i.seq&&SHAPES[shapeKey(t.branch,t.so,i.seq)])?`<span class="bdg" style="background:#eef3ff;color:#1f5eff">📐 มีแบบ</span>`:""}
     ${t.online?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
     ${t.xborder?`<span class="bdg ${t.soCover?"paid":"late"}">${t.soCover?"✓ SO คลุม "+esc(t.soCover):"🏢 จาก "+t.fromBranch+" · รอ SO คลุม"}</span>`:""}
     ${c && INTER[c.cusCode] && INTER[c.cusCode]!==branch ? `<span class="bdg inter">🏢 ${INTER[c.cusCode]}</span>`:""}
@@ -1047,6 +1060,94 @@ function vReport(){
   </div></div>`;
 }
 
+/* ================= 📐 ครอบตามแบบ — วาดจากระยะจริง ================= */
+const isCustomShape = des => /ตามแบบ/.test(des||"");
+function shapeKey(br,so,seq){ return br+"|"+so+"|"+seq; }
+function shapeCodeOf(des){ return (String(des||"").match(/ตามแบบ\s*(\d{2,4})/)||[])[1]||null; }
+function shapeSVG(segs, small){
+  // segs: [{L ซม., a องศาพับ (มุมที่เหล็กทำกัน เช่น 90=มุมฉาก), d 1=พับลง / -1=พับขึ้น}] — วาดจากตัวเลข = scale ตรงเสมอ
+  const pts=[[0,0]]; let hx=1, hy=0, x=0, y=0;
+  const lbl=[], angL=[];
+  segs.forEach((s,i)=>{
+    const L=+s.L||0, nx=x+hx*L, ny=y+hy*L;
+    lbl.push({x:(x+nx)/2, y:(y+ny)/2, t:fmt(L,1), px:-hy, py:hx});
+    x=nx; y=ny; pts.push([x,y]);
+    if(i<segs.length-1){
+      const a=+s.a||90, d=(+s.d===-1)?-1:1;
+      angL.push({x, y, t:a+"°"});
+      const th=(180-a)*d*Math.PI/180;
+      const nhx=hx*Math.cos(th)-hy*Math.sin(th), nhy=hx*Math.sin(th)+hy*Math.cos(th);
+      hx=nhx; hy=nhy;
+    }
+  });
+  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+  const mnx=Math.min(...xs), mxx=Math.max(...xs), mny=Math.min(...ys), mxy=Math.max(...ys);
+  const pad=6, w=(mxx-mnx)+pad*2, h=(mxy-mny)+pad*2;
+  let grid="";
+  if(!small){
+    for(let gx=Math.ceil((mnx-pad)/5)*5; gx<=mxx+pad; gx+=5) grid+=`<line x1="${gx}" y1="${(mny-pad).toFixed(1)}" x2="${gx}" y2="${(mxy+pad).toFixed(1)}" stroke="#e9edf3" stroke-width="0.25"/>`;
+    for(let gy=Math.ceil((mny-pad)/5)*5; gy<=mxy+pad; gy+=5) grid+=`<line x1="${(mnx-pad).toFixed(1)}" y1="${gy}" x2="${(mxx+pad).toFixed(1)}" y2="${gy}" stroke="#e9edf3" stroke-width="0.25"/>`;
+  }
+  const path=pts.map((p,i)=>(i?"L ":"M ")+p[0].toFixed(2)+" "+p[1].toFixed(2)).join(" ");
+  return `<svg viewBox="${(mnx-pad).toFixed(1)} ${(mny-pad).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}" style="width:100%;max-height:${small?64:300}px;background:#fff;${small?"":"border:1px solid var(--line);border-radius:10px"}">
+    ${grid}
+    <path d="${path}" fill="none" stroke="#1f2933" stroke-width="${small?1.4:0.8}" stroke-linejoin="miter" stroke-linecap="square"/>
+    ${small?"":lbl.map(l=>`<text x="${(l.x+l.px*3.4).toFixed(1)}" y="${(l.y+l.py*3.4).toFixed(1)}" font-size="3.4" text-anchor="middle" fill="#1f5eff" font-weight="700">${l.t}</text>`).join("")}
+    ${small?"":angL.map(l=>`<text x="${(l.x).toFixed(1)}" y="${(l.y-1.8).toFixed(1)}" font-size="2.7" text-anchor="middle" fill="#b54708">${l.t}</text>`).join("")}
+  </svg>`;
+}
+let SHED=null;
+function openShape(so, seq, des){
+  const ex=SHAPES[shapeKey(branch,so,seq)];
+  SHED={so, seq:+seq, des,
+    segs: ex? JSON.parse(JSON.stringify(ex.segs||[])) : [{L:10,a:90,d:1},{L:10,a:90,d:-1},{L:4}]};
+  if(!SHED.segs.length) SHED.segs=[{L:10,a:90,d:1},{L:10}];
+  renderShape();
+  document.getElementById("shbg").classList.add("show");
+}
+function closeShape(){ document.getElementById("shbg").classList.remove("show"); }
+document.getElementById("shbg").addEventListener("click",e=>{ if(e.target.id==="shbg") closeShape(); });
+function shSeg(i,k,v){ SHED.segs[i][k] = (k==="d")? +v : (parseFloat(v)||0); renderShape(); }
+function shAdd(){ const last=SHED.segs[SHED.segs.length-1]; if(last&&last.a===undefined){last.a=90;last.d=1;} SHED.segs.push({L:5}); renderShape(); }
+function shDel(i){ if(SHED.segs.length>2) SHED.segs.splice(i,1); renderShape(); }
+function shGirth(){ return SHED.segs.reduce((s,x)=>s+(+x.L||0),0); }
+function renderShape(){
+  const g=shGirth(), code=shapeCodeOf(SHED.des);
+  const okc = code? Math.abs(g*10-+code)<0.5 : null;
+  document.getElementById("sh-t").innerHTML = `📐 ${esc(SHED.so)} · รายการที่ ${SHED.seq}`;
+  document.getElementById("sh-b").innerHTML = `
+    <div class="who" style="margin-bottom:6px">${esc(SHED.des)}</div>
+    ${shapeSVG(SHED.segs)}
+    <div class="who" style="margin:7px 0">หน้ากว้างรวม <b>${fmt(g,1)} ซม. = ${fmt(g*10,0)} มม.</b>
+      ${code? (okc? `<span class="okpill">✓ ตรงรหัสแบบ ${code}</span>` : `<span class="bdg late">⚠ รหัสสินค้าระบุแบบ ${code} — ผลรวมด้านยังไม่ตรง</span>`) : ""}
+      · ตารางพื้นหลัง = 5 ซม.</div>
+    <table class="items">${SHED.segs.map((s,i)=>`<tr>
+      <td style="white-space:nowrap">ด้านที่ ${i+1}</td>
+      <td><input type="number" step="0.5" min="0" value="${s.L}" style="width:74px;border:1px solid var(--line);border-radius:8px;padding:7px;font-size:14px" onchange="shSeg(${i},'L',this.value)"> ซม.</td>
+      <td style="white-space:nowrap">${i<SHED.segs.length-1? `พับ
+        <select style="border:1px solid var(--line);border-radius:8px;padding:7px" onchange="shSeg(${i},'d',this.value)"><option value="1" ${+s.d!==-1?"selected":""}>↓ ลง</option><option value="-1" ${+s.d===-1?"selected":""}>↑ ขึ้น</option></select>
+        <input type="number" step="5" min="10" max="175" value="${s.a||90}" style="width:60px;border:1px solid var(--line);border-radius:8px;padding:7px" onchange="shSeg(${i},'a',this.value)">°` : `<span class="who">ปลายเหล็ก</span>`}</td>
+      <td><button class="btn grey" style="padding:5px 9px" onclick="shDel(${i})">✕</button></td>
+    </tr>`).join("")}</table>
+    <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">
+      <button class="btn grey" onclick="shAdd()">➕ เพิ่มด้าน</button>
+      <button class="btn blue" onclick="shSave()">💾 บันทึกแบบ (ช่างเครื่องพับเห็นทันที)</button>
+    </div>
+    <div class="who" style="margin-top:7px">กรอกระยะเป็น ซม. ตามที่เขียนหน้าบิล · องศา 90 = มุมฉาก (มากกว่า 90 = พับป้าน/ลาดเอียง) · ↓↑ = พับลงหรือขึ้นเทียบด้านก่อนหน้า · รูปวาดจากตัวเลขล้วน — scale ตรงเสมอ ไม่เพี้ยนตามภาพถ่าย</div>`;
+}
+async function shSave(){
+  if(BUSY||!SHED) return;
+  BUSY=true; document.body.classList.add("busy");
+  try{
+    const row={branch, sonum:SHED.so, seq:SHED.seq, des:SHED.des, segs:SHED.segs,
+      girth_mm:Math.round(shGirth()*10), updated_by:USER.name, updated_at:new Date().toISOString()};
+    await DB.upsertShape(row);
+    SHAPES[shapeKey(branch,SHED.so,SHED.seq)]=row;
+    closeShape(); render();
+  }catch(e){ console.error(e); alertBar("บันทึกแบบไม่สำเร็จ — เช็คเน็ต"); }
+  BUSY=false; document.body.classList.remove("busy");
+}
+
 /* ================= modal ================= */
 async function openM(id){
   const t=TK.find(t=>t.id===id); if(!t) return;
@@ -1076,7 +1177,12 @@ async function openM(id){
       <div style="display:flex;gap:6px"><input id="cov-${t.id}" placeholder="เลข SO ที่ ${branch} เปิดขายให้ ${esc(t.fromBranch||"")}" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit"><button class="btn dark" onclick="coverSO('${t.id}')">ผูก</button></div>
       <div class="who">ระบบจะเตือนจนกว่าจะมี SO คลุม — บัญชีระหว่างสาขาเดินครบตาม Express</div>`:""}
     <div class="sec">รายการ (${tItems(t).length})</div>
-    <table class="items">${tItems(t).map(i=>`<tr><td>${esc(i.des)}</td><td class="q">${fmt(i.qty)} ${esc(i.unit)}</td></tr>`).join("")}</table>
+    <table class="items">${tItems(t).map(i=>`<tr><td>${esc(i.des)}${isCustomShape(i.des)&&i.seq?` <button class="btn ${SHAPES[shapeKey(t.branch,t.so,i.seq)]?"green":"amber"}" style="padding:3px 8px;font-size:11px" onclick="openShape('${esq(t.so)}',${i.seq},'${esq(i.des)}')">📐${SHAPES[shapeKey(t.branch,t.so,i.seq)]?" แก้แบบ":" วาดแบบ"}</button>`:""}</td><td class="q">${fmt(i.qty)} ${esc(i.unit)}</td></tr>`).join("")}</table>
+    ${tItems(t).filter(i=>i.seq&&SHAPES[shapeKey(t.branch,t.so,i.seq)]).map(i=>{
+      const sh=SHAPES[shapeKey(t.branch,t.so,i.seq)];
+      return `<div class="sec">📐 แบบพับ — รายการที่ ${i.seq} (หน้ากว้างรวม ${fmt((sh.girth_mm||0),0)} มม.)</div>${shapeSVG(sh.segs||[])}
+      <div class="who">อัปเดตโดย ${esc(sh.updated_by||"")} · เส้น = หน้าตัดเหล็ก ตาราง 5 ซม. — ซูม/ขยายได้ scale ตรง</div>`;
+    }).join("")}
     <div class="sec">ประวัติ (ใครกดอะไรเมื่อไหร่)</div>
     <div class="hist" id="m-hist">กำลังโหลด…</div>`;
   document.getElementById("ovbg").classList.add("show");
