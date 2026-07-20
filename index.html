@@ -729,6 +729,63 @@ function makeOnlineTickets(jobId){
     await DB.updateJob(j.id,{status:"ticketed"});
   });
 }
+/* 📥 นำเข้าไฟล์ออเดอร์จาก Seller Center (Shopee orders.xlsx / TikTok OrderSKUList.xlsx) */
+function parsePlatformRows(rows){
+  const H=(rows[0]||[]).map(x=>String(x||"").trim());
+  const iOf=names=>H.findIndex(h=>names.some(n=>h.startsWith(n)));
+  let plat=null, C=null;
+  if(H.some(h=>h.startsWith("หมายเลขคำสั่งซื้อ"))){
+    plat="Shopee";
+    C={order:iOf(["หมายเลขคำสั่งซื้อ"]), status:iOf(["สถานะการสั่งซื้อ"]), sku:iOf(["เลขอ้างอิง SKU"]),
+       name:iOf(["ชื่อสินค้า"]), vari:iOf(["ชื่อตัวเลือก"]), qty:iOf(["จำนวน"]), rqty:iOf(["จำนวนที่ส่งคืน"]),
+       buyer:iOf(["ชื่อผู้ใช้"]), recv:-1};
+  } else if(H.includes("Order ID")){
+    plat="TikTok";
+    C={order:iOf(["Order ID"]), status:iOf(["Order Status"]), sku:iOf(["Seller SKU"]),
+       name:iOf(["Product Name"]), vari:iOf(["Variation"]), qty:iOf(["Quantity"]), rqty:iOf(["Sku Quantity of return"]),
+       buyer:iOf(["Buyer Username"]), recv:iOf(["Recipient"])};
+  } else return null;
+  const orders={}, returns=[];
+  rows.slice(1).forEach(r=>{
+    const ord=String(r[C.order]||"").trim();
+    const qty=Math.round(+r[C.qty]||0), rq=Math.round(+r[C.rqty]||0);
+    if(!ord || (!qty && !rq)) return;   // ข้ามแถวว่าง + แถวคำอธิบายของ TikTok (qty ไม่ใช่ตัวเลข)
+    const item={stk:String(r[C.sku]||"").trim(), des:(String(r[C.name]||"").slice(0,60)+" · "+String(r[C.vari]||"")).replace(/\s+·\s*$/,"").trim(), qty, unit:"ชิ้น"};
+    if(rq>0) returns.push({platform:plat, order:ord, ...item, rqty:rq});
+    if(!/ที่ต้องจัดส่ง|ที่จะจัดส่ง|To\s*ship|Awaiting/i.test(String(r[C.status]||""))) return;   // เอาเฉพาะออเดอร์ที่ต้องจัดส่ง
+    const o=orders[ord]=orders[ord]||{receiver:String((C.recv>=0&&r[C.recv])||r[C.buyer]||"").trim(), items:[]};
+    o.items.push(item);
+  });
+  return {platform:plat, orders, returns};
+}
+async function importTags(){
+  if(BUSY) return;
+  const f=document.getElementById("imp-file");
+  if(!f||!f.files||!f.files.length){ alertBar("เลือกไฟล์ .xlsx ที่ export จาก Seller Center ก่อน"); return; }
+  BUSY=true; document.body.classList.add("busy");
+  try{
+    if(!window.XLSX){
+      await new Promise((res,rej)=>{ const s=document.createElement("script");
+        s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+    }
+    const buf=await f.files[0].arrayBuffer();
+    const wb=XLSX.read(buf,{type:"array"});
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false});
+    const p=parsePlatformRows(rows);
+    if(!p){ alertBar("ไม่รู้จักรูปแบบไฟล์ — ต้องเป็น export ออเดอร์จาก Shopee/TikTok"); BUSY=false; document.body.classList.remove("busy"); return; }
+    let ok=0, dup=0;
+    for(const [ord,o] of Object.entries(p.orders)){
+      if(JOBS.some(j=>j.branch===branch&&j.order_no===ord)){ dup++; continue; }
+      try{ await DB.insertJob({branch, platform:p.platform, order_no:ord, receiver:o.receiver, items:o.items, created_by:USER.dbid||null}); ok++; }
+      catch(e){ dup++; }
+    }
+    await reload();
+    alertBar("📥 "+p.platform+": นำเข้า "+ok+" ออเดอร์"+(dup?" · ข้ามที่มีแล้ว "+dup:"")+(p.returns.length?" · ⚠ พบรายการคืน "+p.returns.length+" แถว (โมดูลรับคืนกำลังตามมา)":""));
+    if(f) f.value="";
+  }catch(e){ console.error(e); alertBar("นำเข้าไม่สำเร็จ — เช็คไฟล์/เน็ตแล้วลองใหม่"); }
+  BUSY=false; document.body.classList.remove("busy");
+  render();
+}
 function addJobGo(){
   const g=id=>document.getElementById(id).value.trim();
   const plat=g("aj-plat"), ord=g("aj-ord").toUpperCase(), recv=g("aj-recv"), lines=g("aj-items");
@@ -843,6 +900,8 @@ function vOnline(){
   <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม (งานตรงเข้า ตรง-R ก่อน — ทีมผลิตย้ายปีกได้ที่บอร์ด) · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
   (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าพิมพ์เลข SO ในช่องค้นหาแท็บ 🛒 แล้วกดดึง ระบบจะพามาที่นี่)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ลูกค้ารหัส O) ในช่วง 3 วัน —</div>`) +
   `<div class="sec" style="margin:14px 0 8px">📄 ออเดอร์จากไฟล์ tag (ไม่ผ่าน SO)</div>
+  <div class="urgbox"><input type="file" id="imp-file" accept=".xlsx,.xls" style="flex:1;font-size:12px"><button class="btn blue" onclick="importTags()">📥 นำเข้าออเดอร์ Shopee/TikTok</button></div>
+  <div class="who" style="margin:-4px 0 9px">รองรับไฟล์ export จาก Seller Center โดยตรง (Shopee: orders.xlsx · TikTok: OrderSKUList.xlsx) — ดึงเฉพาะออเดอร์ "ที่ต้องจัดส่ง" กันซ้ำอัตโนมัติ</div>
   <div style="margin-bottom:11px"><button class="btn grey" onclick="document.getElementById('aj').classList.toggle('show')">➕ เพิ่มออเดอร์เอง</button></div>
   <div class="planx" id="aj" style="margin-bottom:11px">
     <div class="fields" style="grid-template-columns:1fr 1fr 1fr">
