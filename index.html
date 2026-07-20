@@ -17,6 +17,9 @@ h1{font-size:16px;margin:0;font-weight:800}
 .conn.live{background:#e6f4ea;color:var(--green)}
 .conn.off{background:#fee4e2;color:var(--red)}
 body.busy button{pointer-events:none;opacity:.55}
+.tline{font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.7}
+.tline b{color:#3c4657;font-weight:700}
+.tline .dur{background:#e6f7f6;color:#0a8a85;border-radius:99px;padding:1px 7px;font-weight:700;white-space:nowrap}
 .syncs{display:flex;gap:7px;font-size:10.5px;color:var(--muted);flex-wrap:wrap}
 .syncs .bad{color:var(--red);font-weight:700}
 .userchip{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;background:#e8f0ff;color:var(--accent);border-radius:99px;padding:4px 11px}
@@ -355,6 +358,20 @@ function esq(s){ return (s||"").replace(/'/g,"\\'"); }
 function fmt(n,d=1){ return (+n).toLocaleString("th-TH",{maximumFractionDigits:d}); }
 function fmtD(iso){ if(!iso) return "—"; const [y,m,d]=iso.split("-"); return d+"/"+m+"/"+(+y+543-2500); }
 function nowT(){ const d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
+function fmtT(iso){ if(!iso) return "—"; const d=new Date(iso);
+  const dd=String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0");
+  const hh=String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+  return (iso.slice(0,10)===todayISO? "" : dd+" ")+hh;   // วันนี้โชว์แค่เวลา วันอื่นมี วัน/เดือน นำหน้า
+}
+function durTxt(a,b){
+  if(!a||!b) return null;
+  const m=Math.round((new Date(b)-new Date(a))/60000);
+  if(m<0) return null;
+  if(m<60) return m+" นาที";
+  const h=Math.floor(m/60);
+  if(h<24) return h+" ชม. "+(m%60)+" น.";
+  return Math.floor(h/24)+" วัน "+(h%24)+" ชม.";
+}
 
 /* ================= state ================= */
 let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={}, CUSOF={};
@@ -440,6 +457,7 @@ function applyData(d){
     fromBranch:r.from_branch, soCover:r.so_cover||"", st:r.stage, route:r.route,
     assignee:r.assignee||"", priority:r.priority||0, coil_lot:r.coil_lot||"", waste:r.waste_note||"",
     by:r.people||{}, met:{m:+r.prod_m||0, sh:+r.sheets||0, mx:+r.max_len||0, kg:+r.weight_kg||0},
+    tm:{ordered:r.created_at, ...(r.source!=="xborder"?{approved:r.created_at}:{}), ...(r.times||{})},  // ใบเก่าไม่มี times → ใช้เวลาออกใบแทน
     created:r.created_at
   }));
   loaded=true;
@@ -452,12 +470,21 @@ function metricsOf(items, key){
   items.forEach(i=>{ if(i.unit==="มร"){ m+=i.qty; const [L,n]=lenCnt(i.des,i.qty); if(n){sh+=n; mx=Math.max(mx,L);} } });
   return {mat_m:m, prod_m:m, weight_kg:Math.round(m*WIDTH_M*thickOf(key)*DENS*100)/100, sheets:sh, max_len:mx};
 }
+const nowISO = () => new Date().toISOString();
 async function newTicket(row, action, detail){
+  // 🕐 เวลาเป็น key ของ process — ประทับเวลาทุกบทบาทที่ถูกเซ็ตตอนออกใบ (ordered/approved/…)
+  if(row.people) row.times = Object.keys(row.people).reduce((o,k)=>(o[k]=nowISO(),o),{});
   const id = await DB.insertTicket(row);
   await DB.insertEvent({ticket_id:id, staff_id:USER.dbid||null, staff_name:USER.name, action, to_stage:row.stage, detail:detail||""});
   return id;
 }
 async function patchTicket(t, patch, action, detail){
+  // 🕐 บทบาทใหม่ที่เพิ่งถูกเซ็ต (planned/started/done/packed/shipped/arrived/accepted/…) → ประทับเวลาอัตโนมัติ
+  if(patch.people){
+    const nt={...(t.tm||{})};
+    Object.keys(patch.people).forEach(k=>{ if(patch.people[k] && !(t.by||{})[k]) nt[k]=nowISO(); });
+    patch.times=nt;
+  }
   await DB.updateTicket(t.id, patch);
   await DB.insertEvent({ticket_id:t.id, staff_id:USER.dbid||null, staff_name:USER.name, action,
     from_stage:t.st, to_stage:patch.stage!==undefined?patch.stage:t.st, detail:detail||""});
@@ -702,6 +729,7 @@ function dueBdg(c){
 }
 function soCardHtml(c, approvers){
     const done=orderedIdx(c.so);
+    const soOrdT=TK.filter(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected).map(t=>(t.tm&&t.tm.ordered)||t.created).sort().pop()||null;
     const inter=INTER[c.cusCode]&&INTER[c.cusCode]!==branch?INTER[c.cusCode]:null;
     const reok=REOK[c.so];
     const oso=cardOnline(c);
@@ -747,7 +775,7 @@ function soCardHtml(c, approvers){
       <div class="so-foot">${
         reok ? `<button class="btn amber" onclick="orderProduce('${esq(c.so)}',true)">🔁 สั่งผลิตซ้ำ → เข้าฝั่งผลิต</button><span class="okpill">อนุมัติซ้ำโดย ${esc(reok)}</span>`
         : anyBox ? `<button class="btn blue" onclick="orderProduce('${esq(c.so)}')">🛒 สั่ง+อนุมัติใบผลิต → เข้าฝั่งผลิต</button>${hasOrdered?`<button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกซ้ำ…</button>`:""}`
-        : hasOrdered ? `<span class="okpill">✓ สั่งครบแล้ว</span><button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกผลิตซ้ำ (ขออนุมัติ)</button>`
+        : hasOrdered ? `<span class="okpill">✓ สั่งครบแล้ว${soOrdT?` · 🕐 ออกใบ ${fmtT(soOrdT)}`:""}</span><button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกผลิตซ้ำ (ขออนุมัติ)</button>`
         : `<span class="okpill">ไม่มีรายการผลิตที่สาขานี้</span>`}</div>
     </div>`;
 }
@@ -813,6 +841,18 @@ function metLine(t){
   const M=tMetrics(t);
   return `<div class="met"><span>ผลิต <b>${fmt(M.m)} ม.</b></span><span><b>${M.sh}</b> แผ่น</span><span>ยาวสุด <b>${M.mx?fmt(M.mx,2):"—"} ม.</b></span><span>≈ <b>${fmt(M.kg,0)} กก.</b></span></div>`;
 }
+function timeLine(t){
+  // 🕐 เวลาเป็น key ของ process: ออกใบ → อนุมัติ → วางแผน → เริ่ม (รอคิวนานเท่าไหร่) → เสร็จ (ผลิตจริงกี่นาที)
+  const T=t.tm||{};
+  const apr = t.xborder ? T.accepted : (T.approved||T.ordered);
+  let s = `🕐 ออกใบ <b>${fmtT(T.ordered)}</b> · อนุมัติ <b>${apr?fmtT(apr):"⏳ รอฝั่งรับ"}</b>`;
+  if(T.planned) s += ` · วางแผน <b>${fmtT(T.planned)}</b>`;
+  if(T.started){ const w=durTxt(apr||T.ordered, T.started); s += ` · เริ่ม <b>${fmtT(T.started)}</b>${w?` <span class="dur">รอคิว ${w}</span>`:""}`; }
+  if(T.done){ const p=durTxt(T.started, T.done); s += ` · เสร็จ <b>${fmtT(T.done)}</b>${p?` <span class="dur">ผลิต ${p}</span>`:""}`; }
+  if(T.shipped) s += ` · ส่งออก <b>${fmtT(T.shipped)}</b>`;
+  if(T.arrived) s += ` · ถึงลูกค้า <b>${fmtT(T.arrived)}</b>`;
+  return `<div class="tline">${s}</div>`;
+}
 function vPlan(){
   const el=document.getElementById("main"); el.className="";
   const list=tks().filter(t=>t.st===1).sort((a,b)=>{
@@ -844,7 +884,7 @@ function vPlan(){
       : `<div class="coil ${cs>0?"ok":"low"}">🧻 สต็อคคอยล์ ZZC-${t.key}: ${fmt(cs)} (${cs>0?"มีของ":"หมด/ติดลบ — เช็คหน้างาน"})</div>`;
     return `<div class="tkt">${tktHead(t,c)}
       <div class="who">อนุมัติโดย <b>${esc(t.by.approved||"")}</b> · ลูกค้า ${esc(c.customer||"")}</div>
-      ${metLine(t)} ${coilHtml}
+      ${metLine(t)} ${timeLine(t)} ${coilHtml}
       ${t.route==="C"?`<div class="warn" style="margin-top:6px">⏸ รอวัตถุดิบอยู่ (กด A/B เมื่อของพร้อม)</div>`:""}
       <div class="planrow">
         <button class="btn blue" onclick="document.getElementById('px-${t.id}').classList.toggle('show')">🏭 A ผลิตใหม่…</button>
@@ -879,6 +919,7 @@ function vBoard(){
           <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
           ${metLine(t)}
           <div class="who">👷 <b>${esc(t.assignee||"ยังไม่มีคนรับ")}</b>${t.st>=3?` · เริ่มโดย ${esc(t.by.started||"")}`:""}</div>
+          ${timeLine(t)}
           <div class="bc-foot">${
             t.st===2&&!t.assignee ? `<button class="btn amber" onclick="event.stopPropagation();claim('${t.id}')">🙋 รับงาน (${esc(USER.name.split(" ")[0])})</button>` :
             t.st===2 ? `<button class="btn blue" onclick="event.stopPropagation();startProd('${t.id}')">▶ เริ่มผลิต</button>` :
@@ -906,7 +947,7 @@ function vPack(){
     const stockItems=(c.items||[]).filter(i=>!machineOf(i.stk,i.des));
     return `<div class="socard">
       <div class="so-h"><span class="so">${esc(so)}</span><span class="cu">${esc(c.customer||"")}</span>${dueBdg(c)}</div>
-      ${list.map(t=>`<div class="pk-row"><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><span class="mchip">${esc(t.mach)}</span><span class="nm">${t.route==="B"?"ใช้สต็อค":"ผลิตโดย "+esc(t.assignee||t.by.done||"—")}</span><span class="pk-st" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${t.st>=4?"✓ ":""}${STG[t.st]}</span></div>`).join("")}
+      ${list.map(t=>`<div class="pk-row"><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><span class="mchip">${esc(t.mach)}</span><span class="nm">${t.route==="B"?"ใช้สต็อค":"ผลิตโดย "+esc(t.assignee||t.by.done||"—")}${t.tm&&t.tm.done?` · เสร็จ ${fmtT(t.tm.done)}`:""}</span><span class="pk-st" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${t.st>=4?"✓ ":""}${STG[t.st]}</span></div>`).join("")}
       ${stockItems.length?`<div class="pk-row"><span class="stag">📦 หยิบสต็อค ${stockItems.length} รายการ</span><span class="nm" style="color:var(--muted)">${esc(stockItems.slice(0,2).map(i=>i.des).join(" · "))}${stockItems.length>2?" …":""}</span></div>`:""}
       <div class="truck">🚚 จัดรถ: <span>น้ำหนักรวม <b>${fmt(Tkg,0)}</b> กก.</span><span><b>${Tsh}</b> แผ่น</span><span>ยาวสุด <b>${Tmx?fmt(Tmx,2):"—"}</b> ม.</span></div>
       <div class="so-foot">
@@ -928,6 +969,14 @@ async function openM(id){
   document.getElementById("m-b").innerHTML = `
     <div><b>${esc(c.customer||"")}</b> · เครื่อง${esc(t.mach)} · สถานะ <b style="color:${STGC[t.st]}">${STG[t.st]}</b></div>
     ${metLine(t)}
+    <div class="sec">🕐 เวลา process</div>
+    ${timeLine(t)}
+    <div class="who">${(()=>{
+      const T=t.tm||{}; const apr=t.xborder?T.accepted:(T.approved||T.ordered);
+      const dQ=durTxt(apr, T.started), dP=durTxt(T.started, T.done), dS=durTxt(T.done, T.shipped), dA=durTxt(T.ordered, T.arrived);
+      const parts=[dQ?`อนุมัติ→เริ่มผลิต (รอคิว) <b>${dQ}</b>`:null, dP?`ผลิตจริง <b>${dP}</b>`:null, dS?`เสร็จ→ออกส่ง <b>${dS}</b>`:null, dA?`รวมออกใบ→ถึงลูกค้า <b>${dA}</b>`:null].filter(Boolean);
+      return parts.length? parts.join(" · ") : "— ระยะเวลาจะสรุปให้อัตโนมัติเมื่องานเดินขั้นถัดไป —";
+    })()}</div>
     <div class="sec">ผู้เกี่ยวข้อง</div>
     <div class="who">สั่ง: <b>${esc(t.by.ordered||"—")}</b> · อนุมัติ: <b>${esc(t.by.approved||"—")}</b> · วางแผน: <b>${esc(t.by.planned||"—")}</b> · ผลิต: <b>${esc(t.assignee||"—")}</b> · แพ็ค/ส่ง: <b>${esc(t.by.packed||"—")}/${esc(t.by.shipped||"—")}</b></div>
     <div class="sec">ข้อมูลหน้างาน</div>
