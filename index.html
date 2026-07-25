@@ -464,6 +464,7 @@ function applyData(d){
     id:r.id, branch:r.branch, so:r.sonum, mach:r.machine, key:r.material_key||null,
     label:r.label, idxs:r.item_seqs||[], oitems:r.oitems,
     online:r.source==="online" || isOnlineSO(r.sonum) || isOnlineCus(CUSOF[r.branch+"|"+r.sonum]), xborder:r.source==="xborder", urgent:r.source==="urgent",
+    stock:r.source==="stock",   // 🏭 ผลิตเก็บเข้าสต็อค — ไม่มี SO ไม่มีลูกค้า ปลายทางคือคลัง
     fromBranch:r.from_branch, soCover:r.so_cover||"", st:r.stage, route:r.route,
     assignee:r.assignee||"", priority:r.priority||0, coil_lot:r.coil_lot||"", waste:r.waste_note||"",
     by:r.people||{}, met:{m:+r.prod_m||0, sh:+r.sheets||0, mx:+r.max_len||0, kg:+r.weight_kg||0},
@@ -481,9 +482,11 @@ function metricsOf(items, key){
   return {mat_m:m, prod_m:m, weight_kg:Math.round(m*WIDTH_M*thickOf(key)*DENS*100)/100, sheets:sh, max_len:mx};
 }
 const nowISO = () => new Date().toISOString();
+const isStepKey = k => !/_(note|reason)$/.test(k);   // people มีทั้งชื่อคน (ขั้นตอน) และข้อความประกอบ
 async function newTicket(row, action, detail){
   // 🕐 เวลาเป็น key ของ process — ประทับเวลาทุกบทบาทที่ถูกเซ็ตตอนออกใบ (ordered/approved/…)
-  if(row.people) row.times = Object.keys(row.people).reduce((o,k)=>(o[k]=nowISO(),o),{});
+  // (_note/_reason เป็นข้อความประกอบ ไม่ใช่ขั้นตอน → ไม่ประทับเวลา)
+  if(row.people) row.times = Object.keys(row.people).filter(isStepKey).reduce((o,k)=>(o[k]=nowISO(),o),{});
   const id = await DB.insertTicket(row);
   await DB.insertEvent({ticket_id:id, staff_id:USER.dbid||null, staff_name:USER.name, action, to_stage:row.stage, detail:detail||""});
   return id;
@@ -492,7 +495,7 @@ async function patchTicket(t, patch, action, detail){
   // 🕐 บทบาทใหม่ที่เพิ่งถูกเซ็ต (planned/started/done/packed/shipped/arrived/accepted/…) → ประทับเวลาอัตโนมัติ
   if(patch.people){
     const nt={...(t.tm||{})};
-    Object.keys(patch.people).forEach(k=>{ if(patch.people[k] && !(t.by||{})[k]) nt[k]=nowISO(); });
+    Object.keys(patch.people).forEach(k=>{ if(patch.people[k] && isStepKey(k) && !(t.by||{})[k]) nt[k]=nowISO(); });
     patch.times=nt;
   }
   await DB.updateTicket(t.id, patch);
@@ -729,6 +732,54 @@ function makeOnlineTickets(jobId){
     await DB.updateJob(j.id,{status:"ticketed"});
   });
 }
+/* ================= 🏭 ผลิตเก็บเข้าสต็อค (ไม่มี SO / ไม่มีลูกค้า) =================
+   Gem เคาะ: ไม่เปิด SO ปลอมเพื่อผลิตเข้าสต็อค (จะปนยอดขาย/บัญชี) — ออกใบตรงในแอปผลิต
+   เลขใบ ST<yymmdd>-nn · ปลายทาง = คลัง ไม่เข้าโมดูลแพ็ค/ส่งลูกค้า · นับรวมในรายงานเวลา/คอขวดเสมอ
+   ผลิตเสร็จ → กด "เก็บเข้าสต็อค" → ยอดนี้คือจุดเชื่อมที่ 007 Omnichannel Stock System จะมารับต่อ */
+function stockNo(){
+  const pre = "ST" + new Date().toISOString().slice(2,10).replace(/-/g,"") + "-";
+  return pre + String(TK.filter(t=>t.branch===branch && String(t.so||"").startsWith(pre)).length+1).padStart(2,"0");
+}
+function parseLines(txt){
+  return String(txt||"").split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
+    const p=l.split("|").map(x=>x.trim());
+    return {stk:p[0]||"", des:p[1]||p[0]||"", qty:+(p[2]||0), unit:p[3]||"มร"};
+  }).filter(i=>i.stk&&i.qty>0);
+}
+function stockGo(){
+  const g=id=>{ const e=document.getElementById(id); return e? e.value.trim() : ""; };
+  const items=parseLines(g("st-items")), note=g("st-note");
+  if(!items.length){ alertBar("ใส่รายการอย่างน้อย 1 บรรทัด — รหัส | ชื่อสินค้า | จำนวน | หน่วย"); return; }
+  const byKey={}, skip=[];
+  items.forEach(it=>{
+    const mach=machineOf(it.stk,it.des,branch);
+    if(!mach || !canProduce(branch,mach)){ skip.push(it.des); return; }
+    const k=mach+"|"+(coilKeyOf(it.stk)||"-");
+    (byKey[k]=byKey[k]||[]).push(it);
+  });
+  if(!Object.keys(byKey).length){ alertBar("ไม่มีรายการที่สาขานี้ผลิตได้ — เช็ครหัสสินค้า/เครื่องเสีย"); return; }
+  const no=stockNo();
+  act(async ()=>{
+    for(const [k,its] of Object.entries(byKey)){
+      const [mach,key]=k.split("|"); const kk=key==="-"?null:key;
+      await newTicket({branch, source:"stock", sonum:no, machine:mach, material_key:kk||"",
+        label:labelOf(its[0].des,kk), oitems:its, stage:1,
+        people:{ordered:USER.name, approved:USER.name, ...(note?{stock_note:note}:{})}, created_by:USER.dbid||null,
+        ...metricsOf(its,kk)},
+        "create","🏭 สั่งผลิตเข้าสต็อค "+no+" ที่เครื่อง "+mach+(note?" — "+note:""));
+    }
+  });
+  const ta=document.getElementById("st-items"); if(ta) ta.value="";
+  if(skip.length) alertBar("ข้าม "+skip.length+" รายการที่สาขานี้ผลิตไม่ได้: "+skip.slice(0,2).join(" · "));
+}
+function stockIn(id){
+  const t=tks().find(t=>t.id===id); if(!t||!t.stock) return;
+  if(t.st<4){ alertBar("ยังผลิตไม่เสร็จ — กด ✅ เสร็จ ที่บอร์ดเครื่องก่อน"); return; }
+  const M=tMetrics(t);
+  // จบที่ stage 7 เลย — ไม่ผ่านแพ็ค/ส่ง เพราะปลายทางคือคลังของสาขาเอง
+  act(()=>patchTicket(t,{stage:7,people:{...t.by,stocked:USER.name}},"stock_in",
+    "🏬 เก็บเข้าสต็อค "+fmt(M.m)+" ม. · "+M.sh+" แผ่น ≈ "+fmt(M.kg,0)+" กก."));
+}
 /* 📥 นำเข้าไฟล์ออเดอร์จาก Seller Center (Shopee orders.xlsx / TikTok OrderSKUList.xlsx) */
 function parsePlatformRows(rows){
   const H=(rows[0]||[]).map(x=>String(x||"").trim());
@@ -922,6 +973,33 @@ function vOnline(){
       <div class="so-foot">${j.status!=="new"? `<span class="okpill">✓ สร้างใบผลิตแล้ว — ดูที่แท็บวางแผน/บอร์ด</span>` : `<button class="btn blue" onclick="makeOnlineTickets('${j.id}')">🛍 สร้างใบผลิต → เข้าฝั่งผลิต</button>`}</div>
     </div>`).join("") : `<div class="empty">— ยังไม่มีออเดอร์ออนไลน์วันนี้ —</div>`) + `</div>`;
 }
+function vStock(){
+  const el=document.getElementById("main"); el.className="";
+  const mine=tks().filter(t=>t.stock);
+  const wait=mine.filter(t=>t.st===4);                       // ผลิตเสร็จ รอเก็บเข้าสต็อค
+  const run=mine.filter(t=>t.st>=1&&t.st<=3);                // กำลังเดินอยู่ในไลน์
+  const doneT=mine.filter(t=>t.st>=7 && (t.tm&&t.tm.stocked||"").slice(0,10)===todayISO);
+  const row=(t,btn)=>`<div class="tkt">${tktHead(t,null)}
+    <div class="who">${esc(t.by.stock_note||"ผลิตเก็บเข้าสต็อค")} · ออกใบโดย <b>${esc(t.by.ordered||"")}</b>${t.assignee?` · ช่าง <b>${esc(t.assignee)}</b>`:""}</div>
+    ${(t.oitems||[]).map(i=>`<div class="oi"><span class="d">${esc(i.des)}</span><span class="q">${fmt(i.qty)} ${esc(i.unit)}</span></div>`).join("")}
+    ${metLine(t)} ${timeLine(t)}
+    ${btn||""}</div>`;
+  el.innerHTML = `<div class="page">
+  <div class="hint">🏭 <b>ผลิตเก็บเข้าสต็อค</b> — ใบผลิตที่<b>ไม่มี SO และไม่มีลูกค้า</b> ปลายทางคือคลังของสาขา (ของพร้อมส่งงานออนไลน์/หน้าร้าน) · ไม่แตะระบบขายและบัญชี · เข้าคิวเครื่องเหมือนงานลูกค้า จึงถูกนับในรายงานเวลา/คอขวดครบ · ผลิตเสร็จกด <b>เก็บเข้าสต็อค</b> — ยอดตรงนี้คือจุดที่ <b>007 Omnichannel Stock System</b> จะมารับต่อ</div>` +
+  (USER.canStock? `<div class="socard"><div class="sec" style="margin-top:0">➕ ออกใบผลิตเข้าสต็อค (ขาย/หัวหน้าผลิต/ผจก.สาขา)</div>
+    <label style="font-size:11px;color:var(--muted);font-weight:700;display:block;margin:2px 0 3px">รายการ (บรรทัดละ 1 รายการ: รหัส | ชื่อสินค้า | จำนวน | หน่วย)</label>
+    <textarea id="st-items" rows="3" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px;font-family:inherit" placeholder="01WP-GRST-030-JJL | 1.20 -10 ลอนรั้ว เทาเข้ม 0.30JJL | 30 | มร"></textarea>
+    <div class="urgbox" style="margin-top:8px"><input id="st-note" placeholder="เหตุผล/อ้างอิง เช่น เติมสต็อคขายออนไลน์ · ของหมดหน้าร้าน"><button class="btn dark" onclick="stockGo()">🏭 ออกใบ → เข้าคิววางแผน</button></div>
+    <div class="who">ระบบตั้งเลขใบให้เอง (ST+วันที่) · แยกใบตามเครื่อง/คอยล์อัตโนมัติ เหมือนงานลูกค้า</div></div>`
+    : `<div class="who" style="margin:2px 0 10px">การออกใบผลิตเข้าสต็อคทำได้เฉพาะทีมขาย/หัวหน้าผลิต/ผจก.สาขา — หน้านี้ดูสถานะและกดเก็บเข้าสต็อคได้</div>`) +
+  `<div class="sec">✅ ผลิตเสร็จ — รอเก็บเข้าสต็อค (${wait.length})</div>` +
+  (wait.length? wait.map(t=>row(t,`<div class="planrow"><button class="btn green" onclick="stockIn('${t.id}')">🏬 เก็บเข้าสต็อคแล้ว</button><button class="btn grey" onclick="openM('${t.id}')">รายละเอียด</button></div>`)).join("")
+    : `<div class="empty">— ไม่มีของรอเก็บเข้าสต็อค —</div>`) +
+  `<div class="sec">🔧 อยู่ในไลน์ผลิต (${run.length})</div>` +
+  (run.length? run.map(t=>row(t,"")).join("") : `<div class="empty">— ยังไม่มีใบผลิตเข้าสต็อคที่กำลังเดิน —</div>`) +
+  (doneT.length? `<div class="sec">🏬 เก็บเข้าสต็อควันนี้ (${doneT.length})</div>` + doneT.map(t=>row(t,`<div class="who">เก็บเข้าสต็อคโดย <b>${esc(t.by.stocked||"")}</b> · ${fmtT(t.tm&&t.tm.stocked)}</div>`)).join("") : "") +
+  `</div>`;
+}
 function tktHead(t, c){
   return `<div class="tk-h"><span class="so">${esc(t.so)}</span>
     <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
@@ -931,6 +1009,7 @@ function tktHead(t, c){
     ${t.by.reorder_approved?`<span class="bdg urgent" title="${esc(t.by.reorder_reason||"")}">🔁 ผลิตซ้ำ</span>`:""}
     ${tItems(t).some(i=>i.seq&&SHAPES[shapeKey(t.branch,t.so,i.seq)])?`<span class="bdg" style="background:#eef3ff;color:#1f5eff">📐 มีแบบ</span>`:""}
     ${t.online?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
+    ${t.stock?`<span class="bdg" style="background:#f3f0ff;color:#7c6bd6">🏭 เข้าสต็อค</span>`:""}
     ${t.xborder?`<span class="bdg ${t.soCover?"paid":"late"}">${t.soCover?"✓ SO คลุม "+esc(t.soCover):"🏢 จาก "+t.fromBranch+" · รอ SO คลุม"}</span>`:""}
     ${c && INTER[c.cusCode] && INTER[c.cusCode]!==branch ? `<span class="bdg inter">🏢 ${INTER[c.cusCode]}</span>`:""}
   </div>`;
@@ -947,6 +1026,7 @@ function timeLine(t){
   if(T.planned) s += ` · วางแผน <b>${fmtT(T.planned)}</b>`;
   if(T.started){ const w=durTxt(apr||T.ordered, T.started); s += ` · เริ่ม <b>${fmtT(T.started)}</b>${w?` <span class="dur">รอคิว ${w}</span>`:""}`; }
   if(T.done){ const p=durTxt(T.started, T.done); s += ` · เสร็จ <b>${fmtT(T.done)}</b>${p?` <span class="dur">ผลิต ${p}</span>`:""}`; }
+  if(T.stocked) s += ` · เก็บเข้าสต็อค <b>${fmtT(T.stocked)}</b>`;
   if(T.shipped) s += ` · ส่งออก <b>${fmtT(T.shipped)}</b>`;
   if(T.arrived) s += ` · ถึงลูกค้า <b>${fmtT(T.arrived)}</b>`;
   return `<div class="tline">${s}</div>`;
@@ -981,7 +1061,7 @@ function vPlan(){
       : cs===null ? `<div class="coil na">คอยล์ ZZC-${t.key}: ไม่พบใน Express</div>`
       : `<div class="coil ${cs>0?"ok":"low"}">🧻 สต็อคคอยล์ ZZC-${t.key}: ${fmt(cs)} (${cs>0?"มีของ":"หมด/ติดลบ — เช็คหน้างาน"})</div>`;
     return `<div class="tkt">${tktHead(t,c)}
-      <div class="who">อนุมัติโดย <b>${esc(t.by.approved||"")}</b> · ลูกค้า ${esc(c.customer||"")}</div>
+      <div class="who">อนุมัติโดย <b>${esc(t.by.approved||"")}</b> · ${t.stock?"🏭 ผลิตเก็บเข้าสต็อค (ไม่มีลูกค้า)":"ลูกค้า "+esc(c.customer||"")}</div>
       ${metLine(t)} ${timeLine(t)} ${coilHtml}
       ${t.route==="C"?`<div class="warn" style="margin-top:6px">⏸ รอวัตถุดิบอยู่ (กด A/B เมื่อของพร้อม)</div>`:""}
       <div class="planrow">
@@ -1013,7 +1093,7 @@ function vBoard(){
         const sameCoil=ix>0&&t.key&&list[ix-1].key===t.key;
         return `<div class="bcard" onclick="openM('${t.id}')">
           <div class="strip"><i style="width:${pct}%;background:${STGC[t.st]}"></i></div>
-          <div class="tk-h"><span class="so">${t.online?"🛍 ":""}${esc(t.so)}</span>${sameCoil?'<span class="bdg" style="background:#e6f4ea;color:var(--green)">🔗 ต่อคอยล์เดิม</span>':""}<span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}</span></div>
+          <div class="tk-h"><span class="so">${t.online?"🛍 ":""}${t.stock?"🏭 ":""}${esc(t.so)}</span>${sameCoil?'<span class="bdg" style="background:#e6f4ea;color:var(--green)">🔗 ต่อคอยล์เดิม</span>':""}<span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}</span></div>
           <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
           ${metLine(t)}
           <div class="who">👷 <b>${esc(t.assignee||"ยังไม่มีคนรับ")}</b>${t.st>=3?` · เริ่มโดย ${esc(t.by.started||"")}`:""}</div>
@@ -1022,6 +1102,7 @@ function vBoard(){
             t.st===2&&!t.assignee ? `<button class="btn amber" onclick="event.stopPropagation();claim('${t.id}')">🙋 รับงาน (${esc(USER.name.split(" ")[0])})</button>` :
             t.st===2 ? `<button class="btn blue" onclick="event.stopPropagation();startProd('${t.id}')">▶ เริ่มผลิต</button>` :
             t.st===3 ? `<button class="btn green" onclick="event.stopPropagation();doneProd('${t.id}')">✅ เสร็จ</button>` :
+            t.stock ? `<button class="btn green" onclick="event.stopPropagation();stockIn('${t.id}')">🏬 เก็บเข้าสต็อค</button>` :
             `<span class="okpill">รอรวมของ →</span>`}${
             t.st===2 && t.mach.startsWith("ตรง-") && (MACHINES[branch]||[]).some(x=>x.startsWith("ตรง-")&&x!==t.mach) ?
             ` <button class="btn grey" style="padding:7px 10px" title="ย้ายไปอีกปีก" onclick="event.stopPropagation();moveTrack('${t.id}')">⇄ ${esc(((MACHINES[branch]||[]).find(x=>x.startsWith("ตรง-")&&x!==t.mach)||"").split(" ")[0])}</button>` : ""}</div>
@@ -1035,7 +1116,7 @@ function vBoard(){
 function vPack(){
   const el=document.getElementById("main"); el.className="";
   const bySo={};
-  tks().forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));
+  tks().filter(t=>!t.stock).forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));   // ใบผลิตเข้าสต็อคไม่มีลูกค้า → ไม่เข้าโมดูลรวมของ/จัดส่ง (อยู่แท็บ 🏭)
   const sos=Object.keys(bySo);
   el.innerHTML = `<div class="page">
   <div class="hint">📦 <b>รวมของระดับบิล</b> — ทุกใบผลิตของ SO ต้องเสร็จครบก่อนแพ็ค · สรุป <b>น้ำหนัก/จำนวนแผ่น/ยาวสุด</b> สำหรับจัดรถ</div>`+
@@ -1275,10 +1356,11 @@ function render(){
     + CARDS[branch].filter(c=>cardOnline(c)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected)).length;
   const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
     ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
-    ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],["report","📊 เวลา",0]];
+    ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],
+    ["stock","🏭 ผลิตเข้าสต็อค",tks().filter(t=>t.stock&&t.st===4).length],["report","📊 เวลา",0]];
   document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
     `<button class="vtab ${v===view?"on":""}" onclick="view='${v}';render()">${l}${n?`<span class="b">${n}</span>`:""}</button>`).join("");
-  ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, report:vReport})[view]();
+  ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, stock:vStock, report:vReport})[view]();
   renderSyncs();
 }
 
@@ -1327,7 +1409,9 @@ function enterByEmail(em){
 }
 function enterAsStaff(s, mode){
   USER={dbid:s.id, name:s.name, role:s.role, branch:s.branch, mode,
-    canFix: s.role==="planner"||s.role==="admin"};
+    canFix: s.role==="planner"||s.role==="admin",
+    /* 🏭 ออกใบผลิตเข้าสต็อคได้: หัวหน้าผลิต + ผจก.สาขา + ทีมขาย (Gem เคาะ — ขายเห็นของหมดหน้าร้านก่อนใคร) */
+    canStock: s.role==="planner"||s.role==="admin"||s.role==="sales"};
   document.getElementById("loginbg").style.display="none";
   const uc=document.getElementById("userchip");
   uc.style.display=""; uc.innerHTML=`👤 ${esc(USER.name)} <button onclick="logout()" title="ออกจากระบบ">✕</button>`;
