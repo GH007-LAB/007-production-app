@@ -1017,6 +1017,7 @@ function vOrder(){
   const approvers = STAFF.filter(s=>s.role==="admin" && (s.branch===branch||s.branch==="ALL"));  // Gem เคาะ: สั่งซ้ำ = admin (หัวหน้าแผนก) เท่านั้น
   el.innerHTML = `<div class="page">
   <div class="hint">🛒 <b>ฝั่งขาย (หน้าร้าน)</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · งานออนไลน์ (รหัสลูกค้าขึ้นต้น O เช่น Shopee/TikTok) แยกอยู่แท็บ 🛍 · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
+  ${gapBanner()}
   <div class="urgbox"><input id="q-so" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-so').value='';render()">✕</button>`:""}</div>
   <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
   (cs.length? cs.map(c=>soCardHtml(c, approvers)).join("") : qq
@@ -1089,6 +1090,7 @@ function tktHead(t, c){
     ${t.urgent?`<span class="bdg urgent">⚡ ด่วน</span>`:""}
     ${t.by.reorder_approved?`<span class="bdg urgent" title="${esc(t.by.reorder_reason||"")}">🔁 ผลิตซ้ำ</span>`:""}
     ${tItems(t).some(i=>i.seq&&hasShape(t.branch,t.so,i.seq))?`<span class="bdg" style="background:#eef3ff;color:#1f5eff">📐 มีแบบ</span>`:""}
+    ${(()=>{ const m=shapeMissing(t); return m.length&&t.st<4? `<span class="bdg late" title="รายการที่ ${m.map(i=>i.seq).join(", ")}">⚠ ยังไม่มีแบบ ${m.length} รายการ</span>`:""; })()}
     ${t.online?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
     ${t.stock?`<span class="bdg" style="background:#f3f0ff;color:#7c6bd6">🏭 เข้าสต็อค</span>`:""}
     ${t.xborder?`<span class="bdg ${t.soCover?"paid":"late"}">${t.soCover?"✓ SO คลุม "+esc(t.soCover):"🏢 จาก "+t.fromBranch+" · รอ SO คลุม"}</span>`:""}
@@ -1302,6 +1304,49 @@ function shapeKey(br,so,seq){ return br+"|"+so+"|"+seq; }
 function shapeHas(sh){ return !!(sh && ((sh.segs&&sh.segs.length) || (sh.sketch&&sh.sketch.paths&&sh.sketch.paths.length) || (sh.note&&String(sh.note).trim()))); }
 function hasShape(br,so,seq){ return shapeHas(SHAPES[shapeKey(br,so,seq)]); }
 function shapeCodeOf(des){ return (String(des||"").match(/ตามแบบ\s*(\d{2,4})/)||[])[1]||null; }
+/* ⚠️ รายการ "ครอบตามแบบ" ที่ยังไม่มีแบบเลย — ต้นเหตุที่งานพับหยุดกลางคัน
+   ช่างเปิดใบมาเจอแต่ชื่อสินค้า ไม่มีระยะ ต้องโทรถามขาย = process กระดาษเดิมที่แอปนี้ตั้งใจฆ่า
+   เตือนดัง ๆ แต่ไม่บล็อก — ขายสั่งก่อนลูกค้าส่งขนาดมาเป็นเรื่องปกติ ถ้าบล็อกจะสั่งงานไม่ได้เลย */
+function shapeMissing(t){
+  return tItems(t).filter(i=>i.seq && isCustomShape(i.des) && !hasShape(t.branch,t.so,i.seq));
+}
+/* 📚 คลังแบบ — ครอบรหัสเดียวกันซ้ำข้ามออเดอร์ (ตามแบบ 220 มาแทบทุกสัปดาห์)
+   shape_drawing คีย์เป็นราย SO-รายการ ทุกใบเลยต้องวาดใหม่ตั้งแต่ศูนย์ทั้งที่เป็นครอบตัวเดิม
+   อ่านจาก SHAPES ที่โหลดมาแล้วในหน่วยความจำ ไม่ยิง query เพิ่ม (ตารางเย็น cache 10 นาที — v8.3) */
+function shapeLib(code, skipKey){
+  if(!code) return [];
+  const seen={}, out=[];
+  Object.keys(SHAPES).forEach(k=>{
+    if(k===skipKey) return;
+    const s=SHAPES[k];
+    if(!shapeHas(s) || shapeCodeOf(s.des)!==String(code)) return;
+    // กันแบบซ้ำเป๊ะ ๆ โผล่เต็มแถบ — ครอบตัวเดียวกันสั่งซ้ำ 10 ใบก็ควรเห็นอันเดียว
+    const sig=JSON.stringify(s.segs||[])+"|"+(((s.sketch&&s.sketch.paths)||[]).map(p=>p.d).join(""));
+    if(seen[sig]) return;
+    seen[sig]=1; out.push(Object.assign({_k:k}, s));
+  });
+  return out.sort((a,b)=>String(b.updated_at||"").localeCompare(String(a.updated_at||""))).slice(0,6);
+}
+function useLib(k){
+  const s=SHAPES[k]; if(!s||!SHED) return;
+  if(s.segs && s.segs.length){ SHED.segs=JSON.parse(JSON.stringify(s.segs)); SHED.touched=true; }
+  const ps=(s.sketch&&s.sketch.paths)||[];
+  if(ps.length) SK.paths=JSON.parse(JSON.stringify(ps));
+  if(s.note && !String(SHED.note||"").trim()) SHED.note=s.note;   // ไม่ทับโน้ตที่คนกำลังพิมพ์อยู่
+  renderShape();
+}
+/* แถบเตือนฝั่งขาย — ขายคือคนเดียวที่ "แก้ได้" (ได้ขนาดจากลูกค้า) ช่างแค่รอ
+   เอาเฉพาะใบที่ส่งเข้าผลิตแล้วและยังไม่เสร็จ (st<4) = ใบที่กำลังจ่ออยู่หน้าเครื่องจริง ๆ */
+function shapeGaps(){
+  const out=[];
+  tks().filter(t=>t.st<4).forEach(t=>shapeMissing(t).forEach(i=>out.push({t, i})));
+  return out;
+}
+function gapBanner(){
+  const g=shapeGaps(); if(!g.length) return "";
+  return `<div class="warn" style="margin-bottom:9px">⚠️ <b>มี ${g.length} รายการ "ครอบตามแบบ" ที่สั่งผลิตไปแล้วแต่ยังไม่มีแบบ</b> — ช่างเปิดใบมาแล้วทำต่อไม่ได้ ต้องรอขายใส่ระยะ
+  <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${g.map(({t,i})=>`<button class="btn amber" style="padding:4px 9px;font-size:12px" onclick="openShape('${esq(t.so)}',${i.seq},'${esq(i.des)}')">📐 ${esc(t.so)} · รายการที่ ${i.seq}</button>`).join("")}</div></div>`;
+}
 function shapeSVG(segs, small){
   // segs: [{L ซม., a องศาพับ (มุมที่เหล็กทำกัน เช่น 90=มุมฉาก), d 1=พับลง / -1=พับขึ้น}] — วาดจากตัวเลข = scale ตรงเสมอ
   if(!segs || !segs.length) return "";   // ใบที่ขายวาดมืออย่างเดียว ยังไม่กรอกตัวเลข — ไม่ต้องโชว์กล่องเปล่า
@@ -1404,6 +1449,18 @@ function shDel(i){ SHED.touched=true; if(SHED.segs.length>2) SHED.segs.splice(i,
 function shGirth(){ return SHED.segs.reduce((s,x)=>s+(+x.L||0),0); }
 function shMode(m){ SHED.mode=m; renderShape(); }
 function shNote(v){ SHED.note=v; }
+function libStrip(){
+  const code=shapeCodeOf(SHED.des);
+  const lib=shapeLib(code, shapeKey(branch,SHED.so,SHED.seq));
+  if(!lib.length) return "";
+  return `<div class="sec">📚 แบบ ${esc(code)} ที่เคยทำไว้ (${lib.length})</div>
+  <div class="who" style="margin-bottom:5px">กดเพื่อดึงมาใช้ แล้วแก้ต่อได้ — ครอบรหัสเดียวกันจะได้ออกมาเหมือนกันทุกใบ</div>
+  <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">${lib.map(s=>`
+    <div style="flex:0 0 128px;border:1px solid var(--line);border-radius:10px;padding:6px;cursor:pointer" onclick="useLib('${esq(s._k)}')">
+      ${(s.segs&&s.segs.length)? shapeSVG(s.segs,true) : sketchSVG(s.sketch,true)}
+      <div class="who" style="margin-top:4px;font-size:11px;line-height:1.35">${esc(s.sonum||"")}${s.girth_mm?` · ${fmt(s.girth_mm,0)} มม.`:""}<br>${esc(s.updated_by||"")}</div>
+    </div>`).join("")}</div>`;
+}
 function renderShape(){
   const g=shGirth(), code=shapeCodeOf(SHED.des);
   const okc = code? Math.abs(g*10-+code)<0.5 : null;
@@ -1416,6 +1473,7 @@ function renderShape(){
     document.getElementById("sh-b").innerHTML = `
       <div class="who" style="margin-bottom:6px">${esc(SHED.des)}</div>
       ${tabs}
+      ${libStrip()}
       <svg id="sk-c" viewBox="0 0 100 70" style="width:100%;max-height:300px;background:#fff;border:1px solid var(--line);border-radius:10px;touch-action:none;cursor:crosshair"
            onpointerdown="skDown(event)" onpointermove="skDrag(event)" onpointerup="skUp()" onpointerleave="skUp()" onpointercancel="skUp()">
         ${skGrid()}<g id="sk-ink">${skPathsHTML(SK.paths)}</g>
@@ -1438,6 +1496,7 @@ function renderShape(){
   document.getElementById("sh-b").innerHTML = `
     <div class="who" style="margin-bottom:6px">${esc(SHED.des)}</div>
     ${tabs}
+    ${libStrip()}
     ${shapeSVG(SHED.segs)}
     <div class="who" style="margin:7px 0">หน้ากว้างรวม <b>${fmt(g,1)} ซม. = ${fmt(g*10,0)} มม.</b>
       ${code? (okc? `<span class="okpill">✓ ตรงรหัสแบบ ${code}</span>` : `<span class="bdg late">⚠ รหัสสินค้าระบุแบบ ${code} — ผลรวมด้านยังไม่ตรง</span>`) : ""}
@@ -1507,6 +1566,11 @@ async function openM(id){
     ${t.xborder&&!t.soCover?`<div class="sec">📄 เอกสารคลุมงานข้ามสาขา</div>
       <div style="display:flex;gap:6px"><input id="cov-${t.id}" placeholder="เลข SO ที่ ${branch} เปิดขายให้ ${esc(t.fromBranch||"")}" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit"><button class="btn dark" onclick="coverSO('${t.id}')">ผูก</button></div>
       <div class="who">ระบบจะเตือนจนกว่าจะมี SO คลุม — บัญชีระหว่างสาขาเดินครบตาม Express</div>`:""}
+    ${(()=>{ const m=shapeMissing(t); if(!m.length) return "";
+      /* ช่างที่เครื่องพับต้องเห็นก่อนลงมือ ไม่ใช่ตอนตั้งเครื่องเสร็จแล้ว
+         ใส่ปุ่มวาดไว้ตรงนี้เลย ใครมีขนาดอยู่ในมือกดกรอกได้ทันที ไม่ต้องเดินไปหาขาย */
+      return `<div class="warn" style="margin-top:8px">⚠️ <b>ครอบตามแบบ ${m.length} รายการนี้ยังไม่มีแบบ</b> — ยังผลิตไม่ได้ ต้องได้ระยะจากขาย/ลูกค้าก่อน
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${m.map(i=>`<button class="btn amber" style="padding:4px 9px;font-size:12px" onclick="openShape('${esq(t.so)}',${i.seq},'${esq(i.des)}')">📐 รายการที่ ${i.seq} — ${esc(i.des)}</button>`).join("")}</div></div>`; })()}
     <div class="sec">รายการ (${tItems(t).length})</div>
     <table class="items">${tItems(t).map(i=>`<tr><td>${esc(i.des)}${isCustomShape(i.des)&&i.seq?` <button class="btn ${hasShape(t.branch,t.so,i.seq)?"green":"amber"}" style="padding:3px 8px;font-size:11px" onclick="openShape('${esq(t.so)}',${i.seq},'${esq(i.des)}')">📐${hasShape(t.branch,t.so,i.seq)?" แก้แบบ":" วาดแบบ"}</button>`:""}</td><td class="q">${fmt(i.qty)} ${esc(i.unit)}</td></tr>`).join("")}</table>
     ${tItems(t).filter(i=>i.seq&&hasShape(t.branch,t.so,i.seq)).map(i=>{
