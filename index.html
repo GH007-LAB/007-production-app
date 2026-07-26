@@ -200,11 +200,25 @@ const STAFF_COLS = "id,branch,name,role,can_approve,active,email";
 /* ⚡ ดึงเฉพาะคอลัมน์ที่ใช้จริง — so_live/so_item_live/coil_stock มิเรอร์มาจาก DBF คอลัมน์เยอะมาก
    select("*") = ขนของเกินจำเป็นทุกรอบ (ต้นเหตุหลักที่โควตา Supabase เต็ม) */
 const COLS = {
-  so_live: "branch,sonum,cuscod,cusnam,sodat,dlvdat,docstat,synced_at",
+  so_live: "branch,sonum,cuscod,cusnam,sodat,dlvdat,docstat,synced_at,cancelled_at,cancelled_by,cancel_reason",
   so_item_live: "branch,sonum,seq,stkcod,stkdes,ordqty,remqty,unit",
   coil_stock: "branch,coil_sku,totbal",
   machine: "id,branch,name,sort,status,note",
 };
+/* คอลัมน์ที่เพิ่งเพิ่มด้วย migration — ถ้าฐานข้อมูลยังไม่มี ให้ตัดทิ้งแล้วเดินต่อ (ฟีเจอร์ปิดตัวเอง)
+   ของเดิมที่เคยใช้ได้ต้องใช้ได้ต่อเสมอ ห้ามให้บอร์ดทั้งบอร์ดดับเพราะคอลัมน์ใหม่ยังไม่มา */
+let COL_MISS = {};
+function dropMissingCol(table, error){
+  const msg = (error && (error.message||error.hint||"")) + " " + ((error&&error.code)||"");
+  const m = /column\s+(?:\S+\.)?"?([a-z_]+)"?\s+does not exist/i.exec(msg);
+  const col = m ? m[1] : null;
+  if(!col || !(COLS[table]||"").split(",").includes(col)) return false;
+  COLS[table] = COLS[table].split(",").filter(c=>c!==col).join(",");
+  COL_MISS[table+"."+col] = true;
+  console.warn("ยังไม่มีคอลัมน์ "+table+"."+col+" — ปิดฟีเจอร์ที่ใช้คอลัมน์นี้ไว้ก่อน (รัน migration v8.4)");
+  return true;
+}
+function soCancelReady(){ return !COL_MISS["so_live.cancelled_at"]; }
 let DB = {
   async init(){
     await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js");
@@ -220,7 +234,10 @@ let DB = {
     for(let i=0;;i+=1000){
       let q = sb.from(table).select(COLS[table]||"*"); if(buildQ) q = buildQ(q);
       const {data,error} = await q.range(i,i+999);
-      if(error){ console.error(table,error); break; }
+      if(error){
+        if(dropMissingCol(table, error)){ i-=1000; continue; }   // ตัดคอลัมน์ที่ยังไม่มีแล้วลองใหม่
+        console.error(table,error); break;
+      }
       out.push(...data); if(data.length<1000) break;
     }
     return out;
@@ -283,6 +300,16 @@ let DB = {
   async insertJob(row){ const {error} = await sb.from("online_job").insert(row); if(error) throw error; },
   async updateJob(id,patch){ const {error} = await sb.from("online_job").update(patch).eq("id",id); if(error) throw error; },
   async setMachine(id,patch){ const {error} = await sb.from("machine").update(patch).eq("id",id); if(error) throw error; },
+  /* ❌ ขายยกเลิก SO — เขียนลง so_live ตรง ๆ ปลอดภัย
+     so_push upsert แบบ merge-duplicates แตะเฉพาะคอลัมน์ที่มันส่งมา (3 คอลัมน์นี้ไม่เคยอยู่ใน payload)
+     ห้ามย้ายไปเก็บที่ so_item_live เด็ดขาด — ตารางนั้นถูก DELETE ทิ้งทั้งชุดแล้ว INSERT ใหม่ทุกรอบ sync */
+  async setSOCancel(br, sonum, patch){
+    const {error} = await sb.from("so_live").update(patch).eq("branch",br).eq("sonum",sonum);
+    if(error){
+      if(/column|schema cache/i.test(error.message||"")) throw new Error("ยังไม่ได้อัปเดตฐานข้อมูล (migration v8.4) — แจ้งแอดมิน");
+      throw error;
+    }
+  },
   onChange(cb){
     sb.channel("rt")
       /* ⚠️ ไม่ subscribe so_live อีกแล้ว — so_push เขียนทุก 2 นาที ทั้ง 3 สาขา
@@ -492,7 +519,9 @@ function applyData(d){
     if(r.docstat==="C") return;
     if(r.docstat==="M" && (r.sodat||"") < cutM) return;  // ขายสดตัดบิลแล้ว โชว์ 7 วัน
     CARDS[r.branch].push({so:r.sonum, date:r.sodat, due:r.dlvdat, cusCode:r.cuscod||"",
-      customer:r.cusnam||r.cuscod||"", docstat:r.docstat, items:itBySo[r.branch+"|"+r.sonum]||[]});
+      customer:r.cusnam||r.cuscod||"", docstat:r.docstat, items:itBySo[r.branch+"|"+r.sonum]||[],
+      /* ❌ ขายยกเลิกเอง — ไม่ทิ้งการ์ด แค่ย้ายไปกล่องพับ เพราะกดคืนได้ในคลิกเดียว */
+      x:!!r.cancelled_at, xat:r.cancelled_at||"", xby:r.cancelled_by||"", xreason:r.cancel_reason||""});
   });
   // ใบเก่าที่เคยดึงมาด้วยมือ — คงไว้หลัง reload
   ["SKN","BK","PPS"].forEach(b=>Object.values(FETCHED[b]).forEach(c=>{
@@ -634,6 +663,33 @@ async function reVerify(so){
   REOK[so]={name:s.name, reason:full};
   delete RSHOW[so]; render();
 }
+/* ================= ❌ ขายยกเลิก SO (v8.7) =================
+   เหตุผลที่ต้องมี: so_push ดูด SO ทุกใบใน 45 วันเข้ามา ใบที่เปิดไว้ "เทียบราคาเฉย ๆ"
+   ไม่มีวันเปลี่ยนสถานะใน Express มันค้างกวนสายตาฝ่ายผลิตไปตลอด — หน้าจอรกจนอ่านของจริงไม่ทัน
+   ทำไมไม่ต้องขออนุมัติเหมือนยกเลิกใบผลิต: ยกเลิกใบผลิต = วัตถุดิบถูกเผาไปแล้ว กู้ไม่ได้
+   ยกเลิก SO = ซ่อนกระดาษออกจากสายตา ของยังไม่ถูกแตะ + กดคืนได้คลิกเดียว ต้นทุนกดผิดเกือบศูนย์
+   แต่ถ้ามีใบผลิตเป็น ๆ อยู่ต้องบล็อก — ใบผลิตคือจุดที่วัตถุดิบเริ่มถูกใช้ ปล่อย SO หายทั้งที่ช่างยังรีดอยู่ = ของหายเงียบ */
+const XSO_R = ["💬 ทำไว้เทียบราคาเฉย ๆ ลูกค้าไม่เอา","🙅 ลูกค้ายกเลิกออเดอร์","✏️ คีย์ผิด/ออกใบใหม่แทน","🔁 ย้ายไปสาขาอื่น","✏️ อื่นๆ"];
+let XSOSHOW={}, XOPEN=false;   // ฟอร์มยกเลิกที่กางอยู่ · กล่อง "ที่ยกเลิกไว้" เปิดอยู่หรือไม่
+function liveTk(so){ return TK.filter(t=>t.branch===branch && t.so===so && alive(t)); }
+function xsoAsk(so){
+  const n=liveTk(so).length;
+  if(n){ alertBar("SO "+so+" มีใบผลิตที่ยังเดินอยู่ "+n+" ใบ — ไปยกเลิกใบผลิตที่แท็บ 📋 วางแผน ก่อน"); return; }
+  XSOSHOW[so]=!XSOSHOW[so]; render();
+}
+function xsoDo(so){
+  const c=findSO(so); if(!c) return;
+  if(liveTk(so).length){ alertBar("มีใบผลิตที่ยังเดินอยู่ — ยกเลิก SO ไม่ได้"); return; }
+  const sel=document.getElementById("xs-"+so), note=document.getElementById("xn-"+so);
+  const reason=((sel&&sel.value)||"").trim();
+  if(!reason){ alertBar("เลือกสาเหตุที่ยกเลิกก่อน (บังคับ)"); return; }
+  const full = reason + ((note&&note.value.trim())? " — "+note.value.trim() : "");
+  act(async ()=>{
+    await DB.setSOCancel(branch, so, {cancelled_at:nowISO(), cancelled_by:USER.name, cancel_reason:full});
+    delete XSOSHOW[so];
+  });
+}
+function xsoUndo(so){ act(()=>DB.setSOCancel(branch, so, {cancelled_at:null, cancelled_by:"", cancel_reason:""})); }
 function planA(id){
   const t=tks().find(t=>t.id===id); if(!t) return;
   const mSel=document.getElementById("pm-"+id), aSel=document.getElementById("pa-"+id);
@@ -1092,7 +1148,9 @@ function soCardHtml(c, approvers){
         ${c.fetched?`<span class="bdg due">📥 ใบเก่า</span>`:""}
         ${inter?`<span class="bdg inter">🏢 งานสาขา ${inter}</span>`:""}
         ${c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว</span>`:""}
+        ${c.x?`<span class="bdg late">❌ ยกเลิกแล้ว</span>`:""}
         ${dueBdg(c)}</div>
+      ${c.x?`<div class="warn" style="margin:2px 0 7px">❌ <b>ขายยกเลิกใบนี้</b> — โดย <b>${esc(c.xby)}</b>${c.xat?` · ${fmtT(c.xat)}`:""}<br>${esc(c.xreason)}<br><span style="color:var(--muted)">เอกสารใน Express ไม่ถูกแตะ — ยกเลิกที่นี่คือซ่อนออกจากสายตาฝ่ายผลิตเท่านั้น กดคืนได้ตลอด</span></div>`:""}
       ${rows}
       ${RSHOW[c.so]&&!reok?(()=>{
         const prev=TK.filter(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected).sort((a,b)=>(a.created<b.created?-1:1));
@@ -1112,18 +1170,30 @@ function soCardHtml(c, approvers){
         <button class="btn dark" onclick="reVerify('${esq(c.so)}')">✔ ยืนยัน</button>
         <div class="who">ระบบบันทึกถาวร: ใครขอ · ใครอนุมัติ · เวลา · สาเหตุ — ดูย้อนหลังได้ในประวัติใบผลิต</div></div>`;
       })():""}
+      ${XSOSHOW[c.so]&&!c.x?`<div class="planx show">
+        ❌ <b>ยกเลิก SO ${c.so}</b> — สาเหตุ <select id="xs-${c.so}">
+          <option value="">— เลือกสาเหตุ (บังคับ) —</option>${XSO_R.map(r=>`<option>${r}</option>`).join("")}</select>
+        <input id="xn-${c.so}" placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)" style="min-width:180px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px">
+        <button class="btn dark" onclick="xsoDo('${esq(c.so)}')">❌ ยืนยันยกเลิก</button>
+        <button class="btn grey" onclick="xsoAsk('${esq(c.so)}')">ปิด</button>
+        <div class="who">ใบจะหายจากฝั่งขาย/ฝั่งผลิต แต่ยังอยู่ครบใน Express และในระบบ — กด ↩ เอากลับมาได้ตลอดถ้าลูกค้าเปลี่ยนใจ</div>
+      </div>`:""}
       <div class="so-foot">${
-        reok ? `<button class="btn amber" onclick="orderProduce('${esq(c.so)}',true)">🔁 สั่งผลิตซ้ำ → เข้าฝั่งผลิต</button><span class="okpill">อนุมัติซ้ำโดย ${esc(reok.name)} · ${esc(reok.reason)}</span>`
+        c.x ? `<button class="btn green" onclick="xsoUndo('${esq(c.so)}')">↩ เอากลับมา (ลูกค้าเอาแล้ว)</button>`
+        : reok ? `<button class="btn amber" onclick="orderProduce('${esq(c.so)}',true)">🔁 สั่งผลิตซ้ำ → เข้าฝั่งผลิต</button><span class="okpill">อนุมัติซ้ำโดย ${esc(reok.name)} · ${esc(reok.reason)}</span>`
         : anyBox ? `<button class="btn blue" onclick="orderProduce('${esq(c.so)}')">🛒 สั่ง+อนุมัติใบผลิต → เข้าฝั่งผลิต</button>${hasOrdered?`<button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกซ้ำ…</button>`:""}`
         : hasOrdered ? `<span class="okpill">✓ สั่งครบแล้ว${soOrdT?` · 🕐 ออกใบ ${fmtT(soOrdT)}`:""}</span><button class="btn grey" onclick="reAsk('${esq(c.so)}')">🔁 เรียกผลิตซ้ำ (ขออนุมัติ)</button>`
-        : `<span class="okpill">ไม่มีรายการผลิตที่สาขานี้</span>`}</div>
+        : `<span class="okpill">ไม่มีรายการผลิตที่สาขานี้</span>`}${
+        !c.x && soCancelReady() ? ` <button class="btn grey" style="padding:7px 10px" title="ยกเลิก SO ใบนี้ — ซ่อนออกจากบอร์ด (กดคืนได้)" onclick="xsoAsk('${esq(c.so)}')">❌ ยกเลิก SO</button>` : ""}</div>
     </div>`;
 }
 function cutView3(){ const d=new Date(); d.setDate(d.getDate()-2); return d.toISOString().slice(0,10); }
 function vOrder(){
   const el=document.getElementById("main"); el.className="";
   const qq=q.trim().toUpperCase();
-  const all=CARDS[branch].filter(c=>!cardOnline(c));   // งานออนไลน์ (รหัสลูกค้าขึ้นต้น O) ไม่ขึ้นฝั่งขายเลย — อยู่แท็บ 🛍
+  const allx=CARDS[branch].filter(c=>!cardOnline(c));  // งานออนไลน์ (รหัสลูกค้าขึ้นต้น O) ไม่ขึ้นฝั่งขายเลย — อยู่แท็บ 🛍
+  const all=allx.filter(c=>!c.x);                     // ❌ ที่ขายยกเลิก → ลงกล่องพับด้านล่าง ไม่ปนใบเป็น ๆ
+  const xs =allx.filter(c=> c.x && ((c.date||"") >= cutView3() || c.fetched || (qq && (c.so.toUpperCase().includes(qq)||(c.customer||"").toUpperCase().includes(qq)))));
   const cs = qq
     ? all.filter(c=> c.so.toUpperCase().includes(qq) || (c.customer||"").toUpperCase().includes(qq))
     : all.filter(c=> (c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]);
@@ -1136,13 +1206,16 @@ function vOrder(){
   <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
   (cs.length? cs.map(c=>soCardHtml(c, approvers)).join("") : qq
     ? `<div class="empty">— ไม่พบ "${esc(q)}" ในรายการที่โหลดไว้ —<br><br><button class="btn blue" onclick="fetchOldSO()">📥 ดึง SO ${esc(qq)} จากฐานข้อมูล (ย้อนหลัง 45 วัน)</button></div>`
-    : `<div class="empty">— ไม่มีบิลใหม่ในช่วง 3 วัน — ใบเก่าใช้ช่องค้นหาด้านบน —</div>`) + `</div>`;
+    : `<div class="empty">— ไม่มีบิลใหม่ในช่วง 3 วัน — ใบเก่าใช้ช่องค้นหาด้านบน —</div>`)
+  + (xs.length? `<div class="hint" id="xsbox" style="margin-top:12px">❌ <b>SO ที่ยกเลิกไว้ ${xs.length} ใบ</b> — ใบเทียบราคา/ลูกค้ายกเลิก ถูกซ่อนจากฝั่งผลิต
+      <button class="btn grey" style="padding:5px 10px;margin-left:6px" onclick="XOPEN=!XOPEN;render()">${XOPEN?"ซ่อน":"ดู/เอากลับมา"}</button></div>`
+      + (XOPEN? xs.map(c=>soCardHtml(c, approvers)).join("") : "") : "") + `</div>`;
 }
 function vOnline(){
   const el=document.getElementById("main"); el.className="";
   const jobs=JOBS.filter(j=>j.branch===branch && j.status!=="done");
   const approvers = STAFF.filter(s=>s.role==="admin" && (s.branch===branch||s.branch==="ALL"));  // Gem เคาะ: สั่งซ้ำ = admin (หัวหน้าแผนก) เท่านั้น
-  const osos = CARDS[branch].filter(c=> cardOnline(c) && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
+  const osos = CARDS[branch].filter(c=> cardOnline(c) && !c.x && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
   el.innerHTML = `<div class="page">
   <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม (งานตรงเข้า <b>ตรง-R เครื่องแดง ปีกขวา</b> ก่อน — ทีมผลิตย้ายไปเครื่องเขียวได้ที่บอร์ด) · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
   (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าพิมพ์เลข SO ในช่องค้นหาแท็บ 🛒 แล้วกดดึง ระบบจะพามาที่นี่)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ลูกค้ารหัส O) ในช่วง 3 วัน —</div>`) +
@@ -1782,7 +1855,7 @@ function render(){
   const ONLINE_BR = ["SKN","BK"];   // สาขาที่ผลิต+ส่งงานออนไลน์ตอนนี้
   if(view==="online" && !ONLINE_BR.includes(branch)) view="order";
   const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length
-    + CARDS[branch].filter(c=>cardOnline(c)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&alive(t))).length;
+    + CARDS[branch].filter(c=>cardOnline(c)&&!c.x&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&alive(t))).length;
   const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
     ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
     ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],

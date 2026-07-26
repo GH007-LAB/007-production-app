@@ -121,3 +121,30 @@ select count(*) as orphan_tickets
   from production_ticket t
  where t.branch='SKN' and t.machine like 'ตรง-%'
    and not exists (select 1 from machine m where m.branch=t.branch and m.name=t.machine);
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 6) ❌ ทีมขายยกเลิก SO เองได้ (v8.7)
+--    เหตุผล: ใบ SO ค้างบนหน้าจอเยอะเกินไปจนลายตา หาใบที่ต้องทำจริงไม่เจอ
+--    ขอบเขต: ยกเลิก "ทั้งใบ" ไม่ใช่รายบรรทัด — เพราะ so_item_live ถูก
+--            ลบ-แล้ว-ใส่ใหม่ทุกครั้งที่ so_push.py sync (ทุก 2 นาที)
+--            ธงที่เก็บรายบรรทัดจะโดนล้างทิ้ง ส่วน so_live ใช้ upsert
+--            merge-duplicates → คอลัมน์ที่ไม่ได้อยู่ใน payload รอดชีวิต
+--    สิทธิ์: ขายกดเองได้เลย ไม่ต้องรออนุมัติ และกดคืนได้ 1 คลิก
+--            (ต่างจากยกเลิกใบผลิต ที่เผาวัตถุดิบไปแล้วย้อนไม่ได้)
+--    เงื่อนไข: ถ้า SO นั้นมีใบผลิตที่ยังเดินอยู่ → แอปบล็อกไว้ ให้ไป
+--             ยกเลิกใบผลิตก่อน (จุดนั้นคือจุดที่เริ่มกินวัตถุดิบจริง)
+--    รันซ้ำได้
+-- ---------------------------------------------------------------
+alter table so_live add column if not exists cancelled_at   timestamptz;
+alter table so_live add column if not exists cancelled_by   text not null default '';
+alter table so_live add column if not exists cancel_reason  text not null default '';
+
+-- ใบที่ถูกยกเลิกมีน้อยกว่าใบปกติมาก → partial index พอ
+create index if not exists so_live_cancelled_idx
+  on so_live (branch, cancelled_at) where cancelled_at is not null;
+
+-- เช็คผล: ต้องได้ col_socancel = 3
+select count(*) as col_socancel from information_schema.columns
+ where table_name='so_live'
+   and column_name in ('cancelled_at','cancelled_by','cancel_reason');

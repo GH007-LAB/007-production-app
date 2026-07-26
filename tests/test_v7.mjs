@@ -40,6 +40,7 @@ window.__MOCK_DB__ = (() => {
       {branch:'SKN',sonum:'SO68S777',sodat:new Date().toISOString().slice(0,10),dlvdat:new Date(Date.now()+864e5).toISOString().slice(0,10),cuscod:'O610310888',cusnam:'ร้าน SHOPEE',docstat:'N',synced_at:new Date().toISOString()},
       {branch:'SKN',sonum:'SO68A002',sodat:new Date().toISOString().slice(0,10),dlvdat:new Date(Date.now()+864e5).toISOString().slice(0,10),cuscod:'A002',cusnam:'ลูกค้าสอง',docstat:'N',synced_at:new Date().toISOString()},
       {branch:'SKN',sonum:'SO68A003',sodat:new Date().toISOString().slice(0,10),dlvdat:new Date(Date.now()+2*864e5).toISOString().slice(0,10),cuscod:'A003',cusnam:'ลูกค้าตามแบบ',docstat:'N',synced_at:new Date().toISOString()},
+      {branch:'SKN',sonum:'SO68X001',sodat:new Date().toISOString().slice(0,10),dlvdat:new Date(Date.now()+864e5).toISOString().slice(0,10),cuscod:'X001',cusnam:'ลูกค้าขอราคาเทียบ',docstat:'N',synced_at:new Date().toISOString(),cancelled_at:null,cancelled_by:'',cancel_reason:''},
     ],
     its: [
       {branch:'SKN',sonum:'SO68A001',seq:1,stkcod:'02A-GRST-035-ZC',stkdes:'3.50 -10 ตรง เทาชัตเตอร์เกรย์ 0.35ZC',ordqty:35,remqty:35,unit:'มร',synced_at:new Date().toISOString()},
@@ -51,6 +52,7 @@ window.__MOCK_DB__ = (() => {
       {branch:'SKN',sonum:'SO68S777',seq:1,stkcod:'01A-ZI-030',stkdes:'2.50 -4 ตรง ซิงค์ 0.30',ordqty:10,remqty:10,unit:'มร',synced_at:new Date().toISOString()},
       {branch:'SKN',sonum:'SO68A002',seq:1,stkcod:'01A-GRST-035-ZC',stkdes:'2.00 -8 ตรง เทาชัตเตอร์เกรย์ 0.35ZC',ordqty:16,remqty:16,unit:'มร',synced_at:new Date().toISOString()},
       {branch:'SKN',sonum:'SO68A003',seq:1,stkcod:'02WF4-WA-035-ZC',stkdes:'3.50 -9 ชนผนังตามแบบ 220 ขาวเอเชี่ยนไวท์ 0.35 Cool',ordqty:31.5,remqty:31.5,unit:'มร',synced_at:new Date().toISOString()},
+      {branch:'SKN',sonum:'SO68X001',seq:1,stkcod:'01A-ZI-030',stkdes:'4.00 -8 ตรง ซิงค์ 0.30',ordqty:24,remqty:24,unit:'มร',synced_at:new Date().toISOString()},
     ],
     coils: [
       {branch:'SKN',coil_sku:'ZZC-GRST-035-ZC',totbal:1250,synced_at:new Date().toISOString()},
@@ -88,6 +90,7 @@ window.__MOCK_DB__ = (() => {
     async insertJob(row){ if(state.jobs.some(j=>j.branch===row.branch&&j.order_no===row.order_no)) throw new Error('dup'); state.jobs.push({...row, id:'job-'+(state.jobs.length+1), status:'new', created_at:new Date().toISOString()}); },
     async updateJob(id,patch){ Object.assign(state.jobs.find(j=>j.id===id), patch); },
     async setMachine(id,patch){ Object.assign(state.machines.find(m=>m.id===id), patch); },
+    async setSOCancel(br,sonum,patch){ const r=state.sos.find(x=>x.branch===br&&x.sonum===sonum); if(!r) throw new Error('no so'); Object.assign(r, patch); },
     onChange(){},
   };
 })();
@@ -789,6 +792,56 @@ await page.evaluate(async id => {
 await page.waitForTimeout(500);
 ok('กรอกจำนวนแล้ว → ยกเลิกได้ + เก็บของเสียไว้', /3 แผ่น/.test(await page.evaluate(id => (window.__STATE__.tks.find(t=>t.id===id).people||{}).cancel_made_note || '', ptk)));
 ok('ยกเลิกตอนกำลังผลิต → บันทึกว่ายกเลิกที่ขั้น 3', (await page.evaluate(id => (window.__STATE__.tks.find(t=>t.id===id).people||{}).cancel_stage, ptk)) === '3');
+
+// ---- 29. v8.7: ❌ ทีมขายยกเลิก SO เอง (ทั้งใบ · กดคืนได้ · บล็อกถ้ามีใบผลิตเดินอยู่) ----
+// เหตุผลที่ทำ: ใบ SO ค้างบนหน้าจอเยอะจนลายตา — ใบเทียบราคา/ลูกค้าไม่เอา ต้องเก็บออกได้เอง
+await clickText('ฝั่งขาย');
+await page.waitForTimeout(200);
+const xcard = '.socard:has-text("SO68X001")';
+ok('v8.7: SO ที่ยังไม่ถูกยกเลิก มีปุ่ม ❌ ยกเลิก SO', await page.locator(xcard + ' button:has-text("❌ ยกเลิก SO")').isVisible());
+await page.locator(xcard + ' button:has-text("❌ ยกเลิก SO")').click(); await page.waitForTimeout(200);
+ok('v8.7: กด ❌ → ฟอร์มเลือกสาเหตุกางออก', await page.locator('#xs-SO68X001').isVisible());
+
+// ไม่เลือกสาเหตุ → ห้ามยกเลิก (ต้องรู้ว่าทำไมใบหาย ไม่งั้นเดือนหน้าไม่มีใครตอบได้)
+await page.locator(xcard + ' button:has-text("❌ ยืนยันยกเลิก")').click(); await page.waitForTimeout(300);
+ok('v8.7: ไม่เลือกสาเหตุ → ยกเลิกไม่ได้',
+   (await page.evaluate(() => window.__STATE__.sos.find(s=>s.sonum==='SO68X001').cancelled_at)) == null);
+
+await page.evaluate(() => {
+  document.getElementById('xs-SO68X001').value = '💬 ทำไว้เทียบราคาเฉย ๆ ลูกค้าไม่เอา';
+  document.getElementById('xn-SO68X001').value = 'ลูกค้าไปซื้อร้านอื่น';
+});
+await page.locator(xcard + ' button:has-text("❌ ยืนยันยกเลิก")').click(); await page.waitForTimeout(500);
+let xso = await page.evaluate(() => window.__STATE__.sos.find(s=>s.sonum==='SO68X001'));
+ok('v8.7: ยกเลิกแล้ว → บันทึก ใคร/เมื่อไหร่/ทำไม',
+   !!xso.cancelled_at && xso.cancelled_by === 'Gem' && /เทียบราคา/.test(xso.cancel_reason) && /ร้านอื่น/.test(xso.cancel_reason));
+ok('v8.7: ใบที่ยกเลิกหายจากรายการขาย (นี่คือเหตุผลที่ทำ — หน้าจอไม่ลายตา)',
+   !(await page.locator('#main').innerText()).includes('SO68X001') ||
+   (await page.locator(xcard).count()) === 0);
+ok('v8.7: มีกล่องสรุป "SO ที่ยกเลิกไว้ 1 ใบ"', /ยกเลิกไว้ 1 ใบ/.test(await page.locator('#xsbox').innerText()));
+
+// กางกล่อง → ต้องเห็นสาเหตุ และห้ามมีปุ่มสั่งผลิต
+await page.locator('#xsbox button').click(); await page.waitForTimeout(250);
+ok('v8.7: กางกล่องแล้วเห็นใบ + สาเหตุที่ยกเลิก', /เทียบราคา/.test(await page.locator(xcard).innerText()));
+ok('v8.7: ใบที่ยกเลิกไว้ สั่งผลิตไม่ได้', (await page.locator(xcard + ' button:has-text("🛒")').count()) === 0);
+
+// ลูกค้าเปลี่ยนใจ → กดคืน 1 คลิก ล้างครบทั้ง 3 คอลัมน์
+await page.locator(xcard + ' button:has-text("↩ เอากลับมา")').click(); await page.waitForTimeout(500);
+xso = await page.evaluate(() => window.__STATE__.sos.find(s=>s.sonum==='SO68X001'));
+ok('v8.7: กดคืน → ล้าง cancelled_at/by/reason ครบ',
+   xso.cancelled_at == null && !xso.cancelled_by && !xso.cancel_reason);
+ok('v8.7: กดคืนแล้วสั่งผลิตได้อีก', await page.locator(xcard + ' button:has-text("🛒")').isVisible());
+
+// สั่งผลิตแล้ว → ห้ามยกเลิก SO ต้องไปยกเลิกใบผลิตก่อน (จุดที่เริ่มกินวัตถุดิบจริง)
+await page.locator(xcard + ' button:has-text("🛒")').click(); await page.waitForTimeout(500);
+ok('v8.7: สั่งผลิตแล้วมีใบผลิตเดินอยู่',
+   (await page.evaluate(() => window.__STATE__.tks.filter(t=>t.sonum==='SO68X001').length)) === 1);
+await page.locator(xcard + ' button:has-text("❌ ยกเลิก SO")').click(); await page.waitForTimeout(300);
+ok('v8.7: มีใบผลิตเดินอยู่ → ฟอร์มยกเลิก SO ไม่กาง (บล็อกไว้)',
+   (await page.evaluate(() => !!document.getElementById('xs-SO68X001'))) === false);
+ok('v8.7: บล็อกแล้วบอกให้ไปยกเลิกใบผลิตก่อน', /ใบผลิต/.test(await page.locator('#conn').innerText()));
+ok('v8.7: ถูกบล็อก → cancelled_at ยังว่าง (ไม่มีทางยกเลิกหลุด)',
+   (await page.evaluate(() => window.__STATE__.sos.find(s=>s.sonum==='SO68X001').cancelled_at)) == null);
 
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));
