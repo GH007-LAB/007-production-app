@@ -17,8 +17,8 @@ window.__MOCK_DB__ = (() => {
       {id:5, branch:'BK', name:'ฝน (เซลส์ BK)', role:'sales', can_approve:true, active:true, email:null},
     ],
     machines: [
-      {id:1,branch:'SKN',name:'ตรง-L ปีกซ้าย',note:'เน้นงานออนไลน์',status:'up',sort:1},
-      {id:2,branch:'SKN',name:'ตรง-R ปีกขวา',note:'',status:'up',sort:2},
+      {id:1,branch:'SKN',name:'ตรง-L เขียว ปีกซ้าย',note:'เน้นงานออนไลน์',status:'up',sort:1},
+      {id:2,branch:'SKN',name:'ตรง-R แดง ปีกขวา',note:'',status:'up',sort:2},
       {id:3,branch:'SKN',name:'ครอบข้าง 457',note:'',status:'up',sort:3},
       {id:4,branch:'SKN',name:'PU สแน็ปล็อค',note:'',status:'up',sort:4},
       {id:5,branch:'SKN',name:'ลอนรั้ว 182',note:'',status:'up',sort:5},
@@ -285,7 +285,7 @@ ok('O-SO โชว์ในแท็บออนไลน์', (await page.locat
 await clickText('สั่ง+อนุมัติใบผลิต');
 st = await page.evaluate(() => window.__STATE__.tks);
 const ot = st.find(t=>t.sonum==='O68N001');
-ok('O-SO งานตรง → default ตรง-R ปีกขวา (Gem เคาะ 20 ก.ค.)', !!ot && ot.machine==='ตรง-R ปีกขวา' && ot.stage===1);
+ok('O-SO งานตรง → default ตรง-R แดง ปีกขวา (Gem เคาะ 20 ก.ค.)', !!ot && ot.machine==='ตรง-R แดง ปีกขวา' && ot.stage===1);
 await clickText('บอร์ดเครื่อง');
 ok('การ์ด O-SO บนบอร์ดติด 🛍', true); // online flag ตรวจใน state แทน
 const otFlag = await page.evaluate(() => { const t=TK.find(x=>x.so==='O68N001'); return t && t.online; });
@@ -309,7 +309,7 @@ await page.locator('.socard:has-text("SO68S777") button:has-text("สั่ง+�
 await page.waitForTimeout(250);
 st = await page.evaluate(() => window.__STATE__.tks);
 const cusT = st.find(t=>t.sonum==='SO68S777');
-ok('งานลูกค้ารหัส O → default ตรง-R ปีกขวา', !!cusT && cusT.machine==='ตรง-R ปีกขวา' && cusT.stage===1);
+ok('งานลูกค้ารหัส O → default ตรง-R แดง ปีกขวา', !!cusT && cusT.machine==='ตรง-R แดง ปีกขวา' && cusT.stage===1);
 ok('ticket ลูกค้ารหัส O ติดธงออนไลน์', await page.evaluate(() => { const t=TK.find(x=>x.so==='SO68S777'); return t && t.online===true; }));
 // ⇄ ทีมผลิตเลือกปีกเองบนบอร์ด
 await clickText('ฝั่งผลิต: วางแผน');
@@ -319,7 +319,18 @@ await s7.locator('button:has-text("เข้าคิวเครื่อง")'
 await clickText('บอร์ดเครื่อง');
 await page.locator('.bcard:has-text("SO68S777") button:has-text("⇄")').click(); await page.waitForTimeout(250);
 st = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68S777'));
-ok('⇄ ย้ายปีก R→L ได้จากบอร์ด', st.machine==='ตรง-L ปีกซ้าย' && st.stage===2);
+ok('⇄ ย้ายปีก R→L ได้จากบอร์ด', st.machine==='ตรง-L เขียว ปีกซ้าย' && st.stage===2);
+
+// v8.7: 🎨 จุดสีเครื่องบนบอร์ด — หน้างานเรียกเครื่องด้วยสี (สกล L=เขียว ปีกซ้าย · R=แดง ปีกขวา)
+const mdots = await page.evaluate(() => [...document.querySelectorAll('.col-h')].map(h => ({
+  n: h.querySelector('.t').innerText,
+  c: (h.querySelector('i') ? h.querySelector('i').style.backgroundColor : '')
+})));
+ok('บอร์ด: ตรง-L มีจุดสีเขียว', mdots.some(d => d.n.startsWith('ตรง-L') && d.c === 'rgb(22, 163, 74)'));
+ok('บอร์ด: ตรง-R มีจุดสีแดง',  mdots.some(d => d.n.startsWith('ตรง-R') && d.c === 'rgb(217, 45, 32)'));
+ok('เครื่องที่ไม่มีสีในชื่อ → ไม่มีจุดสี', mdots.some(d => d.n.startsWith('ครอบข้าง') && !d.c));
+ok('ปุ่ม ⇄ บอกสีเครื่องปลายทาง (ไม่ใช่ L/R)',
+   (await page.locator('.bcard:has-text("SO68S777") button:has-text("⇄")').innerText()).includes('แดง'));
 
 // ---- 16. v7.5: ⚡ด่วน — กันซ้ำ + ชี้ไปการ์ดจริงถ้า SO sync แล้ว ----
 await clickText('ฝั่งขาย');

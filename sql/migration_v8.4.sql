@@ -94,3 +94,30 @@ select
   (select count(*) from pg_proc
     where proname in ('join_work','leave_work','close_work'))                  as rpc_count;
 -- ต้องได้ col_workers=1 · col_shape=2 · rpc_count=3
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 5) ✏️ เปลี่ยนชื่อเครื่องตรง สาขาสกลนคร ให้มี "สีตัวเครื่อง" อยู่ในชื่อ
+--    หน้างานเรียกเครื่องด้วยสี ไม่ได้เรียก L/R → ชื่อบนบอร์ดต้องตรงกับที่ปากคนพูด
+--      ตรง-L = เครื่องเขียว = ปีกซ้าย
+--      ตรง-R = เครื่องแดง  = ปีกขวา
+--    ⚠️ ต้องอัปเดต production_ticket.machine ด้วย เพราะใบผลิตอ้างเครื่อง "ด้วยชื่อ"
+--       ถ้าเปลี่ยนแต่ตาราง machine ใบที่ค้างอยู่จะหลุดหายจากคอลัมน์บอร์ดทันที
+--    รันซ้ำได้ (ไม่มีอะไรเกิดขึ้นถ้าเปลี่ยนไปแล้ว)
+-- ---------------------------------------------------------------
+update production_ticket set machine = 'ตรง-L เขียว ปีกซ้าย'
+  where branch='SKN' and machine='ตรง-L ปีกซ้าย';
+update production_ticket set machine = 'ตรง-R แดง ปีกขวา'
+  where branch='SKN' and machine='ตรง-R ปีกขวา';
+
+update machine set name='ตรง-L เขียว ปีกซ้าย', updated_at=now()
+  where branch='SKN' and name='ตรง-L ปีกซ้าย';
+update machine set name='ตรง-R แดง ปีกขวา',  updated_at=now()
+  where branch='SKN' and name='ตรง-R ปีกขวา';
+
+-- เช็คผล: ต้องเห็น 2 แถว ชื่อใหม่ และ orphan = 0
+select name, sort from machine where branch='SKN' and name like 'ตรง-%' order by sort;
+select count(*) as orphan_tickets
+  from production_ticket t
+ where t.branch='SKN' and t.machine like 'ตรง-%'
+   and not exists (select 1 from machine m where m.branch=t.branch and m.name=t.machine);

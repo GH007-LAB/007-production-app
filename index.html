@@ -344,7 +344,7 @@ function resolveMachine(br, type, customer, des, isOnline){
   if(type==="ตรง"){
     if(list.includes("ตรง")) return "ตรง";
     const L = list.find(m=>m.startsWith("ตรง-L")), R = list.find(m=>m.startsWith("ตรง-R"));
-    if(L && R) return R;   // Gem เคาะ 20 ก.ค.: ไม่เลือก = ตรง-R ปีกขวาเสมอ — ทีมผลิตเลือก/ย้ายไป L ได้ตอนวางแผนหรือปุ่ม ⇄ บนบอร์ด
+    if(L && R) return R;   // Gem เคาะ 20 ก.ค.: ไม่เลือก = ตรง-R แดง ปีกขวาเสมอ — ทีมผลิตเลือก/ย้ายไป L ได้ตอนวางแผนหรือปุ่ม ⇄ บนบอร์ด
     return L||R||type;
   }
   if(type==="ครอบจั่ว"||type==="ครอบข้าง"){
@@ -1039,6 +1039,13 @@ function addJobGo(){
 
 /* ================= views (โครง v6.3 เดิม) ================= */
 function noteOf(m){ return MACH_NOTE[branch+"|"+m]||""; }
+/* 🎨 สีเครื่องจากชื่อ — หน้างานเรียกเครื่องด้วยสีตัวเครื่อง (สกล: ตรง-L เขียว ปีกซ้าย · ตรง-R แดง ปีกขวา)
+   อ่านจากชื่อ ไม่ใช่ hard-code รหัสเครื่อง → เปลี่ยนชื่อใน Table Editor แล้วจุดสีตามทันที
+   หมายเหตุ: ใช้เป็น "จุดสี" ไม่ทาทั้งคอลัมน์ เพราะแถบแดงทั้งคอลัมน์ = เครื่องเสีย (สัญญาณคนละเรื่อง) */
+const MCOL=[["เขียว","#16a34a"],["แดง","#d92d20"],["น้ำเงิน","#1f5eff"],["เหลือง","#d97706"],["ฟ้า","#0e93c9"]];
+function machColor(m){ for(const [k,v] of MCOL) if(String(m||"").includes(k)) return v; return ""; }
+function machWord(m){ for(const [k] of MCOL) if(String(m||"").includes(k)) return k; return String(m||"").split(" ")[0]; }
+function machDot(m){ const c=machColor(m); return c?`<i style="display:inline-block;width:10px;height:10px;border-radius:3px;border:1px solid rgba(0,0,0,.18);background:${c};flex:0 0 auto"></i>`:""; }
 function dueBdg(c){
   if(!c.due) return "";
   const cls = c.due<yesterISO?"late":c.due<=todayISO?"today":"due";
@@ -1137,7 +1144,7 @@ function vOnline(){
   const approvers = STAFF.filter(s=>s.role==="admin" && (s.branch===branch||s.branch==="ALL"));  // Gem เคาะ: สั่งซ้ำ = admin (หัวหน้าแผนก) เท่านั้น
   const osos = CARDS[branch].filter(c=> cardOnline(c) && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
   el.innerHTML = `<div class="page">
-  <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม (งานตรงเข้า ตรง-R ก่อน — ทีมผลิตย้ายปีกได้ที่บอร์ด) · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
+  <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม (งานตรงเข้า <b>ตรง-R เครื่องแดง ปีกขวา</b> ก่อน — ทีมผลิตย้ายไปเครื่องเขียวได้ที่บอร์ด) · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
   (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าพิมพ์เลข SO ในช่องค้นหาแท็บ 🛒 แล้วกดดึง ระบบจะพามาที่นี่)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ลูกค้ารหัส O) ในช่วง 3 วัน —</div>`) +
   `<div class="sec" style="margin:14px 0 8px">📄 ออเดอร์จากไฟล์ tag (ไม่ผ่าน SO)</div>
   <div class="urgbox"><input type="file" id="imp-file" accept=".xlsx,.xls" style="flex:1;font-size:12px"><button class="btn blue" onclick="importTags()">📥 นำเข้าออเดอร์ Shopee/TikTok</button></div>
@@ -1285,7 +1292,7 @@ function vBoard(){
     const down=(DOWN[branch]||[]).includes(m);
     const list=inMach(m);
     return `<div class="col ${down?"down":""}" style="--cc:${down?"#d92d20":["#1f5eff","#7c6bd6","#0aa5a0","#a1721f","#d97706","#16a34a","#0e93c9","#8a94a6"][i%8]}">
-      <div class="col-h"><span class="t">${m}</span>${down?'<span class="dn">⛔ เครื่องเสีย</span>':noteOf(m)?`<span class="dn" style="color:var(--muted);font-weight:600">${noteOf(m)}</span>`:""}${USER.canFix?`<button class="mfix" title="${down?"แจ้งเครื่องกลับมาใช้งาน":"แจ้งเครื่องเสีย"}" onclick="toggleMachine('${branch}','${esq(m)}')">${down?"🔧":"⛔"}</button>`:""}<span class="cnt">${list.length}</span></div>
+      <div class="col-h">${machDot(m)}<span class="t">${m}</span>${down?'<span class="dn">⛔ เครื่องเสีย</span>':noteOf(m)?`<span class="dn" style="color:var(--muted);font-weight:600">${noteOf(m)}</span>`:""}${USER.canFix?`<button class="mfix" title="${down?"แจ้งเครื่องกลับมาใช้งาน":"แจ้งเครื่องเสีย"}" onclick="toggleMachine('${branch}','${esq(m)}')">${down?"🔧":"⛔"}</button>`:""}<span class="cnt">${list.length}</span></div>
       <div class="cards">${list.map((t,ix)=>{
         const pct=t.st===2?8:t.st===3?55:100;
         const sameCoil=ix>0&&t.key&&list[ix-1].key===t.key;
@@ -1307,7 +1314,7 @@ function vBoard(){
             t.stock ? `<button class="btn green" onclick="event.stopPropagation();stockIn('${t.id}')">🏬 เก็บเข้าสต็อค</button>` :
             `<span class="okpill">รอรวมของ →</span>`}${
             t.st===2 && t.mach.startsWith("ตรง-") && (MACHINES[branch]||[]).some(x=>x.startsWith("ตรง-")&&x!==t.mach) ?
-            ` <button class="btn grey" style="padding:7px 10px" title="ย้ายไปอีกปีก" onclick="event.stopPropagation();moveTrack('${t.id}')">⇄ ${esc(((MACHINES[branch]||[]).find(x=>x.startsWith("ตรง-")&&x!==t.mach)||"").split(" ")[0])}</button>` : ""}${
+            ` <button class="btn grey" style="padding:7px 10px" title="ย้ายไปอีกปีก" onclick="event.stopPropagation();moveTrack('${t.id}')">⇄ ${(()=>{ const o=(MACHINES[branch]||[]).find(x=>x.startsWith("ตรง-")&&x!==t.mach)||""; return machDot(o)+" "+esc(machWord(o)); })()}</button>` : ""}${
             canJoin(t) ? (inWork(t)
               ? ` <button class="btn grey" style="padding:7px 10px" title="ออกจากงานนี้ (ไปช่วยงานอื่น/ไปส่งของ)" onclick="event.stopPropagation();leaveWork('${t.id}')">🚪 ออก</button>`
               : ` <button class="btn amber" style="padding:7px 10px" title="เข้ามาช่วยงานใบนี้" onclick="event.stopPropagation();joinWork('${t.id}')">➕ เข้าร่วม</button>`) : ""}</div>
