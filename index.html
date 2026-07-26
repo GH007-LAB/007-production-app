@@ -246,7 +246,17 @@ let DB = {
     if(cold){ this._cold={machines:cold[0], coils:cold[1], shapes:cold[2]}; this._coldAt=Date.now(); }
     return {sos, its, tks, jobs, ...this._cold};
   },
-  async upsertShape(row){ const {error} = await sb.from("shape_drawing").upsert(row,{onConflict:"branch,sonum,seq"}); if(error) throw error; },
+  /* ถ้ายังไม่ได้รัน migration v8.4 (คอลัมน์ sketch/note ยังไม่มี) ให้บันทึกเฉพาะตัวเลขไปก่อน
+     ดีกว่าปล่อยให้ปุ่มบันทึกแบบพังทั้งปุ่ม — ของเดิมที่เคยใช้ได้ต้องใช้ได้ต่อเสมอ */
+  async upsertShape(row){
+    const {error} = await sb.from("shape_drawing").upsert(row,{onConflict:"branch,sonum,seq"});
+    if(!error) return;
+    if(!/sketch|note|column/i.test(error.message||"")) throw error;
+    const {sketch, note, ...base} = row;
+    const r2 = await sb.from("shape_drawing").upsert(base,{onConflict:"branch,sonum,seq"});
+    if(r2.error) throw r2.error;
+    console.warn("shape_drawing ยังไม่มีคอลัมน์ sketch/note — บันทึกเฉพาะตัวเลข (รัน migration v8.4)");
+  },
   async fetchSO(branch, sonum){
     const {data:so} = await sb.from("so_live").select("*").eq("branch",branch).eq("sonum",sonum).maybeSingle();
     if(!so) return null;
@@ -255,6 +265,19 @@ let DB = {
   },
   async insertTicket(row){ const {data,error} = await sb.from("production_ticket").insert(row).select("id").single(); if(error) throw error; return data.id; },
   async updateTicket(id,patch){ const {error} = await sb.from("production_ticket").update(patch).eq("id",id); if(error) throw error; },
+  /* 👥 เข้าร่วมงานเครื่องจักร — ผ่าน RPC ไม่ใช่ update ตรง
+     เพราะช่าง 2-6 คนกด ➕ พร้อมกันได้ ถ้าอ่าน-แก้-เขียนฝั่ง client คนที่กดทีหลังจะทับคนแรกหาย
+     ฝั่ง SQL ต่อ array ในคำสั่งเดียว = ใครกดก็ติดครบ */
+  async _wk(fn, args){
+    const {error} = await sb.rpc(fn, args);
+    if(!error) return;
+    // ยังไม่ได้รัน migration v8.4 → บอกให้รู้ตรง ๆ ไม่ใช่ "เช็คเน็ต" ซึ่งชี้ผิดทาง
+    if(/function|schema cache|does not exist/i.test(error.message||"")) throw new Error("ยังไม่ได้อัปเดตฐานข้อมูล (migration v8.4) — แจ้งแอดมิน");
+    throw error;
+  },
+  async joinWork(id, w){ await DB._wk("join_work",{p_ticket:id, p_staff:w}); },
+  async leaveWork(id, sid, at){ await DB._wk("leave_work",{p_ticket:id, p_id:String(sid), p_at:at}); },
+  async closeWork(id, at){ await DB._wk("close_work",{p_ticket:id, p_at:at}); },
   async insertEvent(ev){ const {error} = await sb.from("ticket_event").insert(ev); if(error) console.error(error); },
   async getEvents(tid){ const {data} = await sb.from("ticket_event").select("*").eq("ticket_id",tid).order("at",{ascending:false}).limit(60); return data||[]; },
   async insertJob(row){ const {error} = await sb.from("online_job").insert(row); if(error) throw error; },
@@ -484,7 +507,8 @@ function applyData(d){
     stock:r.source==="stock",   // 🏭 ผลิตเก็บเข้าสต็อค — ไม่มี SO ไม่มีลูกค้า ปลายทางคือคลัง
     fromBranch:r.from_branch, soCover:r.so_cover||"", st:r.stage, route:r.route,
     assignee:r.assignee||"", priority:r.priority||0, coil_lot:r.coil_lot||"", waste:r.waste_note||"",
-    by:r.people||{}, met:{m:+r.prod_m||0, sh:+r.sheets||0, mx:+r.max_len||0, kg:+r.weight_kg||0},
+    by:r.people||{}, wk:r.workers||[],   // 👥 คนที่เข้าร่วมงานใบนี้ [{id,name,in,out}] — ใบเก่าไม่มี = []
+    met:{m:+r.prod_m||0, sh:+r.sheets||0, mx:+r.max_len||0, kg:+r.weight_kg||0},
     tm:{ordered:r.created_at, ...(r.source!=="xborder"?{approved:r.created_at}:{}), ...(r.times||{})},  // ใบเก่าไม่มี times → ใช้เวลาออกใบแทน
     created:r.created_at
   }));
@@ -641,10 +665,42 @@ function startProd(id){
   const t=tks().find(t=>t.id===id); if(!t) return;
   act(()=>patchTicket(t,{stage:3,people:{...t.by,started:USER.name}},"start","▶ เริ่มผลิตที่เครื่อง"+t.mach));
 }
+/* ================= 👥 เข้าร่วมงานเครื่องจักร (หลายคนต่อ 1 ใบ) =================
+   Gem เคาะ 26 ก.ค.: ช่างกดเข้าร่วมเอง ไม่ต้องรอหัวหน้าจัดคน — เร็วที่สุดหน้างาน
+   ยังไม่ล็อกจำนวนคน/ห้ามอยู่หลายงานพร้อมกัน เพราะทีมขนส่ง multitask (ผลิตด้วย ส่งของด้วย)
+   ระบบแค่จดว่าใครอยู่ตรงไหนช่วงไหน → พอข้อมูลมากพอค่อยคำนวณลิมิตจากของจริง */
+const wkId = () => String((USER&&USER.dbid) || (USER&&USER.name) || "?");
+const openWk = t => (t.wk||[]).filter(w=>!w.out);
+const inWork = t => openWk(t).some(w=>String(w.id)===wkId());
+const canJoin = t => t.st===2 || t.st===3;              // เข้าร่วมได้ตั้งแต่เข้าคิวจนกำลังผลิต
+function wkMin(t, now){                                  // คน-นาที รวมของใบนี้ (คนที่ยังไม่ออก นับถึงตอนนี้)
+  const N = now || nowISO();
+  return (t.wk||[]).reduce((s,w)=>s+(durMin(w.in, w.out||N)||0), 0);
+}
+function joinWork(id){
+  const t=tks().find(t=>t.id===id); if(!t || !canJoin(t) || inWork(t)) return;
+  act(async ()=>{
+    await DB.joinWork(t.id, {id:wkId(), name:USER.name, in:nowISO()});
+    await DB.insertEvent({ticket_id:t.id, staff_id:USER.dbid||null, staff_name:USER.name,
+      action:"join_work", from_stage:t.st, to_stage:t.st, detail:"➕ เข้าร่วมงานที่เครื่อง"+t.mach});
+  });
+}
+function leaveWork(id){
+  const t=tks().find(t=>t.id===id); if(!t || !inWork(t)) return;
+  act(async ()=>{
+    await DB.leaveWork(t.id, wkId(), nowISO());
+    await DB.insertEvent({ticket_id:t.id, staff_id:USER.dbid||null, staff_name:USER.name,
+      action:"leave_work", from_stage:t.st, to_stage:t.st, detail:"🚪 ออกจากงานที่เครื่อง"+t.mach});
+  });
+}
 function doneProd(id){
   const t=tks().find(t=>t.id===id); if(!t) return;
-  act(async ()=>{ await patchTicket(t,{stage:4,people:{...t.by,done:USER.name}},"done","✅ ผลิตเสร็จ"); })
-    .then(()=>openM(id));
+  act(async ()=>{
+    /* ปิดเวลาให้ทุกคนที่ยังค้างอยู่อัตโนมัติ — ไม่ต้องหวังให้ทุกคนกด 🚪 ออก (คนลืมกดแน่นอน)
+       ได้คน-นาทีครบโดยไม่เพิ่มขั้นตอนหน้างาน */
+    if(openWk(t).length) await DB.closeWork(t.id, nowISO());
+    await patchTicket(t,{stage:4,people:{...t.by,done:USER.name}},"done","✅ ผลิตเสร็จ");
+  }).then(()=>openM(id));
 }
 function packSO(so){
   const list=tks().filter(t=>t.so===so&&t.st===4);
@@ -890,7 +946,7 @@ function soCardHtml(c, approvers){
     const oso=cardOnline(c);
     let anyBox=false, hasOrdered=false;
     const shBtn = it => isCustomShape(it.des)
-      ? `<button class="btn ${SHAPES[shapeKey(branch,c.so,it.seq)]?"green":"amber"}" style="padding:4px 9px;font-size:11px" onclick="openShape('${esq(c.so)}',${it.seq},'${esq(it.des)}')">📐${SHAPES[shapeKey(branch,c.so,it.seq)]?" ✓":" วาดแบบ"}</button>` : "";
+      ? `<button class="btn ${hasShape(branch,c.so,it.seq)?"green":"amber"}" style="padding:4px 9px;font-size:11px" onclick="openShape('${esq(c.so)}',${it.seq},'${esq(it.des)}')">📐${hasShape(branch,c.so,it.seq)?" ✓":" วาดแบบ"}</button>` : "";
     const rows=c.items.map(it=>{
       const x=it.seq;
       const mach=machineOf(it.stk,it.des,branch,c.customer,oso);
@@ -1032,7 +1088,7 @@ function tktHead(t, c){
     <span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}${t.route==="C"?" ⏸":""}</span>
     ${t.urgent?`<span class="bdg urgent">⚡ ด่วน</span>`:""}
     ${t.by.reorder_approved?`<span class="bdg urgent" title="${esc(t.by.reorder_reason||"")}">🔁 ผลิตซ้ำ</span>`:""}
-    ${tItems(t).some(i=>i.seq&&SHAPES[shapeKey(t.branch,t.so,i.seq)])?`<span class="bdg" style="background:#eef3ff;color:#1f5eff">📐 มีแบบ</span>`:""}
+    ${tItems(t).some(i=>i.seq&&hasShape(t.branch,t.so,i.seq))?`<span class="bdg" style="background:#eef3ff;color:#1f5eff">📐 มีแบบ</span>`:""}
     ${t.online?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
     ${t.stock?`<span class="bdg" style="background:#f3f0ff;color:#7c6bd6">🏭 เข้าสต็อค</span>`:""}
     ${t.xborder?`<span class="bdg ${t.soCover?"paid":"late"}">${t.soCover?"✓ SO คลุม "+esc(t.soCover):"🏢 จาก "+t.fromBranch+" · รอ SO คลุม"}</span>`:""}
@@ -1122,6 +1178,9 @@ function vBoard(){
           <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
           ${metLine(t)}
           <div class="who">👷 <b>${esc(t.assignee||"ยังไม่มีคนรับ")}</b>${t.st>=3?` · เริ่มโดย ${esc(t.by.started||"")}`:""}</div>
+          ${canJoin(t)||openWk(t).length ? `<div class="who">👥 ${openWk(t).length
+            ? openWk(t).map(w=>`<span class="bdg" style="background:#eef3ff;color:#1f5eff">${esc(String(w.name||"").split(" ")[0])}</span>`).join(" ")+` <span style="color:var(--muted)">(${openWk(t).length} คน)</span>`
+            : `<span style="color:var(--muted)">ยังไม่มีคนเข้าร่วม</span>`}</div>` : ""}
           ${timeLine(t)}
           <div class="bc-foot">${
             t.st===2&&!t.assignee ? `<button class="btn amber" onclick="event.stopPropagation();claim('${t.id}')">🙋 รับงาน (${esc(USER.name.split(" ")[0])})</button>` :
@@ -1130,7 +1189,10 @@ function vBoard(){
             t.stock ? `<button class="btn green" onclick="event.stopPropagation();stockIn('${t.id}')">🏬 เก็บเข้าสต็อค</button>` :
             `<span class="okpill">รอรวมของ →</span>`}${
             t.st===2 && t.mach.startsWith("ตรง-") && (MACHINES[branch]||[]).some(x=>x.startsWith("ตรง-")&&x!==t.mach) ?
-            ` <button class="btn grey" style="padding:7px 10px" title="ย้ายไปอีกปีก" onclick="event.stopPropagation();moveTrack('${t.id}')">⇄ ${esc(((MACHINES[branch]||[]).find(x=>x.startsWith("ตรง-")&&x!==t.mach)||"").split(" ")[0])}</button>` : ""}</div>
+            ` <button class="btn grey" style="padding:7px 10px" title="ย้ายไปอีกปีก" onclick="event.stopPropagation();moveTrack('${t.id}')">⇄ ${esc(((MACHINES[branch]||[]).find(x=>x.startsWith("ตรง-")&&x!==t.mach)||"").split(" ")[0])}</button>` : ""}${
+            canJoin(t) ? (inWork(t)
+              ? ` <button class="btn grey" style="padding:7px 10px" title="ออกจากงานนี้ (ไปช่วยงานอื่น/ไปส่งของ)" onclick="event.stopPropagation();leaveWork('${t.id}')">🚪 ออก</button>`
+              : ` <button class="btn amber" style="padding:7px 10px" title="เข้ามาช่วยงานใบนี้" onclick="event.stopPropagation();joinWork('${t.id}')">➕ เข้าร่วม</button>`) : ""}</div>
         </div>`;
       }).join("")||'<div class="empty">— ว่าง —</div>'}</div>
     </div>`;
@@ -1196,7 +1258,13 @@ function vReport(){
     const ps = list.map(t=>durMin(t.tm&&t.tm.started, t.tm&&t.tm.done)).filter(x=>x!==null);
     const backlog = all.filter(t=>t.mach===m && t.st>=2 && t.st<=3).length;
     const meters = done.reduce((s,t)=>s+tMetrics(t).m,0);
-    return {m, n:list.length, nd:done.length, meters, q:avg(qs), p:avg(ps), backlog, down:(DOWN[branch]||[]).includes(m)};
+    /* 👥 คน-นาที: แรงงานจริงที่ลงไปกับเครื่องนี้ ไม่ใช่แค่เวลาที่เครื่องเดิน
+       ใบที่ 3 คนช่วยกัน 20 นาที = 60 คน-นาที ≠ ใบที่คนเดียวทำ 20 นาที
+       ตัวนี้แหละที่จะใช้ตอบว่า "เครื่องนี้ควรใส่กี่คน" เมื่อสะสมข้อมูลพอ */
+    const wkm = done.reduce((s,t)=>s+wkMin(t), 0);
+    const wkn = done.filter(t=>(t.wk||[]).length).length;
+    return {m, n:list.length, nd:done.length, meters, q:avg(qs), p:avg(ps), backlog, down:(DOWN[branch]||[]).includes(m),
+      wkm, perM: meters>0&&wkm>0 ? wkm/meters : null, crew: wkn? avg(done.filter(t=>(t.wk||[]).length).map(t=>(t.wk||[]).length)) : null};
   }).filter(r=>r.n>0 || r.backlog>0 || r.down);
   // ---- คอขวด: คิวเฉลี่ยนานสุด (อย่างน้อย 2 ใบ) หรือค้างเยอะสุด ----
   let bott = rows.filter(r=>r.q!==null && r.n>=2).sort((a,b)=>b.q-a.q)[0] || null;
@@ -1212,9 +1280,10 @@ function vReport(){
     <div class="who" style="margin-top:6px">⏱ เฉลี่ย 7 วัน: ออกใบ→เสร็จ <b>${leads.length?fmtMin(avg(leads)):"—"}</b> (${leads.length} ใบ)${leadShip.length?` · ออกใบ→ถึงลูกค้า <b>${fmtMin(avg(leadShip))}</b> (${leadShip.length} ใบ)`:""}</div>
   </div>
   <div class="socard"><div class="sec" style="margin-top:0">รายเครื่อง — 7 วันล่าสุด</div>
-  <table class="items"><tr style="font-size:10.5px;color:var(--muted);font-weight:700"><td>เครื่อง</td><td class="q">ใบ</td><td class="q">เสร็จ</td><td class="q">เมตร</td><td class="q">คิวเฉลี่ย</td><td class="q">ผลิตเฉลี่ย</td><td class="q">ค้างตอนนี้</td></tr>
-  ${rows.length? rows.map(r=>`<tr${bott&&r.m===bott.m?' style="background:#fff8ec"':''}><td>${bott&&r.m===bott.m?"🚧 ":""}${r.down?"⛔ ":""}${esc(r.m)}</td><td class="q">${r.n}</td><td class="q">${r.nd}</td><td class="q">${fmt(r.meters)}</td><td class="q">${fmtMin(r.q)}</td><td class="q">${fmtMin(r.p)}</td><td class="q">${r.backlog||""}</td></tr>`).join("") : `<tr><td colspan="7" style="color:var(--muted)">— ยังไม่มีใบผลิตใน 7 วัน —</td></tr>`}
-  </table></div>
+  <table class="items"><tr style="font-size:10.5px;color:var(--muted);font-weight:700"><td>เครื่อง</td><td class="q">ใบ</td><td class="q">เสร็จ</td><td class="q">เมตร</td><td class="q">คิวเฉลี่ย</td><td class="q">ผลิตเฉลี่ย</td><td class="q">คน/ใบ</td><td class="q">คน-นาที</td><td class="q">ค้างตอนนี้</td></tr>
+  ${rows.length? rows.map(r=>`<tr${bott&&r.m===bott.m?' style="background:#fff8ec"':''}><td>${bott&&r.m===bott.m?"🚧 ":""}${r.down?"⛔ ":""}${esc(r.m)}</td><td class="q">${r.n}</td><td class="q">${r.nd}</td><td class="q">${fmt(r.meters)}</td><td class="q">${fmtMin(r.q)}</td><td class="q">${fmtMin(r.p)}</td><td class="q">${r.crew!==null?fmt(r.crew,1):"—"}</td><td class="q">${r.wkm?fmtMin(r.wkm):"—"}</td><td class="q">${r.backlog||""}</td></tr>`).join("") : `<tr><td colspan="9" style="color:var(--muted)">— ยังไม่มีใบผลิตใน 7 วัน —</td></tr>`}
+  </table>
+  <div class="who" style="margin-top:6px">👥 <b>คน-นาที</b> = แรงงานรวมที่ลงกับเครื่องนั้นจริง (3 คน × 20 นาที = 60) · <b>คน/ใบ</b> = เฉลี่ยกี่คนช่วยกันต่อใบ${rows.some(r=>r.perM)?` · แรงงานต่อเมตร: ${rows.filter(r=>r.perM).map(r=>esc(r.m)+" <b>"+fmt(r.perM,1)+"</b> คน-นาที/ม.").join(" · ")}`:""}<br>ยังไม่ตั้งลิมิตจำนวนคนต่อเครื่อง — เก็บของจริงไปก่อน แล้วค่อยใช้ตัวเลขนี้ตั้งมาตรฐาน</div></div>
   <div class="socard"><div class="sec" style="margin-top:0">เทียบ 3 สาขา — ใบเสร็จ 7 วัน</div>
     <div class="met" style="flex-wrap:wrap">${["SKN","BK","PPS"].map(b=>{
       const w=tksOf(b).filter(t=>((t.tm&&t.tm.ordered)||t.created)>=cut7);
@@ -1228,9 +1297,14 @@ function vReport(){
 /* ================= 📐 ครอบตามแบบ — วาดจากระยะจริง ================= */
 const isCustomShape = des => /ตามแบบ/.test(des||"");
 function shapeKey(br,so,seq){ return br+"|"+so+"|"+seq; }
+/* มีแบบแล้วหรือยัง — นับทั้งกรอกตัวเลขและวาดมือ
+   ถ้าเช็คแค่ SHAPES[k] มีอยู่ ใบที่เคยเปิดแล้วลบทิ้งหมดจะยังขึ้นเขียวหลอกช่าง */
+function shapeHas(sh){ return !!(sh && ((sh.segs&&sh.segs.length) || (sh.sketch&&sh.sketch.paths&&sh.sketch.paths.length) || (sh.note&&String(sh.note).trim()))); }
+function hasShape(br,so,seq){ return shapeHas(SHAPES[shapeKey(br,so,seq)]); }
 function shapeCodeOf(des){ return (String(des||"").match(/ตามแบบ\s*(\d{2,4})/)||[])[1]||null; }
 function shapeSVG(segs, small){
   // segs: [{L ซม., a องศาพับ (มุมที่เหล็กทำกัน เช่น 90=มุมฉาก), d 1=พับลง / -1=พับขึ้น}] — วาดจากตัวเลข = scale ตรงเสมอ
+  if(!segs || !segs.length) return "";   // ใบที่ขายวาดมืออย่างเดียว ยังไม่กรอกตัวเลข — ไม่ต้องโชว์กล่องเปล่า
   const pts=[[0,0]]; let hx=1, hy=0, x=0, y=0;
   const lbl=[], angL=[];
   segs.forEach((s,i)=>{
@@ -1261,27 +1335,109 @@ function shapeSVG(segs, small){
     ${small?"":angL.map(l=>`<text x="${(l.x).toFixed(1)}" y="${(l.y-1.8).toFixed(1)}" font-size="2.7" text-anchor="middle" fill="#b54708">${l.t}</text>`).join("")}
   </svg>`;
 }
+/* ================= ✏️ วาดมือ/เขียนโน้ตบนแบบครอบ =================
+   Gem 26 ก.ค.: ขายสเก็ตช์ตอนสั่ง ช่างเปิดดูที่เครื่องแล้วเติม/แก้ได้
+   เก็บเป็น SVG path (เวกเตอร์ ไม่กี่ KB) ไม่ใช่รูปถ่าย/PNG —
+   รูป raster ต่อใบจะไปกินโควตา Supabase ที่เพิ่งแก้ไปตอน v8.3 พอดี */
+const r1 = n => Math.round(n*10)/10;
+const skSafe = d => String(d||"").replace(/[^MLml0-9.\-\s]/g,"");   // path จาก DB = ข้อมูล ไม่ใช่โค้ด — กรองก่อนยัดลง SVG
+let SK={paths:[], cur:null, w:0.9, c:"#1f2933"};
+function skStart(x,y){ SK.cur={d:"M "+r1(x)+" "+r1(y), w:SK.w, c:SK.c, _p:[x,y]}; }
+function skMove(x,y){
+  if(!SK.cur) return;
+  const [px,py]=SK.cur._p;
+  if(Math.abs(x-px)+Math.abs(y-py) < 0.8) return;      // ทิ้งจุดถี่เกิน — ไฟล์เล็กลงมากโดยเส้นไม่เปลี่ยน
+  SK.cur.d += " L "+r1(x)+" "+r1(y); SK.cur._p=[x,y]; skPaint();
+}
+function skEnd(){
+  if(!SK.cur) return;
+  if(SK.cur.d.indexOf("L")<0) SK.cur.d += " l 0.4 0";  // แตะจุดเดียว = จุด ไม่ใช่เส้นเปล่า
+  SK.paths.push({d:SK.cur.d, w:SK.cur.w, c:SK.cur.c}); SK.cur=null; skPaint();
+}
+function skUndo(){ SK.paths.pop(); skPaint(); }
+function skClear(){ SK.paths=[]; SK.cur=null; skPaint(); }
+function skPen(c,w){ if(c) SK.c=c; if(w) SK.w=+w; renderShape(); }
+function skGrid(){
+  let g="";
+  for(let x=0;x<=100;x+=5) g+=`<line x1="${x}" y1="0" x2="${x}" y2="70" stroke="#eef1f6" stroke-width="0.2"/>`;
+  for(let y=0;y<=70;y+=5) g+=`<line x1="0" y1="${y}" x2="100" y2="${y}" stroke="#eef1f6" stroke-width="0.2"/>`;
+  return g;
+}
+function skPathsHTML(ps){
+  return (ps||[]).map(p=>`<path d="${skSafe(p.d)}" fill="none" stroke="${/^#[0-9a-f]{6}$/i.test(p.c||"")?p.c:"#1f2933"}" stroke-width="${Math.min(3,Math.max(0.3,+p.w||0.9))}" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
+}
+function sketchSVG(sk, small){
+  const ps=(sk&&sk.paths)||[];
+  if(!ps.length) return "";
+  return `<svg viewBox="0 0 100 70" style="width:100%;max-height:${small?90:280}px;background:#fff;border:1px solid var(--line);border-radius:10px">${skPathsHTML(ps)}</svg>`;
+}
+function skPaint(){
+  const el=document.getElementById("sk-ink");
+  if(el) el.innerHTML = skPathsHTML(SK.cur? SK.paths.concat([SK.cur]) : SK.paths);
+}
+function skXY(e){
+  const el=document.getElementById("sk-c"); if(!el) return [0,0];
+  const r=el.getBoundingClientRect();
+  return [ (e.clientX-r.left)/r.width*100, (e.clientY-r.top)/r.height*70 ];
+}
+function skDown(e){ e.preventDefault(); const [x,y]=skXY(e); skStart(x,y); try{e.target.setPointerCapture(e.pointerId);}catch(_){} }
+function skDrag(e){ if(!SK.cur) return; e.preventDefault(); const [x,y]=skXY(e); skMove(x,y); }
+function skUp(){ skEnd(); }
+
 let SHED=null;
 function openShape(so, seq, des){
   const ex=SHAPES[shapeKey(branch,so,seq)];
-  SHED={so, seq:+seq, des,
-    segs: ex? JSON.parse(JSON.stringify(ex.segs||[])) : [{L:10,a:90,d:1},{L:10,a:90,d:-1},{L:4}]};
-  if(!SHED.segs.length) SHED.segs=[{L:10,a:90,d:1},{L:10}];
+  const hadSegs = !!(ex && ex.segs && ex.segs.length);
+  SHED={so, seq:+seq, des, mode:"num", touched:hadSegs, note:(ex&&ex.note)||"",
+    segs: hadSegs? JSON.parse(JSON.stringify(ex.segs)) : [{L:10,a:90,d:1},{L:10,a:90,d:-1},{L:4}]};
+  SK={paths: (ex&&ex.sketch&&Array.isArray(ex.sketch.paths))? JSON.parse(JSON.stringify(ex.sketch.paths)) : [],
+      cur:null, w:0.9, c:"#1f2933"};
+  if(!hadSegs && SK.paths.length) SHED.mode="draw";   // ใบที่มีแต่ลายมือ → เปิดมาเจอรูปเลย
   renderShape();
   document.getElementById("shbg").classList.add("show");
 }
 function closeShape(){ document.getElementById("shbg").classList.remove("show"); }
 document.getElementById("shbg").addEventListener("click",e=>{ if(e.target.id==="shbg") closeShape(); });
-function shSeg(i,k,v){ SHED.segs[i][k] = (k==="d")? +v : (parseFloat(v)||0); renderShape(); }
-function shAdd(){ const last=SHED.segs[SHED.segs.length-1]; if(last&&last.a===undefined){last.a=90;last.d=1;} SHED.segs.push({L:5}); renderShape(); }
-function shDel(i){ if(SHED.segs.length>2) SHED.segs.splice(i,1); renderShape(); }
+function shSeg(i,k,v){ SHED.touched=true; SHED.segs[i][k] = (k==="d")? +v : (parseFloat(v)||0); renderShape(); }
+function shAdd(){ SHED.touched=true; const last=SHED.segs[SHED.segs.length-1]; if(last&&last.a===undefined){last.a=90;last.d=1;} SHED.segs.push({L:5}); renderShape(); }
+function shDel(i){ SHED.touched=true; if(SHED.segs.length>2) SHED.segs.splice(i,1); renderShape(); }
 function shGirth(){ return SHED.segs.reduce((s,x)=>s+(+x.L||0),0); }
+function shMode(m){ SHED.mode=m; renderShape(); }
+function shNote(v){ SHED.note=v; }
 function renderShape(){
   const g=shGirth(), code=shapeCodeOf(SHED.des);
   const okc = code? Math.abs(g*10-+code)<0.5 : null;
   document.getElementById("sh-t").innerHTML = `📐 ${esc(SHED.so)} · รายการที่ ${SHED.seq}`;
+  const tabs = `<div style="display:flex;gap:7px;margin-bottom:8px">
+    <button class="btn ${SHED.mode==="num"?"dark":"grey"}" onclick="shMode('num')">🔢 ตัวเลข${SHED.touched?" ✓":""}</button>
+    <button class="btn ${SHED.mode==="draw"?"dark":"grey"}" onclick="shMode('draw')">✏️ วาดมือ${SK.paths.length?" ✓":""}</button>
+  </div>`;
+  if(SHED.mode==="draw"){
+    document.getElementById("sh-b").innerHTML = `
+      <div class="who" style="margin-bottom:6px">${esc(SHED.des)}</div>
+      ${tabs}
+      <svg id="sk-c" viewBox="0 0 100 70" style="width:100%;max-height:300px;background:#fff;border:1px solid var(--line);border-radius:10px;touch-action:none;cursor:crosshair"
+           onpointerdown="skDown(event)" onpointermove="skDrag(event)" onpointerup="skUp()" onpointerleave="skUp()" onpointercancel="skUp()">
+        ${skGrid()}<g id="sk-ink">${skPathsHTML(SK.paths)}</g>
+      </svg>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${[["#1f2933","ดำ"],["#1f5eff","น้ำเงิน"],["#d92d20","แดง"]].map(([c,n])=>`<button class="btn ${SK.c===c?"dark":"grey"}" style="padding:6px 10px" onclick="skPen('${c}')"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${c};vertical-align:middle"></span> ${n}</button>`).join("")}
+        <button class="btn ${SK.w<0.9?"dark":"grey"}" style="padding:6px 10px" onclick="skPen('',0.5)">บาง</button>
+        <button class="btn ${SK.w>1.2?"dark":"grey"}" style="padding:6px 10px" onclick="skPen('',1.6)">หนา</button>
+        <button class="btn grey" style="padding:6px 10px" onclick="skUndo()">↩ ย้อน</button>
+        <button class="btn grey" style="padding:6px 10px" onclick="skClear()">🗑 ล้าง</button>
+      </div>
+      <div class="sec">📝 โน้ตถึงช่าง</div>
+      <textarea id="sk-note" rows="2" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:9px;font-size:14px;font-family:inherit" placeholder="เช่น ด้านที่ 2 พับกลับ 5 มม. กันคม / ลูกค้าขอปลายเรียบ" oninput="shNote(this.value)">${esc(SHED.note||"")}</textarea>
+      <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">
+        <button class="btn blue" onclick="shSave()">💾 บันทึกแบบ (ช่างเครื่องพับเห็นทันที)</button>
+      </div>
+      <div class="who" style="margin-top:7px">ลากนิ้ว/เมาส์บนกระดาษตารางเพื่อวาด · ตารางไว้กะสัดส่วนเฉย ๆ ไม่ใช่มาตราส่วนจริง — ระยะจริงกรอกที่แท็บ 🔢 ตัวเลข ซึ่งวาดรูป scale ตรงให้เอง<br>ช่างเปิดแบบนี้ที่เครื่องแล้วเติมได้ ระบบจดว่าใครแก้ล่าสุด</div>`;
+    return;
+  }
   document.getElementById("sh-b").innerHTML = `
     <div class="who" style="margin-bottom:6px">${esc(SHED.des)}</div>
+    ${tabs}
     ${shapeSVG(SHED.segs)}
     <div class="who" style="margin:7px 0">หน้ากว้างรวม <b>${fmt(g,1)} ซม. = ${fmt(g*10,0)} มม.</b>
       ${code? (okc? `<span class="okpill">✓ ตรงรหัสแบบ ${code}</span>` : `<span class="bdg late">⚠ รหัสสินค้าระบุแบบ ${code} — ผลรวมด้านยังไม่ตรง</span>`) : ""}
@@ -1304,8 +1460,12 @@ async function shSave(){
   if(BUSY||!SHED) return;
   BUSY=true; document.body.classList.add("busy");
   try{
-    const row={branch, sonum:SHED.so, seq:SHED.seq, des:SHED.des, segs:SHED.segs,
-      girth_mm:Math.round(shGirth()*10), updated_by:USER.name, updated_at:new Date().toISOString()};
+    /* ถ้าขายวาดมืออย่างเดียวไม่ได้แตะตัวเลข → อย่าบันทึกด้านตั้งต้นเป็นของจริง
+       เพราะ girth ปลอมจะไปเช็คกับรหัสแบบแล้วขึ้นถูก/ผิดมั่ว ๆ */
+    const segs = SHED.touched? SHED.segs : [];
+    const row={branch, sonum:SHED.so, seq:SHED.seq, des:SHED.des, segs,
+      sketch:{paths:SK.paths}, note:SHED.note||"",
+      girth_mm: segs.length? Math.round(shGirth()*10) : null, updated_by:USER.name, updated_at:new Date().toISOString()};
     await DB.upsertShape(row);
     SHAPES[shapeKey(branch,SHED.so,SHED.seq)]=row;
     closeShape(); render();
@@ -1332,6 +1492,12 @@ async function openM(id){
     })()}</div>
     <div class="sec">ผู้เกี่ยวข้อง</div>
     <div class="who">สั่ง: <b>${esc(t.by.ordered||"—")}</b> · อนุมัติ: <b>${esc(t.by.approved||"—")}</b> · วางแผน: <b>${esc(t.by.planned||"—")}</b> · ผลิต: <b>${esc(t.assignee||"—")}</b> · แพ็ค/ส่ง: <b>${esc(t.by.packed||"—")}/${esc(t.by.shipped||"—")}</b></div>
+    ${(t.wk||[]).length? `<div class="sec">👥 คนที่ลงมือทำใบนี้ (${(t.wk||[]).length} คน · รวม <b>${fmtMin(wkMin(t))}</b> คน-นาที)</div>
+      <table class="items">${(t.wk||[]).map(w=>`<tr><td>${esc(w.name||"—")}${w.out?"":' <span class="bdg" style="background:#eef3ff;color:#1f5eff">อยู่ในงาน</span>'}</td><td class="q">${fmtT(w.in)}${w.out?" → "+fmtT(w.out):""}</td><td class="q">${fmtMin(durMin(w.in, w.out||nowISO()))}</td></tr>`).join("")}</table>
+      ${canJoin(t)? `<div style="margin-top:7px">${inWork(t)
+        ? `<button class="btn grey" onclick="leaveWork('${t.id}')">🚪 ออกจากงานนี้</button>`
+        : `<button class="btn amber" onclick="joinWork('${t.id}')">➕ เข้าร่วมงานนี้</button>`}</div>`:""}`
+      : (canJoin(t)? `<div class="sec">👥 เข้าร่วมงาน</div><div style="margin-top:2px"><button class="btn amber" onclick="joinWork('${t.id}')">➕ เข้าร่วมงานนี้</button> <span class="who">— ช่วยกันได้หลายคน ระบบจดเวลาให้แต่ละคนเอง</span></div>`:"")}
     ${t.by.reorder_approved?`<div class="warn" style="margin-top:5px">🔁 <b>ใบผลิตซ้ำ</b> — ขอโดย ${esc(t.by.ordered||"")} · อนุมัติโดย <b>${esc(t.by.reorder_approved)}</b>${t.tm&&t.tm.reorder_approved?` เมื่อ ${fmtT(t.tm.reorder_approved)}`:""}<br>สาเหตุ: ${esc(t.by.reorder_reason||"—")}</div>`:""}
     <div class="sec">ข้อมูลหน้างาน</div>
     <div class="fields">
@@ -1342,11 +1508,17 @@ async function openM(id){
       <div style="display:flex;gap:6px"><input id="cov-${t.id}" placeholder="เลข SO ที่ ${branch} เปิดขายให้ ${esc(t.fromBranch||"")}" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit"><button class="btn dark" onclick="coverSO('${t.id}')">ผูก</button></div>
       <div class="who">ระบบจะเตือนจนกว่าจะมี SO คลุม — บัญชีระหว่างสาขาเดินครบตาม Express</div>`:""}
     <div class="sec">รายการ (${tItems(t).length})</div>
-    <table class="items">${tItems(t).map(i=>`<tr><td>${esc(i.des)}${isCustomShape(i.des)&&i.seq?` <button class="btn ${SHAPES[shapeKey(t.branch,t.so,i.seq)]?"green":"amber"}" style="padding:3px 8px;font-size:11px" onclick="openShape('${esq(t.so)}',${i.seq},'${esq(i.des)}')">📐${SHAPES[shapeKey(t.branch,t.so,i.seq)]?" แก้แบบ":" วาดแบบ"}</button>`:""}</td><td class="q">${fmt(i.qty)} ${esc(i.unit)}</td></tr>`).join("")}</table>
-    ${tItems(t).filter(i=>i.seq&&SHAPES[shapeKey(t.branch,t.so,i.seq)]).map(i=>{
+    <table class="items">${tItems(t).map(i=>`<tr><td>${esc(i.des)}${isCustomShape(i.des)&&i.seq?` <button class="btn ${hasShape(t.branch,t.so,i.seq)?"green":"amber"}" style="padding:3px 8px;font-size:11px" onclick="openShape('${esq(t.so)}',${i.seq},'${esq(i.des)}')">📐${hasShape(t.branch,t.so,i.seq)?" แก้แบบ":" วาดแบบ"}</button>`:""}</td><td class="q">${fmt(i.qty)} ${esc(i.unit)}</td></tr>`).join("")}</table>
+    ${tItems(t).filter(i=>i.seq&&hasShape(t.branch,t.so,i.seq)).map(i=>{
       const sh=SHAPES[shapeKey(t.branch,t.so,i.seq)];
-      return `<div class="sec">📐 แบบพับ — รายการที่ ${i.seq} (หน้ากว้างรวม ${fmt((sh.girth_mm||0),0)} มม.)</div>${shapeSVG(sh.segs||[])}
-      <div class="who">อัปเดตโดย ${esc(sh.updated_by||"")} · เส้น = หน้าตัดเหล็ก ตาราง 5 ซม. — ซูม/ขยายได้ scale ตรง</div>`;
+      const nums=shapeSVG(sh.segs||[]), ink=sketchSVG(sh.sketch);
+      /* ช่างต้องเห็นทั้งสองอย่างในใบเดียว — ขายวาดมือมาคร่าว ๆ ช่างกรอกตัวเลขทีหลัง
+         ถ้าโชว์แค่ตัวเลข ลายมือที่ขายวาดจะหายไป = ฟีเจอร์นี้ไม่มีความหมาย */
+      return `<div class="sec">📐 แบบครอบ — รายการที่ ${i.seq}${(sh.segs&&sh.segs.length)?` (หน้ากว้างรวม ${fmt((sh.girth_mm||0),0)} มม.)`:""}</div>
+      ${nums}
+      ${ink?`<div class="who" style="margin-top:6px">✏️ ภาพที่วาดมือ</div>${ink}`:""}
+      ${sh.note?`<div style="background:#fff8e1;border:1px solid #ffe08a;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:6px;white-space:pre-wrap">📝 ${esc(sh.note)}</div>`:""}
+      <div class="who">อัปเดตโดย ${esc(sh.updated_by||"")}${nums?" · เส้น = หน้าตัดเหล็ก ตาราง 5 ซม. — ซูม/ขยายได้ scale ตรง":" · ยังไม่มีตัวเลข กดปุ่ม 📐 เพื่อกรอกระยะจริง"}</div>`;
     }).join("")}
     <div class="sec">ประวัติ (ใครกดอะไรเมื่อไหร่)</div>
     <div class="hist" id="m-hist">กำลังโหลด…</div>`;
