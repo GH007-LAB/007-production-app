@@ -197,6 +197,14 @@ const CONFIG = {
 let sb = null;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 const STAFF_COLS = "id,branch,name,role,can_approve,active,email";
+/* ⚡ ดึงเฉพาะคอลัมน์ที่ใช้จริง — so_live/so_item_live/coil_stock มิเรอร์มาจาก DBF คอลัมน์เยอะมาก
+   select("*") = ขนของเกินจำเป็นทุกรอบ (ต้นเหตุหลักที่โควตา Supabase เต็ม) */
+const COLS = {
+  so_live: "branch,sonum,cuscod,cusnam,sodat,dlvdat,docstat,synced_at",
+  so_item_live: "branch,sonum,seq,stkcod,stkdes,ordqty,remqty,unit",
+  coil_stock: "branch,coil_sku,totbal",
+  machine: "id,branch,name,sort,status,note",
+};
 let DB = {
   async init(){
     await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js");
@@ -210,26 +218,33 @@ let DB = {
   async fetchAll(table, buildQ){
     const out=[];
     for(let i=0;;i+=1000){
-      let q = sb.from(table).select("*"); if(buildQ) q = buildQ(q);
+      let q = sb.from(table).select(COLS[table]||"*"); if(buildQ) q = buildQ(q);
       const {data,error} = await q.range(i,i+999);
       if(error){ console.error(table,error); break; }
       out.push(...data); if(data.length<1000) break;
     }
     return out;
   },
-  async loadAll(){
+  _cold: null, _coldAt: 0,
+  async loadAll(force){
     const cutD = new Date(Date.now()-30*864e5).toISOString().slice(0,10);
     const cutT = new Date(Date.now()-60*864e5).toISOString();
-    const [sos, its, tks, machines, coils, jobs, shapes] = await Promise.all([
+    /* ❄️ เครื่อง/คอยล์/แบบครอบ แทบไม่ขยับระหว่างวัน — โหลดทุก 10 นาทีพอ ไม่ต้องขนทุกรอบ
+       (coil_stock 788 แถว = ก้อนใหญ่สุดที่เคยขนทุก 90 วิ โดยไม่มีอะไรเปลี่ยน) */
+    const needCold = force || !this._cold || (Date.now()-this._coldAt > 600000);
+    const [sos, its, tks, jobs, cold] = await Promise.all([
       this.fetchAll("so_live", q=>q.gte("sodat",cutD)),
       this.fetchAll("so_item_live", q=>q.gte("synced_at",cutT)),
       this.fetchAll("production_ticket", q=>q.gte("created_at",cutT)),
-      this.fetchAll("machine"),
-      this.fetchAll("coil_stock"),
       this.fetchAll("online_job", q=>q.gte("created_at",cutT)),
-      this.fetchAll("shape_drawing", q=>q.gte("updated_at",cutT)),
+      needCold ? Promise.all([
+        this.fetchAll("machine"),
+        this.fetchAll("coil_stock"),
+        this.fetchAll("shape_drawing", q=>q.gte("updated_at",cutT)),
+      ]) : Promise.resolve(null),
     ]);
-    return {sos, its, tks, machines, coils, jobs, shapes};
+    if(cold){ this._cold={machines:cold[0], coils:cold[1], shapes:cold[2]}; this._coldAt=Date.now(); }
+    return {sos, its, tks, jobs, ...this._cold};
   },
   async upsertShape(row){ const {error} = await sb.from("shape_drawing").upsert(row,{onConflict:"branch,sonum,seq"}); if(error) throw error; },
   async fetchSO(branch, sonum){
@@ -247,8 +262,10 @@ let DB = {
   async setMachine(id,patch){ const {error} = await sb.from("machine").update(patch).eq("id",id); if(error) throw error; },
   onChange(cb){
     sb.channel("rt")
+      /* ⚠️ ไม่ subscribe so_live อีกแล้ว — so_push เขียนทุก 2 นาที ทั้ง 3 สาขา
+         = เตะให้ทุกเครื่องที่เปิดแอปอยู่โหลดใหม่พร้อมกัน ทั้งที่ใบขายไม่ได้เปลี่ยน
+         การ์ดฝั่งขายรอรอบ timer พอ (ช้าสุด 3 นาที) */
       .on("postgres_changes",{event:"*",schema:"public",table:"production_ticket"},cb)
-      .on("postgres_changes",{event:"*",schema:"public",table:"so_live"},cb)
       .on("postgres_changes",{event:"*",schema:"public",table:"machine"},cb)
       .on("postgres_changes",{event:"*",schema:"public",table:"online_job"},cb)
       .subscribe();
@@ -473,7 +490,15 @@ function applyData(d){
   }));
   loaded=true;
 }
-async function reload(){ applyData(await DB.loadAll()); }
+/* คืน true เมื่อข้อมูลขยับจริง — ถ้าเหมือนเดิมไม่ต้อง applyData/วาดจอใหม่ (กันจอกระตุกตอนเลื่อน/พิมพ์) */
+let SIG="";
+function sigOf(s){ let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return h+"."+s.length; }
+async function reload(force){
+  const d = await DB.loadAll(force);
+  const sg = sigOf(JSON.stringify(d));
+  if(loaded && sg===SIG) return false;
+  SIG=sg; applyData(d); return true;
+}
 
 /* ================= write helpers ================= */
 function metricsOf(items, key){
@@ -1452,8 +1477,12 @@ async function boot(){
     await DB.init();
     STAFF = await DB.getStaff();
     await reload();
-    DB.onChange(()=>{ clearTimeout(rtTimer); rtTimer=setTimeout(()=>reload().then(render),700); });
-    setInterval(()=>reload().then(()=>{ render(); }), 90000);
+    /* 🔋 แอปที่ถูกพับไว้ (วางมือถือ / สลับแท็บ) ไม่ต้องโหลดอะไรทั้งนั้น — กลับมาดูค่อยดึงรวดเดียว
+       ทีม 21 คนเปิดทิ้งไว้ทั้งวัน ข้อนี้อย่างเดียวตัดทราฟฟิกไปเกินครึ่ง */
+    const tick=(force)=>{ if(document.hidden) return; reload(force).then(ch=>{ if(ch) render(); }); };
+    DB.onChange(()=>{ if(document.hidden) return; clearTimeout(rtTimer); rtTimer=setTimeout(()=>tick(),700); });
+    setInterval(()=>tick(), 180000);
+    document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) tick(true); });
     cn.textContent="LIVE"; cn.className="conn live";
   }catch(e){
     console.error(e);
