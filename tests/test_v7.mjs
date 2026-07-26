@@ -100,7 +100,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
-page.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text()); });
+page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push('CONSOLE: ' + m.text()); });  // ข้าม resource โหลดไม่ได้ (เช่น Google Fonts — container เทสต์ไม่มีเน็ต) ไม่ใช่ JS error
 const htmlWithMock = html.replace('<script>', '<script>' + MOCK + '</scr' + 'ipt><script>');
 await page.setContent(htmlWithMock, { waitUntil: 'networkidle' });
 const T = [];
@@ -842,6 +842,21 @@ ok('v8.7: มีใบผลิตเดินอยู่ → ฟอร์ม�
 ok('v8.7: บล็อกแล้วบอกให้ไปยกเลิกใบผลิตก่อน', /ใบผลิต/.test(await page.locator('#conn').innerText()));
 ok('v8.7: ถูกบล็อก → cancelled_at ยังว่าง (ไม่มีทางยกเลิกหลุด)',
    (await page.evaluate(() => window.__STATE__.sos.find(s=>s.sonum==='SO68X001').cancelled_at)) == null);
+
+// ---- 30. v9.0: 🎨 โฉมใหม่ — ขายสว่าง/บอร์ดมืด Mission Control + 📺 จอ TV + หน่วย ม. ----
+await clickText('ฝั่งขาย'); await page.waitForTimeout(200);
+const soTxt = await page.locator('.socard').first().innerText();
+ok('v9: หน่วยแสดง "ม." ตามหลักตัวย่อไทย (ไม่ใช่ มร)', / ม\./.test(soTxt) && !/ มร/.test(soTxt));
+ok('v9: ฝั่งขายเป็นธีมสว่าง (ไม่มี dk)', await page.evaluate(() => !document.body.classList.contains('dk')));
+await clickText('บอร์ดเครื่อง'); await page.waitForTimeout(200);
+ok('v9: เปิดบอร์ด → เข้าโหมด Mission Control (body.dk)', await page.evaluate(() => document.body.classList.contains('dk')));
+ok('v9: บนบอร์ดมีปุ่ม 📺 จอ TV', await page.locator('button:has-text("📺 จอ TV")').isVisible());
+await clickText('📺 จอ TV'); await page.waitForTimeout(150);
+ok('v9: กด 📺 → โหมดจอ TV เปิด (body.tv)', await page.evaluate(() => document.body.classList.contains('tv')));
+await clickText('📺 จอ TV'); await page.waitForTimeout(150);
+ok('v9: กดซ้ำ → ปิดโหมดจอ TV', await page.evaluate(() => !document.body.classList.contains('tv')));
+await clickText('ฝั่งขาย'); await page.waitForTimeout(200);
+ok('v9: ออกจากบอร์ด → กลับธีมสว่าง + tv ปิดอัตโนมัติ', await page.evaluate(() => !document.body.classList.contains('dk') && !document.body.classList.contains('tv')));
 
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));
