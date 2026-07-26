@@ -424,8 +424,12 @@ function durTxt(a,b){
 let USER=null, STAFF=[], TK=[], JOBS=[], COILS={}, CARDS={SKN:[],BK:[],PPS:[]}, SYNCMAX={}, CUSOF={}, SHAPES={};
 let branch="SKN", view="order", openId=null, loaded=false;
 let q="", FETCHED={SKN:{},BK:{},PPS:{}}, REOK={}, RSHOW={};  // ค้นหา/ใบเก่าที่ดึงมา/อนุมัติซ้ำแล้ว/ฟอร์มขออนุมัติ
-function tks(){ return TK.filter(t=>t.branch===branch && !t.by.rejected); }
-function tksOf(br){ return TK.filter(t=>t.branch===br && !t.by.rejected); }
+/* ใบที่ยังมีชีวิตอยู่ในไลน์ — ตัดทั้งใบที่ปลายทางปฏิเสธ และใบที่ถูกยกเลิกทิ้ง
+   ยกเลิกแล้วต้องหายจากบอร์ดทันที ไม่งั้นช่างหยิบไปทำต่อ แต่ตัวใบยังอยู่ใน DB ครบ (ดูได้ที่ 📊 รายงาน) */
+const alive = t => !t.by.rejected && !t.by.cancelled;
+function tks(){ return TK.filter(t=>t.branch===branch && alive(t)); }
+function tksOf(br){ return TK.filter(t=>t.branch===br && alive(t)); }
+function cancelledOf(br){ return TK.filter(t=>t.branch===br && t.by.cancelled); }
 function findSO(so, br){
   // เลข SO ซ้ำข้ามสาขาได้ (Express รันแยกสาขา) — หาในสาขาที่ระบุ/สาขาปัจจุบันก่อนเสมอ
   return CARDS[br||branch].find(c=>c.so===so) || CARDS.SKN.concat(CARDS.BK,CARDS.PPS).find(c=>c.so===so) || jobMeta(so);
@@ -436,11 +440,12 @@ function jobMeta(so){
 }
 function orderedIdx(so){
   const s=new Set();
-  TK.filter(t=>t.so===so && !t.by.rejected).forEach(t=>t.idxs.forEach(x=>s.add(x)));
+  // ใบที่ยกเลิกไปแล้วต้องไม่นับว่า "สั่งไปแล้ว" — ไม่งั้นขายสั่งรายการเดิมซ้ำไม่ได้ ต้องไปขออนุมัติซ้ำทั้งที่ใบเก่าถูกทิ้งแล้ว
+  TK.filter(t=>t.so===so && alive(t)).forEach(t=>t.idxs.forEach(x=>s.add(x)));
   return s;
 }
 function sentTo(so, seq){
-  const t = TK.find(t=>t.xborder && t.so===so && t.fromBranch===branch && t.idxs.includes(seq) && !t.by.rejected);
+  const t = TK.find(t=>t.xborder && t.so===so && t.fromBranch===branch && t.idxs.includes(seq) && alive(t));
   return t ? t.branch : null;
 }
 function tItems(t){
@@ -545,7 +550,8 @@ async function patchTicket(t, patch, action, detail){
   if(patch.people){
     const nt={...(t.tm||{})};
     Object.keys(patch.people).forEach(k=>{ if(patch.people[k] && isStepKey(k) && !(t.by||{})[k]) nt[k]=nowISO(); });
-    patch.times=nt;
+    // เวลาที่ผู้เรียกส่งมาเองต้องชนะเวลาอัตโนมัติ (พักงาน/ทำต่อ เขียน tm.paused / tm.pause_min เอง)
+    patch.times={...nt, ...(patch.times||{})};
   }
   await DB.updateTicket(t.id, patch);
   await DB.insertEvent({ticket_id:t.id, staff_id:USER.dbid||null, staff_name:USER.name, action,
@@ -702,6 +708,107 @@ function doneProd(id){
     await patchTicket(t,{stage:4,people:{...t.by,done:USER.name}},"done","✅ ผลิตเสร็จ");
   }).then(()=>openM(id));
 }
+/* ================= ⏸ พักงาน / ▶ ทำต่อ =================
+   Gem 26 ก.ค.: "บางกรณี ผลิตค้างคืน พรุ่งนี้มาทำต่อ"
+   ใบค้างอยู่ที่ stage 3 คาเครื่องไว้เหมือนเดิม — ไม่ถอยกลับเข้าคิว เพราะแผ่น/คอยล์ตั้งอยู่บนเครื่องจริง ๆ
+   ปิดเวลาคนที่ยังค้างอยู่ทุกคนตอนพัก — พักข้ามคืน 15 ชม. ถ้าไม่ปิดจะบวกเข้าคน-นาทีเต็ม ๆ ตัวเลขพังทั้งรายงาน
+   นาทีที่พักสะสมที่ tm.pause_min → "ผลิตจริง" หักออกได้ (ดู prodMin) */
+const paused = t => !!(t.by||{}).paused;
+const PAUSE_R = ["🌙 หมดกะ/ค้างคืน พรุ่งนี้ทำต่อ","📦 รอวัตถุดิบ/คอยล์หมด","🔧 เครื่องเสีย/รอช่าง","⚡ สลับไปทำงานด่วนก่อน","📐 รอแบบ/รอขนาดจากขาย","🍽 พักเบรก/พักเที่ยง","อื่น ๆ"];
+const CANCEL_R = ["🙅 ลูกค้ายกเลิกออเดอร์","✏️ ลูกค้าแก้แบบ/แก้ขนาด — ออกใบใหม่แทน","📄 ออกใบผิด/ออกซ้ำซ้อน","🔀 ย้ายไปผลิตสาขาอื่น","📦 เปลี่ยนไปใช้ของในสต็อคแทน","อื่น ๆ"];
+let PSHOW={}, XSHOW={};                          // ฟอร์มพักงาน/ยกเลิกที่กางอยู่ (ไม่ persist)
+function pauseAsk(id){ PSHOW[id]=!PSHOW[id]; render(); }
+function cancelAsk(id){ XSHOW[id]=!XSHOW[id]; render(); }
+function pauseProd(id){
+  const t=tks().find(t=>t.id===id); if(!t || t.st!==3 || paused(t)) return;
+  const sel=document.getElementById("pr-"+id), note=document.getElementById("pn-"+id);
+  const reason=((sel&&sel.value)||"").trim();
+  if(!reason){ alertBar("เลือกสาเหตุที่พักงานก่อน (บังคับ) — พรุ่งนี้เปิดมาจะได้รู้ว่าค้างเพราะอะไร"); return; }
+  const full = reason + ((note&&note.value.trim())? " — "+note.value.trim() : "");
+  const now = nowISO();
+  act(async ()=>{
+    if(openWk(t).length) await DB.closeWork(t.id, now);
+    await patchTicket(t,{people:{...t.by, paused:USER.name, pause_reason:full},
+      times:{...(t.tm||{}), paused:now}}, "pause", "⏸ พักงาน: "+full);
+  }).then(()=>{ delete PSHOW[id]; render(); });
+}
+function resumeProd(id){
+  const t=tks().find(t=>t.id===id); if(!t || !paused(t)) return;
+  const now=nowISO(), was=(t.tm||{}).paused;
+  const by={...t.by};  delete by.paused; delete by.pause_reason;
+  /* ต้องเซ็ต null ไม่ใช่ delete — patchTicket เอา t.tm ตัวเก่ามาเป็นฐานแล้ว merge ทับ
+     คีย์ที่ลบทิ้งเฉย ๆ จะฟื้นกลับมาจากฐาน แล้วใบจะค้างสถานะ "พักอยู่" ตลอดกาล */
+  const tm={...(t.tm||{}), paused:null};
+  tm.pause_min = (+((t.tm||{}).pause_min)||0) + (durMin(was, now)||0);
+  tm.resumed = now;
+  /* ไม่บังคับให้คนเดิมกลับมา — กะเช้าอาจเป็นคนละคนกับกะที่พักไว้ ใครมาถึงก่อนกดทำต่อได้เลย
+     แต่ event บันทึกไว้ว่าใครกด → ตรวจย้อนได้ว่าใบนี้ข้ามมือใครบ้าง */
+  act(()=>patchTicket(t,{people:by, times:tm}, "resume",
+    "▶ ทำต่อ (พักไป "+(durTxt(was, now)||"—")+") · พักครั้งก่อน: "+((t.by||{}).pause_reason||"—")));
+}
+/* ผลิตจริง = เริ่ม→เสร็จ ลบเวลาที่พัก — นี่คือทั้งหมดที่ฟีเจอร์พักงานมีค่า
+   ถ้าไม่หัก ใบค้างคืนจะโชว์ "ผลิต 16 ชม." ทั้งที่ลงมือจริง 40 นาที แล้วรายงานทั้งแท็บก็เชื่อไม่ได้ */
+function prodMin(t){
+  const T=t.tm||{};
+  const raw = durMin(T.started, T.done || (T.started? nowISO() : null));
+  if(raw===null) return null;
+  const pz = (+T.pause_min||0) + (paused(t)? (durMin(T.paused, nowISO())||0) : 0);
+  return Math.max(0, raw - pz);
+}
+/* ================= ❌ ยกเลิกใบผลิต =================
+   Gem 26 ก.ค.: "ใบผลิตยกเลิกก็มี แต่ต้องทิ้งร่องรอยไว้ด้วย ใครอนุมัติ ใครยกเลิก"
+   → เก็บ 2 ชื่อเสมอ: คนขอยกเลิก (คนที่กด) + คนอนุมัติ (เลือกชื่อ + PIN) — pattern เดียวกับขออนุมัติสั่งซ้ำที่ทีมคุ้นแล้ว
+   ใบไม่ถูกลบทิ้ง แค่หลุดจากบอร์ด (alive) — ตัวใบ + events ยังอยู่ครบใน DB ตรวจย้อนหลังได้ตลอด
+   ยกเลิกหลังลงมือผลิตแล้ว (st>=3) บังคับให้กรอกว่าตัดไปแล้วเท่าไหร่ ไม่งั้นวัตถุดิบหายเงียบ ๆ ไม่มีใครรู้ */
+async function cancelTicket(id){
+  const t=tks().find(t=>t.id===id); if(!t) return;
+  const rSel=document.getElementById("xr-"+id), rNote=document.getElementById("xn-"+id);
+  const sel=document.getElementById("xa-"+id), pin=document.getElementById("xp-"+id);
+  const made=document.getElementById("xm-"+id);
+  const reason=((rSel&&rSel.value)||"").trim();
+  if(!reason){ alertBar("เลือกสาเหตุที่ยกเลิกก่อน (บังคับ)"); return; }
+  if(t.st>=3 && !((made&&made.value)||"").trim()){ alertBar("ใบนี้ลงมือผลิตไปแล้ว — ต้องระบุว่าตัด/พับไปแล้วเท่าไหร่ (เป็นเศษ)"); return; }
+  const s=STAFF.find(x=>x.id===+((sel&&sel.value)||0));
+  if(!s || (((pin&&pin.value)||"").length<4)){ alertBar("เลือกผู้อนุมัติ + ใส่ PIN 4 หลัก"); return; }
+  const ok=await DB.verifyPin(s.id, pin.value);
+  if(!ok){ alertBar("PIN ไม่ถูกต้อง"); if(pin) pin.value=""; return; }
+  const full = reason + ((rNote&&rNote.value.trim())? " — "+rNote.value.trim() : "");
+  const mk = ((made&&made.value)||"").trim();
+  const now = nowISO();
+  const ppl = {...t.by, cancelled:USER.name, cancel_approved:s.name, cancel_reason:full, cancel_stage:String(t.st)};
+  if(mk) ppl.cancel_made_note = mk;              // ลงท้าย _note → isStepKey ข้าม ไม่ประทับเวลาให้
+  act(async ()=>{
+    if(openWk(t).length) await DB.closeWork(t.id, now);
+    await patchTicket(t,{people:ppl, times:{...(t.tm||{}), cancelled:now}}, "cancel",
+      `❌ ยกเลิกใบตอน "${STG[t.st]}" · ขอโดย ${USER.name} · อนุมัติ ${s.name} · ${full}${mk?" · ผลิตไปแล้ว "+mk:""}`);
+  }).then(()=>{ delete XSHOW[id]; if(openId===id) openId=null; render(); });
+}
+/* คนเดียวอยู่หลายเครื่องพร้อมกัน — Gem ถามว่าควรห้ามมั้ย
+   ตอบ: ไม่ห้าม หัวหน้าเดินคุม 3 เครื่องเป็นเรื่องจริง และทีมขนส่งก็ผลิตด้วย ถ้าบล็อกคนจะเลิกกด ➕ แล้วข้อมูลหายทั้งหมด
+   แก้ที่ "การวัด" แทน "การห้าม" — โชว์ให้เห็นว่าใครซ้อนอยู่ แล้วรายงานหักคน-นาทีซ้อนออกให้เห็นต่างหาก */
+/* ฟอร์มยกเลิกใช้ซ้ำได้ทั้งแท็บวางแผนและหน้ารายละเอียด — โค้ดชุดเดียว กฎเดียว ไม่มีทางหลุดช่องไหนช่องหนึ่ง
+   ผู้อนุมัติ = admin เท่านั้น (กติกาเดียวกับสั่งซ้ำ ทีมจำได้ชุดเดียว) */
+function cancelBox(t){
+  if(!XSHOW[t.id]) return "";
+  const ap = STAFF.filter(s=>s.role==="admin" && (s.branch===t.branch||s.branch==="ALL"));
+  return `<div class="planx show" onclick="event.stopPropagation()">
+    <div class="warn" style="margin-bottom:7px">❌ <b>ยกเลิกใบผลิตนี้</b> — ใบจะหายจากบอร์ดทันที (ช่างจะหยิบไปทำต่อไม่ได้) แต่ข้อมูลยังอยู่ครบ ดูย้อนหลังได้ที่ 📊 รายงาน
+    ${t.st>=3?`<br>⚠️ <b>ใบนี้ลงมือผลิตไปแล้ว</b> — ของที่ตัด/พับไปแล้วจะกลายเป็นเศษ ต้องระบุจำนวนไว้ด้วย`:""}</div>
+    สาเหตุ <select id="xr-${t.id}"><option value="">— เลือกสาเหตุ (บังคับ) —</option>${CANCEL_R.map(r=>`<option>${r}</option>`).join("")}</select>
+    <input id="xn-${t.id}" placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)" style="min-width:170px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px">
+    ${t.st>=3?`<input id="xm-${t.id}" placeholder="ผลิตไปแล้วเท่าไหร่ เช่น 3 แผ่น / 12 ม." style="min-width:180px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px">`:""}
+    ผู้อนุมัติ <select id="xa-${t.id}">${ap.length?ap.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join(""):`<option value="">— สาขานี้ยังไม่มี admin —</option>`}</select>
+    PIN <input id="xp-${t.id}" type="password" inputmode="numeric" maxlength="4" style="width:74px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:15px;letter-spacing:3px;text-align:center">
+    <button class="btn red" onclick="cancelTicket('${t.id}')">✔ ยืนยันยกเลิก</button>
+    <button class="btn grey" onclick="cancelAsk('${t.id}')">ไม่ยกเลิกแล้ว</button>
+    <div class="who">บันทึกถาวร: ใครขอยกเลิก (${esc(USER?USER.name:"")}) · ใครอนุมัติ · เวลา · สาเหตุ · ยกเลิกตอนขั้นไหน</div>
+  </div>`;
+}
+function dupWk(t){
+  const others = tks().filter(x=>x.id!==t.id && openWk(x).length);
+  return openWk(t).filter(w=>others.some(x=>openWk(x).some(y=>String(y.id)===String(w.id))));
+}
+function machOf(id){ return tks().filter(t=>openWk(t).some(w=>String(w.id)===String(id))).map(t=>t.mach); }
 function packSO(so){
   const list=tks().filter(t=>t.so===so&&t.st===4);
   act(async ()=>{ for(const t of list) await patchTicket(t,{stage:5,people:{...t.by,packed:USER.name}},"pack","📦 แพ็ค/รวมของครบ"); });
@@ -1087,6 +1194,8 @@ function tktHead(t, c){
     <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
     <span class="mchip">${esc(t.mach)}</span>
     <span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}${t.route==="C"?" ⏸":""}</span>
+    ${paused(t)?`<span class="bdg late" title="${esc(t.by.pause_reason||"")} · พักโดย ${esc(t.by.paused||"")}">⏸ พักอยู่ ${durTxt(t.tm&&t.tm.paused, nowISO())||""}</span>`:""}
+    ${t.by.cancelled?`<span class="bdg" style="background:#fee;color:#d92d20" title="ขอโดย ${esc(t.by.cancelled)} · อนุมัติ ${esc(t.by.cancel_approved||"")}">❌ ยกเลิกแล้ว</span>`:""}
     ${t.urgent?`<span class="bdg urgent">⚡ ด่วน</span>`:""}
     ${t.by.reorder_approved?`<span class="bdg urgent" title="${esc(t.by.reorder_reason||"")}">🔁 ผลิตซ้ำ</span>`:""}
     ${tItems(t).some(i=>i.seq&&hasShape(t.branch,t.so,i.seq))?`<span class="bdg" style="background:#eef3ff;color:#1f5eff">📐 มีแบบ</span>`:""}
@@ -1108,7 +1217,11 @@ function timeLine(t){
   let s = `🕐 ออกใบ <b>${fmtT(T.ordered)}</b> · อนุมัติ <b>${apr?fmtT(apr):"⏳ รอฝั่งรับ"}</b>`;
   if(T.planned) s += ` · วางแผน <b>${fmtT(T.planned)}</b>`;
   if(T.started){ const w=durTxt(apr||T.ordered, T.started); s += ` · เริ่ม <b>${fmtT(T.started)}</b>${w?` <span class="dur">รอคิว ${w}</span>`:""}`; }
-  if(T.done){ const p=durTxt(T.started, T.done); s += ` · เสร็จ <b>${fmtT(T.done)}</b>${p?` <span class="dur">ผลิต ${p}</span>`:""}`; }
+  // ⏸ เวลาที่พักต้องโชว์แยก ไม่งั้นตัวเลข "ผลิต" ของใบค้างคืนจะดูเหมือนช่างทำงาน 16 ชม.
+  const pz=(+T.pause_min||0)+(paused(t)?(durMin(T.paused,nowISO())||0):0);
+  if(pz) s += ` · <span class="dur" style="color:#b54708">⏸ พักรวม ${fmtMin(pz)}</span>`;
+  if(T.done){ const p=durTxt(T.started, T.done), pm=prodMin(t); s += ` · เสร็จ <b>${fmtT(T.done)}</b>${p?` <span class="dur">ผลิต ${pz&&pm!==null?fmtMin(pm)+" (สุทธิ)":p}</span>`:""}`; }
+  if(T.cancelled) s += ` · <b style="color:#d92d20">❌ ยกเลิก ${fmtT(T.cancelled)}</b>`;
   if(T.stocked) s += ` · เก็บเข้าสต็อค <b>${fmtT(T.stocked)}</b>`;
   if(T.shipped) s += ` · ส่งออก <b>${fmtT(T.shipped)}</b>`;
   if(T.arrived) s += ` · ถึงลูกค้า <b>${fmtT(T.arrived)}</b>`;
@@ -1152,7 +1265,9 @@ function vPlan(){
         <button class="btn green" onclick="planB('${t.id}')">📦 B ใช้สต็อค</button>
         <button class="btn amber" onclick="planC('${t.id}')">⏸ C รอวัตถุดิบ</button>
         <button class="btn grey" onclick="openM('${t.id}')">รายละเอียด</button>
+        <button class="btn red" title="ทิ้งใบนี้ ไม่ผลิต — ต้องมีผู้อนุมัติ" onclick="cancelAsk('${t.id}')">❌ ยกเลิกใบ</button>
       </div>
+      ${cancelBox(t)}
       <div class="planx" id="px-${t.id}">
         เครื่อง <select id="pm-${t.id}">${MACHINES[branch].map(m=>`<option ${m===t.mach?"selected":""} ${!canProduce(branch,m)?"disabled":""}>${m}${!canProduce(branch,m)?" (เสีย)":""}${noteOf(m)?" — "+noteOf(m):""}</option>`).join("")}</select>
         คนผลิต <select id="pa-${t.id}"><option value="">— ไม่ระบุ (คนประจำเครื่องกดรับงาน)</option>${ops.map(o=>`<option>${esc(o.name)}</option>`).join("")}</select>
@@ -1182,12 +1297,13 @@ function vBoard(){
           <div class="who">👷 <b>${esc(t.assignee||"ยังไม่มีคนรับ")}</b>${t.st>=3?` · เริ่มโดย ${esc(t.by.started||"")}`:""}</div>
           ${canJoin(t)||openWk(t).length ? `<div class="who">👥 ${openWk(t).length
             ? openWk(t).map(w=>`<span class="bdg" style="background:#eef3ff;color:#1f5eff">${esc(String(w.name||"").split(" ")[0])}</span>`).join(" ")+` <span style="color:var(--muted)">(${openWk(t).length} คน)</span>`
-            : `<span style="color:var(--muted)">ยังไม่มีคนเข้าร่วม</span>`}</div>` : ""}
+            : `<span style="color:var(--muted)">ยังไม่มีคนเข้าร่วม</span>`}${(()=>{ const d=dupWk(t); return d.length?` <span class="bdg late" title="${d.map(w=>esc(String(w.name||""))+" อยู่ "+machOf(w.id).join(", ")).join(" · ")}">⚠ ซ้อน ${d.length} คน</span>`:""; })()}</div>` : ""}
           ${timeLine(t)}
           <div class="bc-foot">${
             t.st===2&&!t.assignee ? `<button class="btn amber" onclick="event.stopPropagation();claim('${t.id}')">🙋 รับงาน (${esc(USER.name.split(" ")[0])})</button>` :
             t.st===2 ? `<button class="btn blue" onclick="event.stopPropagation();startProd('${t.id}')">▶ เริ่มผลิต</button>` :
-            t.st===3 ? `<button class="btn green" onclick="event.stopPropagation();doneProd('${t.id}')">✅ เสร็จ</button>` :
+            t.st===3&&paused(t) ? `<button class="btn blue" onclick="event.stopPropagation();resumeProd('${t.id}')">▶ ทำต่อ</button>` :
+            t.st===3 ? `<button class="btn green" onclick="event.stopPropagation();doneProd('${t.id}')">✅ เสร็จ</button> <button class="btn amber" style="padding:7px 10px" title="พักงานไว้ก่อน — ใบยังคาเครื่องนี้ เวลาที่พักไม่ถูกนับเป็นเวลาผลิต" onclick="event.stopPropagation();pauseAsk('${t.id}')">⏸ พัก</button>` :
             t.stock ? `<button class="btn green" onclick="event.stopPropagation();stockIn('${t.id}')">🏬 เก็บเข้าสต็อค</button>` :
             `<span class="okpill">รอรวมของ →</span>`}${
             t.st===2 && t.mach.startsWith("ตรง-") && (MACHINES[branch]||[]).some(x=>x.startsWith("ตรง-")&&x!==t.mach) ?
@@ -1195,6 +1311,15 @@ function vBoard(){
             canJoin(t) ? (inWork(t)
               ? ` <button class="btn grey" style="padding:7px 10px" title="ออกจากงานนี้ (ไปช่วยงานอื่น/ไปส่งของ)" onclick="event.stopPropagation();leaveWork('${t.id}')">🚪 ออก</button>`
               : ` <button class="btn amber" style="padding:7px 10px" title="เข้ามาช่วยงานใบนี้" onclick="event.stopPropagation();joinWork('${t.id}')">➕ เข้าร่วม</button>`) : ""}</div>
+          ${paused(t)?`<div class="warn" style="margin-top:6px;font-size:12px">⏸ <b>พักอยู่</b> — พักไว้โดย <b>${esc(t.by.paused||"")}</b> · ${esc(t.by.pause_reason||"")}<br>พักมาแล้ว <b>${durTxt(t.tm&&t.tm.paused, nowISO())||"เพิ่งพัก"}</b> — กด ▶ ทำต่อ เมื่อกลับมาทำ</div>`:""}
+          ${PSHOW[t.id]?`<div class="planx show" onclick="event.stopPropagation()" style="margin-top:6px">
+            <select id="pr-${t.id}"><option value="">— เลือกสาเหตุที่พัก (บังคับ) —</option>${PAUSE_R.map(r=>`<option>${r}</option>`).join("")}</select>
+            <input id="pn-${t.id}" placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)">
+            <button class="btn dark" onclick="pauseProd('${t.id}')">⏸ ยืนยันพักงาน</button>
+            <button class="btn grey" onclick="pauseAsk('${t.id}')">ยกเลิก</button>
+            <div class="who">คนที่ยังเข้าร่วมอยู่จะถูกปิดเวลาให้อัตโนมัติ (${openWk(t).length} คน) — กลับมาทำต่อค่อยกด ➕ เข้าร่วมใหม่</div>
+          </div>`:""}
+          ${cancelBox(t)}
         </div>`;
       }).join("")||'<div class="empty">— ว่าง —</div>'}</div>
     </div>`;
@@ -1257,7 +1382,8 @@ function vReport(){
     const list = week.filter(t=>t.mach===m);
     const done = list.filter(t=>t.tm&&t.tm.done);
     const qs = list.map(t=>durMin(t.tm&&(t.tm.approved||t.tm.accepted||t.tm.ordered), t.tm&&t.tm.started)).filter(x=>x!==null);
-    const ps = list.map(t=>durMin(t.tm&&t.tm.started, t.tm&&t.tm.done)).filter(x=>x!==null);
+    // ⏸ ใช้ prodMin ไม่ใช่ started→done ดิบ — ใบค้างคืนใบเดียวจะดึงค่าเฉลี่ยเครื่องพังทั้งแถว
+    const ps = list.filter(t=>t.tm&&t.tm.done).map(t=>prodMin(t)).filter(x=>x!==null);
     const backlog = all.filter(t=>t.mach===m && t.st>=2 && t.st<=3).length;
     const meters = done.reduce((s,t)=>s+tMetrics(t).m,0);
     /* 👥 คน-นาที: แรงงานจริงที่ลงไปกับเครื่องนี้ ไม่ใช่แค่เวลาที่เครื่องเดิน
@@ -1293,7 +1419,31 @@ function vReport(){
       const l=w.map(t=>durMin(t.tm&&t.tm.ordered,t.tm&&t.tm.done)).filter(x=>x!==null);
       return `<span>${b}: <b>${d.length}</b>/${w.length} ใบ${l.length?` · เฉลี่ย <b>${fmtMin(avg(l))}</b>`:""}</span>`;
     }).join("")}</div>
-  </div></div>`;
+  </div>
+  ${(()=>{  /* ⏸ ใบที่พักค้างอยู่ — ต้องมีที่ให้หัวหน้าเห็นรวดเดียว ไม่งั้นใบค้างคืนจะลืมไปเป็นสัปดาห์
+               บอร์ดเครื่องเห็นทีละคอลัมน์ ใบที่พักไว้ตั้งแต่วันศุกร์ไม่มีใครไล่ดู */
+    const pz = all.filter(t=>paused(t));
+    if(!pz.length) return "";
+    return `<div class="socard"><div class="sec" style="margin-top:0">⏸ งานที่พักค้างอยู่ (${pz.length})</div>
+    <table class="items">${pz.sort((a,b)=>String((a.tm||{}).paused).localeCompare(String((b.tm||{}).paused))).map(t=>`<tr>
+      <td>${esc(t.so)} · ${esc(t.mach)}<div class="who">${esc(t.by.pause_reason||"")}</div></td>
+      <td class="q">พักโดย ${esc(t.by.paused||"")}<div class="who">${fmtT(t.tm&&t.tm.paused)}</div></td>
+      <td class="q"><b style="color:#b54708">${durTxt(t.tm&&t.tm.paused, nowISO())||"เพิ่งพัก"}</b></td>
+      <td class="q"><button class="btn blue" style="padding:4px 9px;font-size:11px" onclick="resumeProd('${t.id}')">▶ ทำต่อ</button></td></tr>`).join("")}</table>
+    <div class="who" style="margin-top:6px">ใบพวกนี้ยังคาเครื่องอยู่ (นับเป็นงานค้างของเครื่อง) แต่เวลาที่พักไม่ถูกนับเป็นเวลาผลิต</div></div>`;
+  })()}
+  ${(()=>{  /* ❌ ใบที่ยกเลิก — Gem สั่งให้ "ทิ้งร่องรอย" ใบหลุดจากบอร์ดแล้วต้องยังตามได้ที่นี่ที่เดียว */
+    const cx = cancelledOf(branch).filter(t=>((t.tm&&t.tm.cancelled)||t.created)>=cut7);
+    if(!cx.length) return "";
+    return `<div class="socard"><div class="sec" style="margin-top:0">❌ ใบที่ยกเลิก — 7 วันล่าสุด (${cx.length})</div>
+    <table class="items">${cx.sort((a,b)=>String((b.tm||{}).cancelled).localeCompare(String((a.tm||{}).cancelled))).map(t=>`<tr>
+      <td>${esc(t.so)} · ${esc(t.label)}<div class="who">${esc(t.by.cancel_reason||"")}${t.by.cancel_made_note?` · <b>ผลิตไปแล้ว ${esc(t.by.cancel_made_note)}</b>`:""}</div></td>
+      <td class="q">ยกเลิกตอน<br><b>${esc(STG[+t.by.cancel_stage||0]||"—")}</b></td>
+      <td class="q">ขอ ${esc(t.by.cancelled||"")}<div class="who">อนุมัติ ${esc(t.by.cancel_approved||"—")}</div></td>
+      <td class="q">${fmtT(t.tm&&t.tm.cancelled)}</td></tr>`).join("")}</table>
+    <div class="who" style="margin-top:6px">ใบยังอยู่ในฐานข้อมูลครบ ไม่ได้ถูกลบ — กดดูประวัติเต็มได้ที่ปุ่มรายละเอียดในหน้าค้นหา${cx.some(t=>t.by.cancel_made_note)?` · ⚠️ มีใบที่ลงมือผลิตไปแล้ว ของกลายเป็นเศษ ${cx.filter(t=>t.by.cancel_made_note).length} ใบ`:""}</div></div>`;
+  })()}
+  </div>`;
 }
 
 /* ================= 📐 ครอบตามแบบ — วาดจากระยะจริง ================= */
@@ -1546,7 +1696,8 @@ async function openM(id){
     <div class="who">${(()=>{
       const T=t.tm||{}; const apr=t.xborder?T.accepted:(T.approved||T.ordered);
       const dQ=durTxt(apr, T.started), dP=durTxt(T.started, T.done), dS=durTxt(T.done, T.shipped), dA=durTxt(T.ordered, T.arrived);
-      const parts=[dQ?`อนุมัติ→เริ่มผลิต (รอคิว) <b>${dQ}</b>`:null, dP?`ผลิตจริง <b>${dP}</b>`:null, dS?`เสร็จ→ออกส่ง <b>${dS}</b>`:null, dA?`รวมออกใบ→ถึงลูกค้า <b>${dA}</b>`:null].filter(Boolean);
+      const pm=prodMin(t);
+      const parts=[dQ?`อนุมัติ→เริ่มผลิต (รอคิว) <b>${dQ}</b>`:null, pm!==null?`ผลิตจริง <b>${fmtMin(pm)}</b>${(+T.pause_min||0)||paused(t)?` <span style="color:#b54708">(หัก ⏸ พัก ${fmtMin((+T.pause_min||0)+(paused(t)?(durMin(T.paused,nowISO())||0):0))} ออกแล้ว)</span>`:""}`:(dP?`ผลิตจริง <b>${dP}</b>`:null), dS?`เสร็จ→ออกส่ง <b>${dS}</b>`:null, dA?`รวมออกใบ→ถึงลูกค้า <b>${dA}</b>`:null].filter(Boolean);
       return parts.length? parts.join(" · ") : "— ระยะเวลาจะสรุปให้อัตโนมัติเมื่องานเดินขั้นถัดไป —";
     })()}</div>
     <div class="sec">ผู้เกี่ยวข้อง</div>
@@ -1557,6 +1708,10 @@ async function openM(id){
         ? `<button class="btn grey" onclick="leaveWork('${t.id}')">🚪 ออกจากงานนี้</button>`
         : `<button class="btn amber" onclick="joinWork('${t.id}')">➕ เข้าร่วมงานนี้</button>`}</div>`:""}`
       : (canJoin(t)? `<div class="sec">👥 เข้าร่วมงาน</div><div style="margin-top:2px"><button class="btn amber" onclick="joinWork('${t.id}')">➕ เข้าร่วมงานนี้</button> <span class="who">— ช่วยกันได้หลายคน ระบบจดเวลาให้แต่ละคนเอง</span></div>`:"")}
+    ${paused(t)?`<div class="warn" style="margin-top:5px">⏸ <b>งานนี้พักอยู่</b> — พักโดย <b>${esc(t.by.paused||"")}</b> เมื่อ ${fmtT(t.tm&&t.tm.paused)} (พักมาแล้ว ${durTxt(t.tm&&t.tm.paused,nowISO())||"เพิ่งพัก"})<br>สาเหตุ: ${esc(t.by.pause_reason||"—")}
+      <div style="margin-top:6px"><button class="btn blue" onclick="resumeProd('${t.id}')">▶ ทำต่อ</button></div></div>`:""}
+    ${t.by.cancelled?`<div class="warn" style="margin-top:5px;background:#fee;border-color:#f3b0aa">❌ <b>ใบนี้ถูกยกเลิกแล้ว</b> — ขอยกเลิกโดย <b>${esc(t.by.cancelled)}</b> · อนุมัติโดย <b>${esc(t.by.cancel_approved||"—")}</b> · ${fmtT(t.tm&&t.tm.cancelled)}
+      <br>ยกเลิกตอนขั้น: <b>${esc(STG[+t.by.cancel_stage||0]||"—")}</b> · สาเหตุ: ${esc(t.by.cancel_reason||"—")}${t.by.cancel_made_note?`<br>ผลิตไปแล้ว (เป็นเศษ): <b>${esc(t.by.cancel_made_note)}</b>`:""}</div>`:""}
     ${t.by.reorder_approved?`<div class="warn" style="margin-top:5px">🔁 <b>ใบผลิตซ้ำ</b> — ขอโดย ${esc(t.by.ordered||"")} · อนุมัติโดย <b>${esc(t.by.reorder_approved)}</b>${t.tm&&t.tm.reorder_approved?` เมื่อ ${fmtT(t.tm.reorder_approved)}`:""}<br>สาเหตุ: ${esc(t.by.reorder_reason||"—")}</div>`:""}
     <div class="sec">ข้อมูลหน้างาน</div>
     <div class="fields">
@@ -1584,6 +1739,12 @@ async function openM(id){
       ${sh.note?`<div style="background:#fff8e1;border:1px solid #ffe08a;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:6px;white-space:pre-wrap">📝 ${esc(sh.note)}</div>`:""}
       <div class="who">อัปเดตโดย ${esc(sh.updated_by||"")}${nums?" · เส้น = หน้าตัดเหล็ก ตาราง 5 ซม. — ซูม/ขยายได้ scale ตรง":" · ยังไม่มีตัวเลข กดปุ่ม 📐 เพื่อกรอกระยะจริง"}</div>`;
     }).join("")}
+    ${alive(t)&&t.st<=3?`<div class="sec">⚠️ จัดการใบผลิต</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${t.st===3&&!paused(t)?`<button class="btn amber" onclick="pauseAsk('${t.id}');closeM()">⏸ พักงานไว้ก่อน</button>`:""}
+        <button class="btn red" onclick="cancelAsk('${t.id}');closeM()">❌ ยกเลิกใบผลิตนี้</button>
+      </div>
+      <div class="who">ปุ่มจะพาไปกรอกเหตุผลที่บอร์ด/แท็บวางแผน — ยกเลิกต้องมี admin อนุมัติด้วย PIN</div>`:""}
     <div class="sec">ประวัติ (ใครกดอะไรเมื่อไหร่)</div>
     <div class="hist" id="m-hist">กำลังโหลด…</div>`;
   document.getElementById("ovbg").classList.add("show");
@@ -1614,7 +1775,7 @@ function render(){
   const ONLINE_BR = ["SKN","BK"];   // สาขาที่ผลิต+ส่งงานออนไลน์ตอนนี้
   if(view==="online" && !ONLINE_BR.includes(branch)) view="order";
   const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length
-    + CARDS[branch].filter(c=>cardOnline(c)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected)).length;
+    + CARDS[branch].filter(c=>cardOnline(c)&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&alive(t))).length;
   const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
     ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
     ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],
