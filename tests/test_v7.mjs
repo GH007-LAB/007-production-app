@@ -858,6 +858,51 @@ ok('v9: กดซ้ำ → ปิดโหมดจอ TV', await page.evaluate
 await clickText('ฝั่งขาย'); await page.waitForTimeout(200);
 ok('v9: ออกจากบอร์ด → กลับธีมสว่าง + tv ปิดอัตโนมัติ', await page.evaluate(() => !document.body.classList.contains('dk') && !document.body.classList.contains('tv')));
 
+// ---- 31. v9.1: 📦 feedback คุณรุ้ง — ตัดใบส่งแล้ววันก่อน ๆ + 🔍 ตามใบ + 📍 กระโดดไปการ์ด ----
+await page.evaluate(async () => {
+  const now=new Date().toISOString(), yd=new Date(Date.now()-864e5).toISOString();
+  const mk=(id,so,stg,arr)=>({id, branch:'SKN', sonum:so, machine:'ตรง-R แดง ปีกขวา', stage:stg, route:'A',
+    label:'ซิงค์ 0.30', item_seqs:[1], assignee:'ช่างเทส', people:{ordered:'ขาย',approved:'ขาย',packed:'แพ็ค',shipped:'คนขับ'},
+    times:{ordered:yd, done:yd, packed:yd, shipped:yd, ...(arr?{arrived:arr}:{})}, created_at:yd,
+    prod_m:10, sheets:5, max_len:2, weight_kg:50});
+  window.__STATE__.tks.push(mk('pk-old','SO68PKOLD',7, yd));
+  window.__STATE__.tks.push(mk('pk-new','SO68PKNEW',7, now));
+  window.__STATE__.tks.push(mk('pk-run','SO68RUN',3, null));
+  window.__STATE__.sos.push({branch:'SKN',sonum:'SO68PKOLD',sodat:yd.slice(0,10),dlvdat:yd.slice(0,10),cuscod:'P001',cusnam:'ลูกค้าส่งแล้วเมื่อวาน',docstat:'N',synced_at:now});
+  window.__STATE__.sos.push({branch:'SKN',sonum:'SO68PKNEW',sodat:now.slice(0,10),dlvdat:now.slice(0,10),cuscod:'P002',cusnam:'ลูกค้าส่งแล้ววันนี้',docstat:'N',synced_at:now});
+  await reload(); render();
+});
+await clickText('รวมของ/ส่ง'); await page.waitForTimeout(250);
+let pkTxt = await page.locator('#main').innerText();
+ok('v9.1: ใบส่งสำเร็จวันก่อน ๆ ถูกตัดออกจากหน้ารวมของ', !pkTxt.includes('SO68PKOLD'));
+ok('v9.1: แต่บอกไว้ว่ามีเก็บออกไปกี่ใบ', /ส่งสำเร็จวันก่อน ๆ อีก 1 ใบ/.test(pkTxt));
+ok('v9.1: ส่งสำเร็จวันนี้พับลงกล่องท้ายหน้า (ไม่บังใบเป็น ๆ)', /ส่งสำเร็จวันนี้ 1 ใบ/.test(pkTxt) && !pkTxt.includes('SO68PKNEW'));
+await page.locator('#pkdone button').click(); await page.waitForTimeout(200);
+ok('v9.1: กางกล่อง → เห็นใบที่ส่งวันนี้', (await page.locator('#main').innerText()).includes('SO68PKNEW'));
+ok('v9.1: ใบกำลังผลิตยังอยู่ในรายการหลัก', (await page.locator('#main').innerText()).includes('SO68RUN'));
+
+// 🔍 ตามใบ: ใบเก่าที่ถูกตัดออก ต้องค้นเจอ + บอกขั้น
+await page.locator('#q-pk').fill('SO68PKOLD');
+await clickText('ตามใบ'); await page.waitForTimeout(250);
+pkTxt = await page.locator('#main').innerText();
+ok('v9.1: ช่องตามใบเจอใบเก่าที่ส่งแล้ว + บอกขั้น "ส่งสำเร็จ"', pkTxt.includes('SO68PKOLD') && /ส่งสำเร็จ/.test(pkTxt));
+
+// 📍 กระโดด: ใบกำลังผลิต → พาไปบอร์ด (โหมดมืด) + การ์ดกะพริบ
+await page.locator('#q-pk').fill('SO68RUN');
+await clickText('ตามใบ'); await page.waitForTimeout(250);
+await page.locator('button:has-text("📍 ไปที่ใบ")').first().click(); await page.waitForTimeout(500);
+ok('v9.1: กด 📍 → กระโดดไปบอร์ด (Mission Control)', await page.evaluate(() => document.body.classList.contains('dk')));
+ok('v9.1: การ์ดปลายทางถูกไฮไลต์กะพริบ', await page.evaluate(() => { const n=document.getElementById('tk-pk-run'); return !!n && n.classList.contains('flash'); }));
+ok('v9.1: ใบกำลังผลิตมีแถบวิ่งแบบ live', (await page.locator('#tk-pk-run .strip i.run').count()) === 1);
+
+// 📍 ตามใบ จากการ์ด SO ฝั่งขาย
+await clickText('ฝั่งขาย'); await page.waitForTimeout(250);
+const soLater = page.locator('.socard:has-text("SO68LATER")');
+ok('v9.1: การ์ด SO ที่สั่งแล้วมีปุ่ม 📍 ตามใบ', (await soLater.locator('button:has-text("📍 ตามใบ")').count()) === 1);
+await soLater.locator('button:has-text("📍 ตามใบ")').click(); await page.waitForTimeout(500);
+const laterId = await page.evaluate(() => (window.__STATE__.tks.find(t=>t.sonum==='SO68LATER')||{}).id);
+ok('v9.1: คลิกแล้วพาไปหน้าที่ใบอยู่จริง + ไฮไลต์', await page.evaluate(id => { const n=document.getElementById('tk-'+id); return !!n && n.classList.contains('flash'); }, laterId));
+
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));
 console.log(errors.length ? 'JS ERRORS:\n' + errors.join('\n') : 'NO JS ERRORS');
