@@ -20506,5 +20506,71 @@ function loadDraft(){
 }
 render();
 </script>
+
+<!-- ═══ Quote007 Login — PIN ชุดเดียวกับแอป HR007 (ตรวจกับ gateway HR ตัวเดิม) ═══ -->
+<style>
+#q7lock{position:fixed;inset:0;background:#111;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:inherit}
+#q7lock .card{background:#fff;border-radius:14px;padding:28px 26px;width:320px;max-width:92vw;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+#q7lock h2{margin:0 0 2px;font-size:20px}#q7lock h2 b{color:#1E7A4F}
+#q7lock .sub{color:#777;font-size:12px;margin-bottom:16px}
+#q7lock label{display:block;font-size:12px;color:#555;margin:10px 0 4px}
+#q7lock select,#q7lock input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #ccc;border-radius:8px;font-size:15px;background:#fff}
+#q7lock input#q7pin{letter-spacing:8px;text-align:center;font-size:20px}
+#q7lock button{width:100%;margin-top:16px;padding:11px;border:0;border-radius:8px;background:#1E7A4F;color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+#q7lock button:disabled{opacity:.6}
+#q7err{color:#c0392b;font-size:12.5px;min-height:16px;margin-top:8px;text-align:center}
+#q7hint{font-size:11.5px;color:#999;margin-top:12px;line-height:1.5}
+#q7chip{position:fixed;right:10px;bottom:10px;z-index:9000;background:#111;color:#fff;border-radius:20px;padding:6px 12px;font-size:12.5px;display:none;align-items:center;gap:8px;opacity:.88}
+#q7chip a{color:#8fd3b1;cursor:pointer;text-decoration:none}
+@media print{#q7chip{display:none!important}}
+</style>
+<div id="q7lock">
+  <div class="card">
+    <h2>007<b>METALS</b> · Quote007</h2>
+    <div class="sub">เข้าสู่ระบบด้วย PIN เดียวกับแอป HR007</div>
+    <label>สาขา</label>
+    <select id="q7br" onchange="q7Fill()"><option value="SKN">สกลนคร</option><option value="BK">บึงกาฬ</option><option value="PPS">โพนพิสัย</option></select>
+    <label>ชื่อ</label>
+    <select id="q7emp"></select>
+    <label>PIN 6 หลัก</label>
+    <input id="q7pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter')q7Login()">
+    <button id="q7btn" onclick="q7Login()">เข้าสู่ระบบ</button>
+    <div id="q7err"></div>
+    <div id="q7hint">ยังไม่มี PIN / ลืม PIN → ตั้งได้ในแอป <b>HR007</b> (ขอ "รหัสเปิดใช้" จากหัวหน้าสาขา) แล้วกลับมาใช้ PIN เดิมที่นี่ · ทุกการเข้าใช้ถูกบันทึก log</div>
+  </div>
+</div>
+<div id="q7chip">👤 <span id="q7who"></span> <a onclick="q7Logout()">ออก</a></div>
+<script>
+const Q7GW='https://script.google.com/macros/s/AKfycbzS_DV-J_S2mQfRbCXsIXaMSmkCKkUTN3aLAfmDTDiqa64EpIVTReiXn0-C2qGx1a6_TA/exec';
+const Q7ROSTER=[{"id":"20121201","nick":"เอ๋","branch":"BK","pos":"Branch Manager"},{"id":"20141203","nick":"ยะ","branch":"BK","pos":"Production & Logistics Supervisor"},{"id":"20161103","nick":"เมย์","branch":"BK","pos":"Sales Supervisor"},{"id":"20151205","nick":"ดอกดิน","branch":"BK","pos":"Production & Logistics Officer"},{"id":"20181105","nick":"แนน","branch":"BK","pos":"Sales Officer"},{"id":"20161103R","nick":"แต","branch":"BK","pos":"Sales Supervisor"},{"id":"20201212","nick":"เปา","branch":"BK","pos":"Production & Logistics Officer"},{"id":"20221303","nick":"ยอม","branch":"BK","pos":"Housekeeper"},{"id":"20221305","nick":"บ๋อม","branch":"BK","pos":"Housekeeper"},{"id":"20231234","nick":"ปี","branch":"BK","pos":"Production & Logistics Officer"},{"id":"20231229","nick":"ปาล์ม","branch":"BK","pos":"Production & Logistics Officer"},{"id":"20231312","nick":"เกียรติ","branch":"BK","pos":"Security Guard"},{"id":"20231401","nick":"ปาล์มมี่","branch":"BK","pos":"Procurement Officer"},{"id":"20231315","nick":"สัญญา","branch":"BK","pos":"Security Guard"},{"id":"20241229","nick":"ป๋อมแป๋ม","branch":"BK","pos":"Sales Officer"},{"id":"1238","nick":"เจมส์บอนด์","branch":"BK","pos":"Production & Logistics Officer"},{"id":"1239","nick":"หลิว","branch":"BK","pos":"Production & Logistics Officer"},{"id":"NBK6017","nick":"อ้าย","branch":"BK","pos":"Production & Logistics Officer"},{"id":"NBK8593","nick":"เนส","branch":"BK","pos":"Data Entry Officer"},{"id":"NBK5590","nick":"จุ้ย","branch":"BK","pos":"Production & Logistics Officer"},{"id":"NPPS3184","nick":"ออฟ","branch":"PPS","pos":"ที่ปรึกษา"},{"id":"20142101","nick":"วิ","branch":"PPS","pos":"Branch Manager"},{"id":"20162301","nick":"นาง","branch":"PPS","pos":"Housekeeper"},{"id":"20222223","nick":"พีท","branch":"PPS","pos":"Production & Logistics Officer"},{"id":"20242236","nick":"โอเล่","branch":"PPS","pos":"Production & Logistics Officer"},{"id":"20242237","nick":"แพน","branch":"PPS","pos":"Sales Officer"},{"id":"20242234","nick":"เอก","branch":"PPS","pos":"Production & Logistics Officer"},{"id":"20242241","nick":"ออดี้","branch":"PPS","pos":"Production & Logistics Officer"},{"id":"20242244","nick":"ตุ๊ก","branch":"PPS","pos":"Production & Logistics Officer"},{"id":"20252245","nick":"ถัง","branch":"PPS","pos":"Production & Logistics Officer"},{"id":"NPPS0556","nick":"บี","branch":"PPS","pos":"Production & Logistics Officer"},{"id":"20183103","nick":"รุ้ง","branch":"SKN","pos":"Sales Supervisor"},{"id":"20183211","nick":"แป๊บ","branch":"SKN","pos":"Driver"},{"id":"20183104","nick":"มิ้น","branch":"SKN","pos":"Sales Officer"},{"id":"20193214","nick":"หนุ่ม","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"20203227","nick":"คริต","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"20203108","nick":"จิ๊บ","branch":"SKN","pos":"Sales Officer"},{"id":"20203401","nick":"ปอนด์","branch":"SKN","pos":"Branch Manager"},{"id":"20213405","nick":"แจ๋ม","branch":"SKN","pos":"Online Sales Officer"},{"id":"20223250","nick":"ตี๋","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"20223240","nick":"หย๋อย","branch":"SKN","pos":"Production & Logistics Supervisor"},{"id":"20223248","nick":"เอส","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"20223249","nick":"พงศ์","branch":"SKN","pos":"Foreman"},{"id":"20223111","nick":"นัท","branch":"SKN","pos":"Procurement Officer"},{"id":"20233406","nick":"แนน","branch":"SKN","pos":"Graphic Designer"},{"id":"20243258","nick":"มั่น","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"20243602","nick":"กุ๊กไก่","branch":"SKN","pos":"HR Supervisor"},{"id":"20243112","nick":"ริน","branch":"SKN","pos":"Sales Officer"},{"id":"20243503","nick":"พล","branch":"SKN","pos":"Security Guard"},{"id":"20243262","nick":"มอส","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"20243263","nick":"เปี๊ยก","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"NSKN1946","nick":"ปิ่น","branch":"SKN","pos":"Trainer"},{"id":"3507","nick":"ชัย","branch":"SKN","pos":"Security Guard"},{"id":"3269","nick":"อุ๋ย","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"3509","nick":"หมาน","branch":"SKN","pos":"Security Guard"},{"id":"NSKN6785","nick":"เทอด","branch":"SKN","pos":"Content Creator"},{"id":"NSKN4250","nick":"ดอม","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"NSKN9965","nick":"เค้ก","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"NSKN0859","nick":"เบ๊บ","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"NSKN3526","nick":"พัช","branch":"SKN","pos":"Housekeeper"},{"id":"NSKN7839","nick":"ฟ้า","branch":"SKN","pos":"Live Commerce Officer"},{"id":"NSKN9186","nick":"สา","branch":"SKN","pos":"Data Entry Officer"},{"id":"NSKN8560","nick":"เคิ้ล","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"NSKN5997","nick":"โจ","branch":"SKN","pos":"Production & Logistics Officer"},{"id":"NSKN9130","nick":"ดรีม","branch":"SKN","pos":"Warehouse Officer"},{"id":"ZERO","nick":"ผบ.","branch":"ALL","pos":"Chief Executive Officer"}];
+const Q7TTL=12*60*60*1000;
+function q7Fill(){const br=document.getElementById('q7br').value;
+  const list=Q7ROSTER.filter(r=>r.branch===br||r.branch==='ALL');
+  const dup={};list.forEach(r=>dup[r.nick]=(dup[r.nick]||0)+1);
+  document.getElementById('q7emp').innerHTML=list.map(r=>`<option value="${r.id}">${r.nick}${dup[r.nick]>1?' · '+(r.pos||''):''}</option>`).join('')}
+async function q7Post(o){const r=await fetch(Q7GW,{method:'POST',body:JSON.stringify(Object.assign({type:'sec'},o))});return r.json()}
+function q7Open(s){document.getElementById('q7lock').style.display='none';
+  document.getElementById('q7who').textContent=s.nick||s.emp;
+  document.getElementById('q7chip').style.display='flex'}
+function q7Logout(){const s=JSON.parse(localStorage.getItem('q7_sess')||'null');
+  if(s&&s.tok)q7Post({act:'logout',tok:s.tok}).catch(()=>{});
+  localStorage.removeItem('q7_sess');location.reload()}
+async function q7Login(){
+  const emp=document.getElementById('q7emp').value,pin=document.getElementById('q7pin').value;
+  const err=document.getElementById('q7err'),btn=document.getElementById('q7btn');err.textContent='';
+  if(!/^\d{6}$/.test(pin)){err.textContent='PIN ต้องเป็นตัวเลข 6 หลัก';return}
+  btn.disabled=true;
+  try{const res=await q7Post({act:'login',emp,pin});
+    if(!res.ok){err.textContent=(res.need==='register')?'ยังไม่ได้ตั้ง PIN — ไปตั้งในแอป HR007 ก่อน':(res.err||'เข้าสู่ระบบไม่สำเร็จ');btn.disabled=false;return}
+    res.exp=Date.now()+Q7TTL;localStorage.setItem('q7_sess',JSON.stringify(res));q7Open(res);
+  }catch(e){err.textContent='ติดต่อ server ไม่ได้ — เช็คอินเทอร์เน็ตแล้วลองใหม่';btn.disabled=false}}
+(function(){q7Fill();
+  const s=JSON.parse(localStorage.getItem('q7_sess')||'null');
+  if(s&&s.tok&&s.exp&&Date.now()<s.exp){
+    q7Open(s); // เข้าได้ทันที แล้วตรวจ session เบื้องหลัง
+    q7Post({act:'verify',tok:s.tok}).then(v=>{if(!v.ok){localStorage.removeItem('q7_sess');location.reload()}}).catch(()=>{});
+  }})();
+</script>
+
 </body>
 </html>
