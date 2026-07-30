@@ -20424,8 +20424,50 @@ function exportKeyTable(){
 // จุดเสียบ Express_Realtime (เฟส 3): เมื่อ DB กลาง (Supabase) พร้อม ให้กำหนด
 // window.LIVE_URL = 'https://<project>.supabase.co/functions/v1/quote?doc=' ใน ivdata.js
 // แอปจะค้นจาก DB สดก่อน แล้วค่อย fallback ไฟล์รายวัน — โค้ดนี้ไม่ต้องแก้อีก
+// --- ค้นหาแบบยืดหยุ่น: เลข SO / เลข IV / เลขท้าย / ชื่อลูกค้า ---
+function q7Norm(s){ return String(s||'').toUpperCase().replace(/[\s\-_.\/]/g,''); }
+function q7Matches(raw){
+  const D=window.IVDATA||{}, n=q7Norm(raw), digits=n.replace(/\D/g,''), txt=String(raw||'').trim(), out=[];
+  if(!n) return out;
+  for(const k in D){
+    const r=D[k], f=(r.data&&r.data.fields)||{};
+    const iv=q7Norm(r.iv), so=q7Norm(r.so), cust=String(f.f_cust||'');
+    let sc=0;
+    if(iv===n||so===n) sc=100;
+    else if(digits.length>=3 && (iv.endsWith(digits)||so.endsWith(digits))) sc=80;
+    else if(digits.length>=3 && (iv.indexOf(digits)>=0||so.indexOf(digits)>=0)) sc=60;
+    else if(txt.length>=2 && cust.indexOf(txt)>=0) sc=40;
+    if(sc) out.push({k:k,r:r,sc:sc,cust:cust,f:f});
+  }
+  return out.sort(function(a,b){ return b.sc-a.sc || (a.k<b.k?1:-1); });
+}
+function q7Coverage(){
+  const D=window.IVDATA||{}, ds={}, brs={}; let n=0;
+  for(const k in D){ const f=(D[k].data&&D[k].data.fields)||{}; if(f.f_date) ds[f.f_date]=1; if(f.f_branch) brs[f.f_branch]=(brs[f.f_branch]||0)+1; n++; }
+  const days=Object.keys(ds).sort(function(a,b){ const p=function(s){const x=s.split('/');return x[2]+x[1]+x[0]}; return p(a)<p(b)?-1:1; });
+  return {n:n, from:days[0]||'-', to:days[days.length-1]||'-', brs:brs};
+}
+function q7CloseHits(){ const el=document.getElementById('q7hits'); if(el) el.remove(); }
+function q7ShowHits(list, raw){
+  q7CloseHits();
+  const box=document.createElement('div'); box.id='q7hits';
+  box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99998;display:flex;align-items:center;justify-content:center';
+  const rows=list.slice(0,15).map(function(m,i){
+    return '<div onclick="q7Pick('+i+')" style="padding:9px 12px;border-bottom:1px solid #eee;cursor:pointer;font-size:13.5px" onmouseover="this.style.background=\'#f1f8f4\'" onmouseout="this.style.background=\'#fff\'">'
+      +'<b>'+(m.r.so||'-')+'</b> <span style="color:#888">/ '+(m.r.iv||'-')+'</span>'
+      +'<div style="color:#555;font-size:12.5px">'+(m.cust||'-')+' · '+(m.f.f_branch||'')+' · '+(m.f.f_date||'')+'</div></div>';
+  }).join('');
+  box.innerHTML='<div style="background:#fff;border-radius:12px;width:420px;max-width:94vw;max-height:78vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.4)">'
+    +'<div style="padding:12px 14px;background:#111;color:#fff;font-size:14px;display:flex;justify-content:space-between;align-items:center">'
+    +'<span>พบ '+list.length+' รายการ — เลือกเอกสาร</span><span onclick="q7CloseHits()" style="cursor:pointer">✕</span></div>'
+    +rows+(list.length>15?'<div style="padding:8px 12px;color:#888;font-size:12px">แสดง 15 รายการแรก — พิมพ์เลขให้ครบขึ้นเพื่อแคบผลลัพธ์</div>':'');
+  document.body.appendChild(box);
+  window.__q7hits=list;
+}
+function q7Pick(i){ const m=(window.__q7hits||[])[i]; if(!m) return; q7CloseHits(); applyData(m.r.data); document.getElementById('searchBox').value=''; }
 async function searchDoc(){
-  const q=(document.getElementById('searchBox').value||'').trim().toUpperCase();
+  const raw=(document.getElementById('searchBox').value||'').trim();
+  const q=raw.toUpperCase();
   if(!q) return;
   if(window.LIVE_URL){
     try{
@@ -20434,11 +20476,16 @@ async function searchDoc(){
         if(rec && rec.data){ applyData(rec.data); document.getElementById('searchBox').value=''; return; } }
     }catch(e){ /* DB ไม่ตอบ → ใช้ไฟล์รายวันต่อ */ }
   }
-  if(!window.IVDATA){ alert('ยังไม่มีไฟล์ข้อมูล ivdata.js — ขอให้ Claude สร้างจากไฟล์ IV ล่าสุดก่อน'); return; }
-  const rec = window.IVDATA[q] || Object.values(window.IVDATA).find(r=>(r.so===q||r.iv===q));
-  if(!rec){ alert('ไม่พบ '+q+' ในข้อมูลชุดล่าสุด — ตรวจเลข หรือให้ Claude ดึงไฟล์วันนั้นเพิ่ม'); return; }
-  applyData(rec.data);
-  document.getElementById('searchBox').value='';
+  if(!window.IVDATA){ alert('ยังไม่มีข้อมูลในไฟล์นี้ — ให้ Claude สร้างจากไฟล์ IV ล่าสุดก่อน'); return; }
+  const hits=q7Matches(raw);
+  if(hits.length===1 || (hits.length>1 && hits[0].sc===100)){
+    applyData(hits[0].r.data); document.getElementById('searchBox').value=''; return;
+  }
+  if(hits.length>1){ q7ShowHits(hits, raw); return; }
+  const c=q7Coverage();
+  const brs=Object.keys(c.brs).map(function(b){ return b+' '+c.brs[b]; }).join(' · ');
+  alert('ไม่พบ "'+raw+'"\n\nข้อมูลในระบบตอนนี้: '+c.n+' ใบ ('+brs+')\nช่วงวันที่ '+c.from+' – '+c.to
+    +'\n\nสาเหตุที่พบบ่อย:\n• เป็นใบเสนอราคา (SO) ที่ยังไม่ได้ออกใบส่งของ — ยังไม่อยู่ในชุดข้อมูล (ระบบดึงจากไฟล์ IV)\n• เอกสารเก่ากว่าช่วงวันที่ข้างบน\n• บิลที่คีย์หลังรอบดึงข้อมูลเช้า\n\nค้นด้วยชื่อลูกค้า หรือเลขท้าย 4 หลักก็ได้ · ถ้าต้องการเอกสารนี้ แจ้ง Claude ให้ดึงเพิ่มได้เลย');
 }
 
 // ---------- ประเภทเอกสาร: SO (ยังไม่ปิดจ๊อบ) / IV (ปิดแล้ว รอส่ง) ----------
