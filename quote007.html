@@ -20536,6 +20536,7 @@ render();
     <input id="q7pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter')q7Login()">
     <button id="q7btn" onclick="q7Login()">เข้าสู่ระบบ</button>
     <div id="q7err"></div>
+    <div style="text-align:center;margin-top:6px"><a onclick="q7Diag()" style="font-size:11.5px;color:#1E7A4F;cursor:pointer;text-decoration:underline">ทดสอบการเชื่อมต่อระบบ</a></div>
     <div id="q7hint">ยังไม่มี PIN / ลืม PIN → ตั้งได้ในแอป <b>HR007</b> (ขอ "รหัสเปิดใช้" จากหัวหน้าสาขา) แล้วกลับมาใช้ PIN เดิมที่นี่ · ทุกการเข้าใช้ถูกบันทึก log</div>
   </div>
 </div>
@@ -20555,6 +20556,12 @@ function q7Open(s){document.getElementById('q7lock').style.display='none';
 function q7Logout(){const s=JSON.parse(localStorage.getItem('q7_sess')||'null');
   if(s&&s.tok)q7Post({act:'logout',tok:s.tok}).catch(()=>{});
   localStorage.removeItem('q7_sess');location.reload()}
+async function q7Diag(){
+  const err=document.getElementById('q7err');err.textContent='กำลังทดสอบ…';
+  try{const t0=Date.now();const r=await fetch(Q7GW,{method:'POST',body:JSON.stringify({type:'sec',act:'verify',tok:'diag'})});
+    const txt=(await r.text()).slice(0,120);
+    err.innerHTML='<span style="color:#1E7A4F">เชื่อมต่อระบบ HR ได้ ('+r.status+', '+(Date.now()-t0)+'ms)</span><br><small style="color:#888">'+txt+'</small><br><small style="color:#888">ถ้าล็อกอินไม่ผ่าน = PIN ไม่ตรง หรือยังไม่ได้ตั้ง PIN ในแอป HR007</small>';
+  }catch(e){err.innerHTML='<b>ต่อระบบ HR ไม่ได้</b><br><small style="color:#888">'+(e&&e.message||e)+'</small>'}}
 async function q7Login(){
   const emp=document.getElementById('q7emp').value,pin=document.getElementById('q7pin').value;
   const err=document.getElementById('q7err'),btn=document.getElementById('q7btn');err.textContent='';
@@ -20563,7 +20570,7 @@ async function q7Login(){
   try{const res=await q7Post({act:'login',emp,pin});
     if(!res.ok){err.textContent=(res.need==='register')?'ยังไม่ได้ตั้ง PIN — ไปตั้งในแอป HR007 ก่อน':(res.err||'เข้าสู่ระบบไม่สำเร็จ');btn.disabled=false;return}
     res.exp=Date.now()+Q7TTL;localStorage.setItem('q7_sess',JSON.stringify(res));q7Open(res);
-  }catch(e){err.textContent='ติดต่อ server ไม่ได้ — เช็คอินเทอร์เน็ตแล้วลองใหม่';btn.disabled=false}}
+  }catch(e){err.innerHTML='ติดต่อ server ไม่ได้ — เช็คอินเทอร์เน็ตแล้วลองใหม่<br><small style="color:#888">('+(e&&e.message||e)+')</small>';btn.disabled=false}}
 (function(){q7Fill();
   const s=JSON.parse(localStorage.getItem('q7_sess')||'null');
   if(s&&s.tok&&s.exp&&Date.now()<s.exp){
