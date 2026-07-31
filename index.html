@@ -187,6 +187,40 @@ body.dk .flash{animation-name:flashydk}
 .ldot{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:4px;animation:ledblink 1s infinite;vertical-align:1px}
 .strip i.run{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.35) 0 5px,transparent 5px 10px);background-size:14px 14px;animation:runmove .9s linear infinite}
 @keyframes runmove{to{background-position:14px 0}}
+/* ═══ 🛫 จอสถานะวันนี้ (flight board) — ใช้คู่กับ body.dk เสมอ ═══ */
+.flpage{max-width:1100px}
+.flh{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:2px 0 14px}
+.flh h2{font-family:'Prompt',sans-serif;font-weight:800;font-size:24px;margin:0}
+.fldate{color:var(--muted);font-size:13px}
+.flsum{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.flsum b{font-size:12.5px;font-weight:700;border-radius:99px;padding:4px 12px;background:#101a33;border:1px solid #22305a;color:#c9d4ef}
+.flsum .s1{color:#7dd3fc;box-shadow:0 0 10px rgba(56,140,255,.2) inset}
+.flsum .s4{color:#34d399}
+.flr{display:flex;align-items:center;gap:16px;background:#0f1830;border:1px solid #1e2c55;border-radius:14px;padding:13px 16px;margin-bottom:9px}
+.flr.land{opacity:.6}
+.flid{flex:0 0 190px;min-width:0}
+.flid .so{display:block;font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:700;font-size:16px;color:#7dd3fc}
+.flcus{display:block;font-size:13px;color:#cdd7ef;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flct{font-size:10.5px;color:var(--muted)}
+.fltrk{flex:1;min-width:0}
+.flbar{position:relative;height:8px;border-radius:99px;background:#16203f;margin:8px 12px 6px 0}
+.flbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#1a56db,#22d3ee);box-shadow:0 0 8px rgba(34,211,238,.45);transition:width .6s}
+.flico{position:absolute;top:-11px;margin-left:-9px;font-size:16px;filter:drop-shadow(0 0 6px rgba(34,211,238,.6));animation:flbob 1.6s ease-in-out infinite;transition:left .6s}
+@keyframes flbob{50%{transform:translateY(-3px)}}
+.flr.land .flico{animation:none}
+.flsteps{display:flex;justify-content:space-between;font-size:10.5px;color:#5d6b93;padding-right:12px}
+.flsteps .on{color:#9fb0d8}
+.flsteps .now{color:#7dd3fc;font-weight:700}
+.flst{flex:0 0 auto;font-size:13px;font-weight:800;color:var(--sc);background:color-mix(in srgb,var(--sc) 14%,transparent);border:1px solid color-mix(in srgb,var(--sc) 40%,transparent);border-radius:99px;padding:6px 14px}
+body.tv .flid{flex-basis:240px}
+body.tv .flid .so{font-size:20px}
+body.tv .flcus{font-size:16px}
+body.tv .flst{font-size:16px;padding:8px 18px}
+body.tv .flh h2{font-size:32px}
+body.tv .flsteps{font-size:13px}
+body.tv .flbar{height:10px}
+body.tv .flico{font-size:20px;top:-13px}
+body.tv .flr{padding:17px 20px}
 /* ═══ 📺 โหมดจอ TV — ตัวใหญ่ อ่านข้ามโรงงาน (เปิดได้เฉพาะบนบอร์ด) ═══ */
 body.tv h1,body.tv .syncs,body.tv .tline{display:none}
 body.tv header{padding-top:6px}
@@ -778,6 +812,12 @@ function xsoDo(so){
   });
 }
 function xsoUndo(so){ act(()=>DB.setSOCancel(branch, so, {cancelled_at:null, cancelled_by:"", cancel_reason:""})); }
+function pickM(id, m){   // ปุ่มสีเซ็ตค่าลง select เครื่อง (ตัวจริงที่ planA อ่าน) — ไม่ re-render จะได้ไม่หลุดฟอร์ม
+  const s=document.getElementById("pm-"+id);
+  if(s){ for(const o of s.options){ if(o.text===m || o.text.startsWith(m+" ")){ s.value=o.value; break; } } }
+  const box=document.getElementById("mp-"+id);
+  if(box) box.querySelectorAll("button").forEach(b=>{ b.className="btn "+(b.dataset.m===m?"blue":"grey"); });
+}
 function planA(id){
   const t=tks().find(t=>t.id===id); if(!t) return;
   const mSel=document.getElementById("pm-"+id), aSel=document.getElementById("pa-"+id);
@@ -1440,6 +1480,12 @@ function vPlan(){
       </div>
       ${cancelBox(t)}
       <div class="planx" id="px-${t.id}">
+        ${(()=>{ /* 🟩🟥 งานลอนตรง: ให้ทีมวางแผนกดเลือกเครื่องด้วยปุ่มสีตัวเครื่องได้เลย
+                   ไม่ต้องไปคุ้ยใน dropdown (Gem เคาะ 31 ก.ค. — ทีมผลิต SKN ขอเลือกเองตั้งแต่วางแผน) */
+          const tr=(MACHINES[branch]||[]).filter(x=>x.startsWith("ตรง-"));
+          return String(t.mach||"").startsWith("ตรง-")&&tr.length>1 ? `<div style="margin-bottom:7px">เครื่องลอนตรง: <span id="mp-${t.id}">`+
+            tr.map(m=>`<button class="btn ${m===t.mach?"blue":"grey"}" data-m="${esc(m)}" ${!canProduce(branch,m)?"disabled":""} style="padding:8px 13px;margin-right:6px" onclick="pickM('${t.id}','${esq(m)}')">${machDot(m)} ${esc(machWord(m))}${m.includes("ซ้าย")?" ปีกซ้าย":m.includes("ขวา")?" ปีกขวา":""}${!canProduce(branch,m)?" (เสีย)":""}</button>`).join("")
+            +`</span></div>` : ""; })()}
         เครื่อง <select id="pm-${t.id}">${MACHINES[branch].map(m=>`<option ${m===t.mach?"selected":""} ${!canProduce(branch,m)?"disabled":""}>${m}${!canProduce(branch,m)?" (เสีย)":""}${noteOf(m)?" — "+noteOf(m):""}</option>`).join("")}</select>
         คนผลิต <select id="pa-${t.id}"><option value="">— ไม่ระบุ (คนประจำเครื่องกดรับงาน)</option>${ops.map(o=>`<option>${esc(o.name)}</option>`).join("")}</select>
         <button class="btn dark" onclick="planA('${t.id}')">✔ เข้าคิวเครื่อง</button>
@@ -1546,6 +1592,52 @@ function vPack(){
       + (PKOPEN? doneToday.map(so=>pkCard(so,true)).join("") : "") : "")
   + (doneOld.length? `<div class="who" style="text-align:center;margin-top:8px">📁 ส่งสำเร็จวันก่อน ๆ อีก ${doneOld.length} ใบ ถูกเก็บออกจากหน้านี้ — ดูได้จากช่องตามใบ</div>`:"")
   + `</div>`;
+}
+/* ================= 🛫 จอสถานะวันนี้ (flight board) =================
+   เปิดบนจอ TV ที่สาขา — ลูกค้าเห็น "งานของฉันถึงไหนแล้ว" เหมือนจอสนามบิน
+   ความเป็นส่วนตัว: ชื่อลูกค้าถูกย่อ (คำแรกเต็ม + คำถัดไปโชว์แค่ต้นชื่อ)
+   ลูกค้าจำเลข SO จากบิลตัวเองได้อยู่แล้ว — คนอื่นเห็นก็ไม่รู้ว่าใคร */
+function maskCus(n){
+  const t=String(n||"").trim().split(/\s+/);
+  if(!t[0]) return "";
+  const cut=w=>{ const c=Array.from(w); return c.length<=4? w : c.slice(0,4).join("")+"…"; };
+  return t.length===1 ? cut(t[0]) : t[0]+" "+cut(t[1]);
+}
+const FSTEP=["รับออเดอร์","กำลังผลิต","ผลิตครบ","ขึ้นรถ","ถึงมือลูกค้า"];
+function fpos(st){ return st>=7?4 : st>=6?3 : st===5?2.5 : st===4?2 : st===3?1 : 0; }
+function vFlight(){
+  const el=document.getElementById("main"); el.className="";
+  const bySo={};
+  tks().filter(t=>!t.stock).forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));
+  const rows=[];
+  Object.keys(bySo).forEach(so=>{
+    const list=bySo[so];
+    const bmin=Math.min(...list.map(t=>t.st));          // ขั้นของบิล = ใบที่รั้งท้ายสุด (คอขวด)
+    const arr=list.map(t=>(t.tm&&t.tm.arrived)||"").sort().pop()||"";
+    if(bmin>=7 && arr.slice(0,10)!==todayISO) return;   // ส่งแล้ววันก่อน ๆ ไม่ขึ้นจอ
+    rows.push({so, list, bmin, cus:(findSO(so)||{}).customer||""});
+  });
+  const act=rows.filter(r=>r.bmin<7).sort((a,b)=>b.bmin-a.bmin || (a.so<b.so?1:-1));
+  const sent=rows.filter(r=>r.bmin>=7);
+  const n3=act.filter(r=>r.bmin===3).length, nq=act.filter(r=>r.bmin<3).length, nr=act.filter(r=>r.bmin>=4).length;
+  const flr=r=>{
+    const x=fpos(r.bmin), pct=x/4*100;
+    const ico=r.bmin>=7?"🏁":r.bmin>=6?"🚚":r.bmin===3?"🏭":"✈";
+    return `<div class="flr${r.bmin>=7?" land":""}">
+      <div class="flid"><span class="so">${esc(r.so)}</span><span class="flcus">${esc(maskCus(r.cus))||"—"}</span><span class="flct">${r.list.length} ใบผลิต</span></div>
+      <div class="fltrk">
+        <div class="flbar"><i style="width:${pct}%"></i><span class="flico" style="left:${pct}%">${ico}</span></div>
+        <div class="flsteps">${FSTEP.map((nm,i)=>`<span class="${i<=x?"on":""}${i===Math.floor(x)&&r.bmin<7?" now":""}">${nm}</span>`).join("")}</div>
+      </div>
+      <span class="flst" style="--sc:${STGC[r.bmin]}">${r.bmin===3?'<i class="ldot"></i>':""}${STG[r.bmin]}</span>
+    </div>`;
+  };
+  el.innerHTML = `<div class="page flpage">
+  <div class="flh"><h2>🛫 งานผลิตวันนี้ · ${branch}</h2><span class="fldate">${fmtD(todayISO)}</span>
+    <span class="flsum"><b class="s1">🏭 กำลังผลิต ${n3}</b><b class="s2">⏳ รอคิว ${nq}</b><b class="s3">📦 รอส่ง ${nr}</b><b class="s4">🏁 ส่งแล้ววันนี้ ${sent.length}</b></span></div>
+  ${act.length? act.map(flr).join("") : `<div class="empty" style="font-size:15px;padding:30px 0">— วันนี้ยังไม่มีงานค้างในไลน์ผลิต —</div>`}
+  ${sent.length? `<div class="sec" style="color:#34d399;margin-top:16px">🏁 ส่งถึงมือลูกค้าแล้ววันนี้</div>`+sent.map(flr).join("") : ""}
+  <div class="who" style="text-align:center;margin-top:14px">อัปเดตอัตโนมัติ · 007 Production</div></div>`;
 }
 /* ================= 📊 รายงานเวลา/คอขวด ================= */
 function durMin(a,b){ if(!a||!b) return null; const m=(new Date(b)-new Date(a))/60000; return m>=0? m : null; }
@@ -1970,14 +2062,14 @@ function render(){
     + CARDS[branch].filter(c=>cardOnline(c)&&!c.x&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&alive(t))).length;
   const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
     ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
-    ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],
+    ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],["flight","🛫 สถานะวันนี้",0],
     ["stock","🏭 ผลิตเข้าสต็อค",tks().filter(t=>t.stock&&t.st===4).length],["report","📊 เวลา",0]];
   document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
     `<button class="vtab ${v===view?"on":""}" onclick="view='${v}';render()">${l}${n?`<span class="b">${n}</span>`:""}</button>`).join("")
-    + (view==="board" ? `<button class="vtab ${TVMODE?"on":""}" title="โหมดจอ TV — ตัวใหญ่ อ่านได้ข้ามโรงงาน" onclick="TVMODE=!TVMODE;render()">📺 จอ TV</button>` : "");
-  document.body.classList.toggle("dk", view==="board");            // 🌑 บอร์ดเครื่อง = Mission Control (มืด)
-  document.body.classList.toggle("tv", TVMODE && view==="board");  // 📺 ขยายทุกอย่างเมื่อเปิดโหมดจอ TV
-  ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, stock:vStock, report:vReport})[view]();
+    + (view==="board"||view==="flight" ? `<button class="vtab ${TVMODE?"on":""}" title="โหมดจอ TV — ตัวใหญ่ อ่านได้ข้ามโรงงาน" onclick="TVMODE=!TVMODE;render()">📺 จอ TV</button>` : "");
+  document.body.classList.toggle("dk", view==="board"||view==="flight");            // 🌑 บอร์ดเครื่อง = Mission Control (มืด)
+  document.body.classList.toggle("tv", TVMODE && (view==="board"||view==="flight"));  // 📺 ขยายทุกอย่างเมื่อเปิดโหมดจอ TV
+  ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, stock:vStock, report:vReport, flight:vFlight})[view]();
   renderSyncs();
 }
 

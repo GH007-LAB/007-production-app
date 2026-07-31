@@ -916,6 +916,32 @@ ok('v9.2: RPC ไม่มีใน DB → แจ้งตรง ๆ ว่า�
 ok('v9.2: ล้มเหลวแล้วไม่ค้าง BUSY — ปุ่มกดต่อได้', await page.evaluate(() => !document.body.classList.contains('busy')));
 await page.evaluate(() => { DB.joinWork = window.__realJoin; console.error = window.__realCE; });
 
+// ---- 33. v9.3: 🟩🟥 เลือกเครื่องลอนตรงตอนวางแผน + 🛫 จอสถานะวันนี้ (flight board) ----
+await clickText('ฝั่งผลิต: วางแผน'); await page.waitForTimeout(250);
+const xCard = page.locator('.tkt:has-text("SO68X001")');
+await xCard.locator('button:has-text("A ผลิตใหม่")').click(); await page.waitForTimeout(150);
+ok('v9.3: งานลอนตรงมีปุ่มสีให้เลือกเครื่อง (เขียว/แดง)',
+   (await xCard.locator('button:has-text("เขียว ปีกซ้าย")').count())===1 &&
+   (await xCard.locator('button:has-text("แดง ปีกขวา")').count())===1);
+await xCard.locator('button:has-text("เขียว ปีกซ้าย")').click(); await page.waitForTimeout(100);
+await xCard.locator('button:has-text("เข้าคิวเครื่อง")').click(); await page.waitForTimeout(400);
+const xTk = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68X001'));
+ok('v9.3: กดปุ่มเขียว → ใบเข้าคิวเครื่องตรง-L เขียว ปีกซ้าย', xTk.stage===2 && xTk.machine==='ตรง-L เขียว ปีกซ้าย');
+
+await clickText('สถานะวันนี้'); await page.waitForTimeout(300);
+let flTxt = await page.locator('#main').innerText();
+ok('v9.3: จอสถานะเป็นโหมดมืด Mission Control', await page.evaluate(() => document.body.classList.contains('dk')));
+ok('v9.3: มีหัวจอ + สรุปยอดวันนี้', /งานผลิตวันนี้/.test(flTxt) && /กำลังผลิต/.test(flTxt));
+ok('v9.3: ใบกำลังผลิต SO68RUN ขึ้นจอพร้อมสถานะ', flTxt.includes('SO68RUN'));
+ok('v9.3: ใบที่เพิ่งวางแผน SO68X001 ขึ้นจอ (คิวเครื่อง)', flTxt.includes('SO68X001') && /คิวเครื่อง/.test(flTxt));
+ok('v9.3: ส่งแล้ววันก่อน ๆ ไม่ขึ้นจอ', !flTxt.includes('SO68PKOLD'));
+ok('v9.3: ส่งแล้ววันนี้ขึ้นท้ายจอ หมวด 🏁', flTxt.includes('SO68PKNEW') && /ส่งถึงมือลูกค้าแล้ววันนี้/.test(flTxt));
+ok('v9.3: ชื่อลูกค้าถูกย่อ ไม่โชว์เต็ม (ความเป็นส่วนตัวหน้าจอสาธารณะ)',
+   !flTxt.includes('ลูกค้าส่งแล้ววันนี้') && !flTxt.includes('ลูกค้าขอราคาเทียบ') && flTxt.includes('ลูกค…'));
+await clickText('📺 จอ TV'); await page.waitForTimeout(150);
+ok('v9.3: จอสถานะเปิดโหมด TV ได้ (ตัวใหญ่ แขวนหน้าร้าน)', await page.evaluate(() => document.body.classList.contains('tv')));
+await clickText('📺 จอ TV'); await page.waitForTimeout(150);
+
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));
 console.log(errors.length ? 'JS ERRORS:\n' + errors.join('\n') : 'NO JS ERRORS');
