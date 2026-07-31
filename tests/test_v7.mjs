@@ -903,6 +903,19 @@ await soLater.locator('button:has-text("📍 ตามใบ")').click(); await 
 const laterId = await page.evaluate(() => (window.__STATE__.tks.find(t=>t.sonum==='SO68LATER')||{}).id);
 ok('v9.1: คลิกแล้วพาไปหน้าที่ใบอยู่จริง + ไฮไลต์', await page.evaluate(id => { const n=document.getElementById('tk-'+id); return !!n && n.classList.contains('flash'); }, laterId));
 
+// ---- 32. v9.2: ⚠️ เข้าร่วมแล้ว "เด้งออก" — DB ยังไม่มี RPC ต้องบอกสาเหตุจริง ไม่ใช่ "เช็คเน็ต" ----
+await clickText('บอร์ดเครื่อง'); await page.waitForTimeout(250);
+await page.evaluate(() => {
+  window.__realJoin = DB.joinWork;
+  window.__realCE = console.error; console.error = () => {};   // act() ตั้งใจ log error นี้ — ไม่ใช่ JS พัง
+  DB.joinWork = async () => { throw new Error('ยังไม่ได้อัปเดตฐานข้อมูล (migration v8.4) — แจ้งแอดมิน'); };
+});
+await page.locator('#tk-pk-run button:has-text("➕ เข้าร่วม")').click(); await page.waitForTimeout(400);
+const connMsg = await page.locator('#conn').innerText();
+ok('v9.2: RPC ไม่มีใน DB → แจ้งตรง ๆ ว่ายังไม่ได้รัน migration (ไม่โทษเน็ต)', /migration v8\.4/.test(connMsg));
+ok('v9.2: ล้มเหลวแล้วไม่ค้าง BUSY — ปุ่มกดต่อได้', await page.evaluate(() => !document.body.classList.contains('busy')));
+await page.evaluate(() => { DB.joinWork = window.__realJoin; console.error = window.__realCE; });
+
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));
 console.log(errors.length ? 'JS ERRORS:\n' + errors.join('\n') : 'NO JS ERRORS');

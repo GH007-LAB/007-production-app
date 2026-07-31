@@ -657,7 +657,10 @@ async function act(fn){
   if(BUSY) return;
   BUSY=true; document.body.classList.add("busy");
   try{ await fn(); await reload(); }
-  catch(e){ console.error(e); alertBar("บันทึกไม่สำเร็จ — เช็คเน็ตแล้วลองใหม่"); }
+  catch(e){ console.error(e);
+    /* ข้อความ error ที่เราตั้งเองเป็นภาษาไทย (เช่น "ยังไม่ได้อัปเดตฐานข้อมูล migration v8.4")
+       ต้องโชว์ตรง ๆ — เคยกลืนเป็น "เช็คเน็ต" ทำให้ทีมไล่ผิดทาง (เคส ➕ เข้าร่วม เด้งออก) */
+    alertBar(e && e.message && /[ก-๙]/.test(e.message) ? e.message : "บันทึกไม่สำเร็จ — เช็คเน็ตแล้วลองใหม่"); }
   BUSY=false; document.body.classList.remove("busy");
   render();
 }
