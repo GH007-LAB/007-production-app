@@ -850,12 +850,12 @@ const soTxt = await page.locator('.socard').first().innerText();
 ok('v9: หน่วยแสดง "ม." ตามหลักตัวย่อไทย (ไม่ใช่ มร)', / ม\./.test(soTxt) && !/ มร/.test(soTxt));
 ok('v9: ฝั่งขายเป็นธีมสว่าง (ไม่มี dk)', await page.evaluate(() => !document.body.classList.contains('dk')));
 await clickText('บอร์ดเครื่อง'); await page.waitForTimeout(200);
-ok('v9: เปิดบอร์ด → เข้าโหมด Mission Control (body.dk)', await page.evaluate(() => document.body.classList.contains('dk')));
+ok('v9.7: เปิดบอร์ด → พื้นหลังยังธีมเดียวกัน (ไม่สลับมืดเอง — Gem เคาะ)', await page.evaluate(() => !document.body.classList.contains('dk')));
 ok('v9: บนบอร์ดมีปุ่ม 📺 จอ TV', await page.locator('button:has-text("📺 จอ TV")').isVisible());
 await clickText('📺 จอ TV'); await page.waitForTimeout(150);
-ok('v9: กด 📺 → โหมดจอ TV เปิด (body.tv)', await page.evaluate(() => document.body.classList.contains('tv')));
+ok('v9.7: กด 📺 → เข้าโหมดจอ TV มืด+ตัวใหญ่พร้อมกัน', await page.evaluate(() => document.body.classList.contains('tv') && document.body.classList.contains('dk')));
 await clickText('📺 จอ TV'); await page.waitForTimeout(150);
-ok('v9: กดซ้ำ → ปิดโหมดจอ TV', await page.evaluate(() => !document.body.classList.contains('tv')));
+ok('v9.7: กดซ้ำ → กลับธีมสว่างปกติ', await page.evaluate(() => !document.body.classList.contains('tv') && !document.body.classList.contains('dk')));
 await clickText('ฝั่งขาย'); await page.waitForTimeout(200);
 ok('v9: ออกจากบอร์ด → กลับธีมสว่าง + tv ปิดอัตโนมัติ', await page.evaluate(() => !document.body.classList.contains('dk') && !document.body.classList.contains('tv')));
 
@@ -892,7 +892,7 @@ ok('v9.1: ช่องตามใบเจอใบเก่าที่ส่�
 await page.locator('#q-pk').fill('SO68RUN');
 await clickText('ตามใบ'); await page.waitForTimeout(250);
 await page.locator('button:has-text("📍 ไปที่ใบ")').first().click(); await page.waitForTimeout(500);
-ok('v9.1: กด 📍 → กระโดดไปบอร์ด (Mission Control)', await page.evaluate(() => document.body.classList.contains('dk')));
+ok('v9.1: กด 📍 → กระโดดไปบอร์ดจริง', await page.evaluate(() => document.getElementById('main').className.includes('boardmode')));
 ok('v9.1: การ์ดปลายทางถูกไฮไลต์กะพริบ', await page.evaluate(() => { const n=document.getElementById('tk-pk-run'); return !!n && n.classList.contains('flash'); }));
 ok('v9.1: ใบกำลังผลิตมีแถบวิ่งแบบ live', (await page.locator('#tk-pk-run .strip i.run').count()) === 1);
 
@@ -931,7 +931,7 @@ ok('v9.3: กดปุ่มเขียว → ใบเข้าคิวเ�
 
 await clickText('สถานะวันนี้'); await page.waitForTimeout(300);
 let flTxt = await page.locator('#main').innerText();
-ok('v9.3: จอสถานะเป็นโหมดมืด Mission Control', await page.evaluate(() => document.body.classList.contains('dk')));
+ok('v9.3/9.7: จอสถานะธีมสว่างเดียวกับแอป (มืดเมื่อกดจอ TV เท่านั้น)', await page.evaluate(() => !document.body.classList.contains('dk')));
 ok('v9.3: มีหัวจอ + สรุปยอดวันนี้', /งานผลิตวันนี้/.test(flTxt) && /กำลังผลิต/.test(flTxt));
 ok('v9.3: ใบกำลังผลิต SO68RUN ขึ้นจอพร้อมสถานะ', flTxt.includes('SO68RUN'));
 ok('v9.3: ใบที่เพิ่งวางแผน SO68X001 ขึ้นจอ (คิวเครื่อง)', flTxt.includes('SO68X001') && /คิวเครื่อง/.test(flTxt));
@@ -940,7 +940,7 @@ ok('v9.3: ส่งแล้ววันนี้ขึ้นท้ายจอ 
 ok('v9.3: ชื่อลูกค้าถูกย่อ ไม่โชว์เต็ม (ความเป็นส่วนตัวหน้าจอสาธารณะ)',
    !flTxt.includes('ลูกค้าส่งแล้ววันนี้') && !flTxt.includes('ลูกค้าขอราคาเทียบ') && flTxt.includes('ลูกค…'));
 await clickText('📺 จอ TV'); await page.waitForTimeout(150);
-ok('v9.3: จอสถานะเปิดโหมด TV ได้ (ตัวใหญ่ แขวนหน้าร้าน)', await page.evaluate(() => document.body.classList.contains('tv')));
+ok('v9.3: จอสถานะเปิดโหมด TV ได้ (มืด+ตัวใหญ่ แขวนหน้าร้าน)', await page.evaluate(() => document.body.classList.contains('tv') && document.body.classList.contains('dk')));
 await clickText('📺 จอ TV'); await page.waitForTimeout(150);
 
 // ---- 34. v9.4: feedback ปิยะ/รุ้ง/เมย์ — งานออนไลน์โชว์รายการ · เครื่องเสียสั่งเข้าคิวได้ · 🖐 พับมือ ----
@@ -1015,6 +1015,28 @@ await page.locator('.bcard:has-text("SO68X001") button:has-text("⇄")').click()
 const xAfter = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68X001').machine);
 ok('v9.6: FLIP ไม่พังปุ่ม ⇄ — ใบย้ายปีกได้จริง', xAfter==='ตรง-R แดง ปีกขวา');
 ok('v9.6: การ์ดยังอยู่บนบอร์ดหลังย้าย (ไม่หายไปกับ animation)', (await page.locator('.bcard:has-text("SO68X001")').count())===1);
+
+// ---- 36. v9.7: 🧾 IV คู่ SO ทุกหน้า + เตือนปล่อยรถไม่มี IV ----
+await page.evaluate(async () => {
+  const now=new Date().toISOString(), d=now.slice(0,10);
+  const S=window.__STATE__;
+  const so=S.sos.find(x=>x.sonum==='SO68PKNEW'); if(so) so.ivnum='IV6900123';   // ใบส่งวันนี้มี IV แล้ว
+  S.sos.push({branch:'SKN',sonum:'SO68IVX',sodat:d,dlvdat:d,cuscod:'V001',cusnam:'ลูกค้ารอออกบิล',docstat:'N',synced_at:now,ivnum:''});
+  S.tks.push({id:'iv1', branch:'SKN', sonum:'SO68IVX', machine:'ตรง-R แดง ปีกขวา', stage:5, route:'A',
+    label:'ซิงค์ 0.30', item_seqs:[1], assignee:'ช่าง', people:{ordered:'ขาย',approved:'ขาย',packed:'แพ็ค'},
+    times:{ordered:now, done:now, packed:now}, created_at:now, prod_m:10, sheets:5, max_len:2, weight_kg:50});
+  await reload(); render();
+});
+await clickText('รวมของ/ส่ง'); await page.waitForTimeout(250);
+const ivx = page.locator('.socard:has-text("SO68IVX")');
+ok('v9.7: บิลยังไม่ออก IV → ป้าย ⏳ ชัด ๆ คู่เลข SO', (await ivx.innerText()).includes('ยังไม่ออก IV'));
+await page.evaluate(() => { PKOPEN=true; render(); }); await page.waitForTimeout(200);   // เปิดกล่องส่งวันนี้ (กันสถานะ toggle ค้างจาก block ก่อน)
+ok('v9.7: บิลที่มี IV → โชว์เลข IV คู่ SO', (await page.locator('.socard:has-text("SO68PKNEW")').innerText()).includes('IV6900123'));
+await ivx.locator('button:has-text("🚚 ออกจัดส่ง")').click(); await page.waitForTimeout(400);
+ok('v9.7: ปล่อยรถโดยไม่มี IV → เตือนดัง ๆ (toast+หัวจอ) แต่ไม่ขวางงาน', (await page.locator('#conn').innerText()).includes('ยังไม่ออก IV'));
+ok('v9.7: ใบออกจัดส่งได้จริง + log ติดธง ⚠ ไม่มี IV',
+   (await page.evaluate(() => window.__STATE__.tks.find(t=>t.id==='iv1').stage))===6 &&
+   (await page.evaluate(() => window.__STATE__.events.some(e=>/ยังไม่มี IV/.test(e.detail||'')))));
 
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));

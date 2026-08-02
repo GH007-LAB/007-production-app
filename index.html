@@ -187,31 +187,44 @@ body.dk .flash{animation-name:flashydk}
 .ldot{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:4px;animation:ledblink 1s infinite;vertical-align:1px}
 .strip i.run{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.35) 0 5px,transparent 5px 10px);background-size:14px 14px;animation:runmove .9s linear infinite}
 @keyframes runmove{to{background-position:14px 0}}
-/* ═══ 🛫 จอสถานะวันนี้ (flight board) — ใช้คู่กับ body.dk เสมอ ═══ */
+/* ═══ 🛫 จอสถานะวันนี้ — ธีมสว่างตามแอป · สลับมืดเมื่อกด 📺 จอ TV ═══ */
 .flpage{max-width:1100px}
 .flh{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:2px 0 14px}
 .flh h2{font-family:'Prompt',sans-serif;font-weight:800;font-size:24px;margin:0}
 .fldate{color:var(--muted);font-size:13px}
 .flsum{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-.flsum b{font-size:12.5px;font-weight:700;border-radius:99px;padding:4px 12px;background:#101a33;border:1px solid #22305a;color:#c9d4ef}
-.flsum .s1{color:#7dd3fc;box-shadow:0 0 10px rgba(56,140,255,.2) inset}
-.flsum .s4{color:#34d399}
-.flr{display:flex;align-items:center;gap:16px;background:#0f1830;border:1px solid #1e2c55;border-radius:14px;padding:13px 16px;margin-bottom:9px}
-.flr.land{opacity:.6}
-.flid{flex:0 0 190px;min-width:0}
-.flid .so{display:block;font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:700;font-size:16px;color:#7dd3fc}
-.flcus{display:block;font-size:13px;color:#cdd7ef;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flsum b{font-size:12.5px;font-weight:700;border-radius:99px;padding:4px 12px;background:var(--panel);border:1px solid var(--line);color:var(--muted)}
+.flsum .s1{color:var(--accent)}
+.flsum .s4{color:var(--green)}
+.flr{display:flex;align-items:center;gap:16px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 16px;margin-bottom:9px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+.flr.land{opacity:.62}
+.flid{flex:0 0 200px;min-width:0}
+.flid .so{display:block;font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:700;font-size:16px;color:var(--accent)}
+.flcus{display:block;font-size:13px;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .flct{font-size:10.5px;color:var(--muted)}
 .fltrk{flex:1;min-width:0}
-.flbar{position:relative;height:8px;border-radius:99px;background:#16203f;margin:8px 12px 6px 0}
-.flbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#1a56db,#22d3ee);box-shadow:0 0 8px rgba(34,211,238,.45);transition:width .6s}
-.flico{position:absolute;top:-11px;margin-left:-9px;font-size:16px;filter:drop-shadow(0 0 6px rgba(34,211,238,.6));animation:flbob 1.6s ease-in-out infinite;transition:left .6s}
+.flbar{position:relative;height:8px;border-radius:99px;background:#e9e9e2;margin:8px 12px 6px 0}
+.flbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#1a56db,#22d3ee);transition:width .6s}
+.flico{position:absolute;top:-11px;margin-left:-9px;font-size:16px;animation:flbob 1.6s ease-in-out infinite;transition:left .6s}
 @keyframes flbob{50%{transform:translateY(-3px)}}
 .flr.land .flico{animation:none}
-.flsteps{display:flex;justify-content:space-between;font-size:10.5px;color:#5d6b93;padding-right:12px}
-.flsteps .on{color:#9fb0d8}
-.flsteps .now{color:#7dd3fc;font-weight:700}
-.flst{flex:0 0 auto;font-size:13px;font-weight:800;color:var(--sc);background:color-mix(in srgb,var(--sc) 14%,transparent);border:1px solid color-mix(in srgb,var(--sc) 40%,transparent);border-radius:99px;padding:6px 14px}
+.flsteps{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);padding-right:12px;opacity:.8}
+.flsteps .on{color:var(--ink);opacity:1}
+.flsteps .now{color:var(--accent);font-weight:700}
+.flst{flex:0 0 auto;font-size:13px;font-weight:800;color:var(--sc);background:color-mix(in srgb,var(--sc) 12%,transparent);border:1px solid color-mix(in srgb,var(--sc) 35%,transparent);border-radius:99px;padding:6px 14px}
+/* 🌑 เวอร์ชันจอ TV (body.dk) */
+body.dk .flsum b{background:#101a33;border-color:#22305a;color:#c9d4ef}
+body.dk .flsum .s1{color:#7dd3fc;box-shadow:0 0 10px rgba(56,140,255,.2) inset}
+body.dk .flsum .s4{color:#34d399}
+body.dk .flr{background:#0f1830;border-color:#1e2c55;box-shadow:none}
+body.dk .flid .so{color:#7dd3fc}
+body.dk .flcus{color:#cdd7ef}
+body.dk .flbar{background:#16203f}
+body.dk .flbar i{box-shadow:0 0 8px rgba(34,211,238,.45)}
+body.dk .flico{filter:drop-shadow(0 0 6px rgba(34,211,238,.6))}
+body.dk .flsteps{color:#5d6b93}
+body.dk .flsteps .on{color:#9fb0d8}
+body.dk .flsteps .now{color:#7dd3fc}
 body.tv .flid{flex-basis:240px}
 body.tv .flid .so{font-size:20px}
 body.tv .flcus{font-size:16px}
@@ -377,7 +390,7 @@ const STAFF_COLS = "id,branch,name,role,can_approve,active,email";
 /* ⚡ ดึงเฉพาะคอลัมน์ที่ใช้จริง — so_live/so_item_live/coil_stock มิเรอร์มาจาก DBF คอลัมน์เยอะมาก
    select("*") = ขนของเกินจำเป็นทุกรอบ (ต้นเหตุหลักที่โควตา Supabase เต็ม) */
 const COLS = {
-  so_live: "branch,sonum,cuscod,cusnam,sodat,dlvdat,docstat,synced_at,cancelled_at,cancelled_by,cancel_reason",
+  so_live: "branch,sonum,cuscod,cusnam,sodat,dlvdat,docstat,ivnum,synced_at,cancelled_at,cancelled_by,cancel_reason",
   so_item_live: "branch,sonum,seq,stkcod,stkdes,ordqty,remqty,unit",
   coil_stock: "branch,coil_sku,totbal",
   machine: "id,branch,name,sort,status,note",
@@ -696,7 +709,7 @@ function applyData(d){
     if(r.docstat==="C") return;
     if(r.docstat==="M" && (r.sodat||"") < cutM) return;  // ขายสดตัดบิลแล้ว โชว์ 7 วัน
     CARDS[r.branch].push({so:r.sonum, date:r.sodat, due:r.dlvdat, cusCode:r.cuscod||"",
-      customer:r.cusnam||r.cuscod||"", docstat:r.docstat, items:itBySo[r.branch+"|"+r.sonum]||[],
+      customer:r.cusnam||r.cuscod||"", docstat:r.docstat, iv:r.ivnum||"", items:itBySo[r.branch+"|"+r.sonum]||[],
       /* ❌ ขายยกเลิกเอง — ไม่ทิ้งการ์ด แค่ย้ายไปกล่องพับ เพราะกดคืนได้ในคลิกเดียว */
       x:!!r.cancelled_at, xat:r.cancelled_at||"", xby:r.cancelled_by||"", xreason:r.cancel_reason||""});
   });
@@ -1090,8 +1103,12 @@ function packSO(so){
   act(async ()=>{ for(const t of list) await patchTicket(t,{stage:5,people:{...t.by,packed:USER.name}},"pack","📦 แพ็ค/รวมของครบ"); });
 }
 function shipSO(so){
+  const c=findSO(so)||{};
+  const noIV = !c.iv && c.docstat!=="M";
+  if(noIV)   // 🧾 ส่งของต้องมีบิล — เตือนดัง ๆ ก่อนปล่อยรถ (Gem 2 ส.ค.: ดู SO อย่างเดียวไม่พอ ต้องดู IV คู่กัน)
+    alertBar("SO "+so+" ยังไม่ออก IV — เช็คบิลกับทีมขายก่อนปล่อยรถ");
   const list=tks().filter(t=>t.so===so&&t.st===5);
-  act(async ()=>{ for(const t of list) await patchTicket(t,{stage:6,people:{...t.by,shipped:USER.name}},"ship","🚚 ออกจัดส่ง"); });
+  act(async ()=>{ for(const t of list) await patchTicket(t,{stage:6,people:{...t.by,shipped:USER.name}},"ship","🚚 ออกจัดส่ง"+(noIV?" ⚠ ยังไม่มี IV":"")); });
 }
 function arriveSO(so){
   const list=tks().filter(t=>t.so===so&&t.st===6);
@@ -1382,6 +1399,7 @@ function soCardHtml(c, approvers){
         ${oso?`<span class="bdg inter" style="background:#e8f6ff;color:#0e93c9">🛍 ออนไลน์</span>`:""}
         ${c.fetched?`<span class="bdg due">📥 ใบเก่า</span>`:""}
         ${inter?`<span class="bdg inter">🏢 งานสาขา ${inter}</span>`:""}
+        ${c.iv?`<span class="bdg paid">🧾 IV ${esc(c.iv)}</span>`:""}
         ${c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว</span>`:""}
         ${c.x?`<span class="bdg late">❌ ยกเลิกแล้ว</span>`:""}
         ${dueBdg(c)}</div>
@@ -1674,7 +1692,10 @@ function vPack(){
     list.forEach(t=>{const M=tMetrics(t);Tm+=M.m;Tsh+=M.sh;Tmx=Math.max(Tmx,M.mx);Tkg+=M.kg;});
     const stockItems=(c.items||[]).filter(i=>!machineOf(i.stk,i.des));
     return `<div class="socard${shipped?" dim":""}">
-      <div class="so-h"><span class="so">${esc(so)}</span><span class="cu">${esc(c.customer||"")}</span>${dueBdg(c)}</div>
+      <div class="so-h"><span class="so">${esc(so)}</span>${
+        c.iv?`<span class="bdg paid">🧾 IV ${esc(c.iv)}</span>`
+        : c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว (รอเลข IV)</span>`
+        :`<span class="bdg urgent">⏳ ยังไม่ออก IV</span>`}<span class="cu">${esc(c.customer||"")}</span>${dueBdg(c)}</div>
       ${list.map(t=>`<div class="pk-row ${FLASH===t.id?"flash":""}" id="tk-${t.id}"><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><span class="mchip">${esc(t.mach)}</span><span class="nm">${t.route==="B"?"ใช้สต็อค":"ผลิตโดย "+esc(t.assignee||t.by.done||"—")}${t.tm&&t.tm.done?` · เสร็จ ${fmtT(t.tm.done)}`:""}</span><span class="pk-st" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${t.st===3?'<i class="ldot"></i>':t.st>=4?"✓ ":""}${STG[t.st]}</span></div>`).join("")}
       ${stockItems.length?`<div class="pk-row"><span class="stag">📦 หยิบสต็อค ${stockItems.length} รายการ</span><span class="nm" style="color:var(--muted)">${esc(stockItems.slice(0,2).map(i=>i.des).join(" · "))}${stockItems.length>2?" …":""}</span></div>`:""}
       <div class="truck">🚚 จัดรถ: <span>น้ำหนักรวม <b>${fmt(Tkg,0)}</b> กก.</span><span><b>${Tsh}</b> แผ่น</span><span>ยาวสุด <b>${Tmx?fmt(Tmx,2):"—"}</b> ม.</span></div>
@@ -1739,7 +1760,8 @@ function vFlight(){
     const bmin=Math.min(...list.map(t=>t.st));          // ขั้นของบิล = ใบที่รั้งท้ายสุด (คอขวด)
     const arr=list.map(t=>(t.tm&&t.tm.arrived)||"").sort().pop()||"";
     if(bmin>=7 && arr.slice(0,10)!==todayISO) return;   // ส่งแล้ววันก่อน ๆ ไม่ขึ้นจอ
-    rows.push({so, list, bmin, cus:(findSO(so)||{}).customer||""});
+    const cso=findSO(so)||{};
+    rows.push({so, list, bmin, cus:cso.customer||"", iv:cso.iv||""});
   });
   const act=rows.filter(r=>r.bmin<7).sort((a,b)=>b.bmin-a.bmin || (a.so<b.so?1:-1));
   const sent=rows.filter(r=>r.bmin>=7);
@@ -1748,7 +1770,7 @@ function vFlight(){
     const x=fpos(r.bmin), pct=x/4*100;
     const ico=r.bmin>=7?"🏁":r.bmin>=6?"🚚":r.bmin===3?"🏭":"✈";
     return `<div class="flr${r.bmin>=7?" land":""}">
-      <div class="flid"><span class="so">${esc(r.so)}</span><span class="flcus">${esc(maskCus(r.cus))||"—"}</span><span class="flct">${r.list.length} ใบผลิต</span></div>
+      <div class="flid"><span class="so">${esc(r.so)}</span><span class="flcus">${esc(maskCus(r.cus))||"—"}</span><span class="flct">${r.iv?`🧾 IV ${esc(r.iv)} · `:""}${r.list.length} ใบผลิต</span></div>
       <div class="fltrk">
         <div class="flbar"><i style="width:${pct}%"></i><span class="flico" style="left:${pct}%">${ico}</span></div>
         <div class="flsteps">${FSTEP.map((nm,i)=>`<span class="${i<=x?"on":""}${i===Math.floor(x)&&r.bmin<7?" now":""}">${nm}</span>`).join("")}</div>
@@ -2191,8 +2213,9 @@ function render(){
   document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
     `<button class="vtab ${v===view?"on":""}" onclick="view='${v}';render()">${l}${n?`<span class="b">${n}</span>`:""}</button>`).join("")
     + (view==="board"||view==="flight" ? `<button class="vtab ${TVMODE?"on":""}" title="โหมดจอ TV — ตัวใหญ่ อ่านได้ข้ามโรงงาน" onclick="TVMODE=!TVMODE;render()">📺 จอ TV</button>` : "");
-  document.body.classList.toggle("dk", view==="board"||view==="flight");            // 🌑 บอร์ดเครื่อง = Mission Control (มืด)
-  document.body.classList.toggle("tv", TVMODE && (view==="board"||view==="flight"));  // 📺 ขยายทุกอย่างเมื่อเปิดโหมดจอ TV
+  const tvOn = TVMODE && (view==="board"||view==="flight");
+  document.body.classList.toggle("dk", tvOn);   // 🌑 Mission Control เฉพาะตอนตั้งใจกด 📺 จอ TV — ใช้งานปกติพื้นหลังสีเดียวทั้งแอป (Gem เคาะ 2 ส.ค.)
+  document.body.classList.toggle("tv", tvOn);   // 📺 ตัวใหญ่ อ่านไกล
   /* 🎬 FLIP: จำตำแหน่งการ์ดบนบอร์ดก่อนวาดใหม่ → การ์ดที่ย้ายคอลัมน์ "ลื่น" ไปที่ใหม่ ไม่วาร์ป */
   const sameBoard = view==="board" && window.__lastView===view+"|"+branch;
   let flipPrev=null;

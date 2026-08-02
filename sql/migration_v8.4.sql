@@ -167,3 +167,18 @@ on conflict (branch, name) do nothing;
 
 -- เช็คผล: ต้องได้ 3 แถว
 select branch, name from machine where name='งานพับมือ' order by branch;
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 8) 🧾 เลข IV คู่กับ SO (v9.7 — Gem 2 ส.ค.: จะปล่อยรถส่งของ ดู SO
+--    อย่างเดียวไม่พอ ต้องเห็น IV คู่กัน)
+--    so_push.py เวอร์ชันใหม่จะอ่านบิลขายจาก DBF แล้วเติมเลข IV มาให้
+--    (หลายใบคั่นด้วย ,) — คอลัมน์นี้รอดจาก sync เพราะ upsert
+--    merge-duplicates แตะเฉพาะคอลัมน์ใน payload
+--    รันซ้ำได้
+-- ---------------------------------------------------------------
+alter table so_live add column if not exists ivnum text not null default '';
+
+-- เช็คผล: ต้องได้ 1
+select count(*) as col_ivnum from information_schema.columns
+ where table_name='so_live' and column_name='ivnum';
