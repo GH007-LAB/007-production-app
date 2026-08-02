@@ -998,6 +998,24 @@ await page.evaluate(async () => {   // คืนสถานะเครื่�
   await reload(); render();
 });
 
+// ---- 35. v9.6: 🍞 toast · 🔢 count-up · 🎬 FLIP ไม่พังของเดิม ----
+await page.evaluate(() => alertBar('ทดสอบ toast มุมจอ'));
+await page.waitForTimeout(200);
+ok('v9.6: toast โผล่มุมจอ พร้อมข้อความ', (await page.locator('#toasts .toast').count())>=1 && (await page.locator('#toasts .toast').last().innerText()).includes('ทดสอบ toast'));
+ok('v9.6: แถบ #conn เดิมยังทำงานเหมือนเดิม', (await page.locator('#conn').innerText()).includes('ทดสอบ toast'));
+await page.waitForTimeout(4300);
+ok('v9.6: toast หายเองใน ~4 วิ', (await page.locator('#toasts .toast').count())===0);
+await clickText('ฝั่งขาย'); await page.waitForTimeout(200);   // เปลี่ยนหน้าก่อน เพื่อให้เข้า flight นับใหม่
+await clickText('สถานะวันนี้'); await page.waitForTimeout(900);
+const cu = await page.evaluate(() => [...document.querySelectorAll('.cnt-up')].map(e=>({v:+e.dataset.v, t:+e.textContent})));
+ok('v9.6: ตัวเลขจอ 🛫 นับขึ้นจนถึงค่าจริงครบทุกช่อง', cu.length===4 && cu.every(x=>x.t===x.v));
+// FLIP: ย้ายปีกบนบอร์ดยังทำงาน + การ์ดยังอยู่ (SO68X001 อยู่คิว ตรง-L จาก block 33)
+await clickText('บอร์ดเครื่อง'); await page.waitForTimeout(250);
+await page.locator('.bcard:has-text("SO68X001") button:has-text("⇄")').click(); await page.waitForTimeout(600);
+const xAfter = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68X001').machine);
+ok('v9.6: FLIP ไม่พังปุ่ม ⇄ — ใบย้ายปีกได้จริง', xAfter==='ตรง-R แดง ปีกขวา');
+ok('v9.6: การ์ดยังอยู่บนบอร์ดหลังย้าย (ไม่หายไปกับ animation)', (await page.locator('.bcard:has-text("SO68X001")').count())===1);
+
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));
 console.log(errors.length ? 'JS ERRORS:\n' + errors.join('\n') : 'NO JS ERRORS');

@@ -299,6 +299,14 @@ body.dk ::-webkit-scrollbar-thumb:hover{background:#2d3f75}
 /* header เนียนขึ้นนิด */
 header{background:linear-gradient(180deg,var(--panel),var(--panel))}
 body.dk header{background:linear-gradient(180deg,#0e1830,#0d1527)}
+/* 🍞 toast มุมจอ */
+#toasts{position:fixed;right:16px;bottom:16px;z-index:60;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{max-width:min(340px,80vw);background:#1c2333;color:#fde9e7;border:1px solid #b4231b55;border-left:4px solid #d92d20;
+  border-radius:12px;padding:11px 14px;font-size:13px;font-weight:600;line-height:1.5;
+  box-shadow:0 10px 30px rgba(10,14,25,.35);animation:toastin .28s cubic-bezier(.2,.8,.2,1) both}
+.toast.out{opacity:0;transform:translateX(12px);transition:opacity .3s,transform .3s}
+@keyframes toastin{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+body.dk .toast{background:#101a33;border-color:#7f1d1d;color:#fecaca}
 /* ลดทุกอย่างเมื่อผู้ใช้ตั้งค่า reduce motion */
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
@@ -319,6 +327,8 @@ body.dk header{background:linear-gradient(180deg,#0e1830,#0d1527)}
   </div>
 </header>
 <main id="main"></main>
+
+<div id="toasts"></div>
 
 <div class="ovbg" id="ovbg"><div class="sheet">
   <div class="s-h"><span style="font-weight:800" id="m-t"></span><button class="s-x" onclick="closeM()">✕</button></div>
@@ -769,6 +779,14 @@ let alertT=null;
 function alertBar(msg){
   const c=document.getElementById("conn"); c.textContent="⚠ "+msg; c.className="conn off";
   clearTimeout(alertT); alertT=setTimeout(()=>{ c.textContent="LIVE"; c.className="conn live"; }, 4000);
+  /* 🍞 toast มุมจอ — สายตาอยู่กลางจอก็เห็น (แถบ #conn เดิมยังทำงานเหมือนเดิมเป๊ะ) */
+  const box=document.getElementById("toasts");
+  if(box){
+    const t=document.createElement("div"); t.className="toast"; t.textContent="⚠ "+msg;
+    box.appendChild(t);
+    while(box.children.length>3) box.firstChild.remove();
+    setTimeout(()=>{ t.classList.add("out"); setTimeout(()=>t.remove(), 320); }, 3800);
+  }
 }
 
 /* ================= actions ================= */
@@ -1704,6 +1722,12 @@ function maskCus(n){
   return t.length===1 ? cut(t[0]) : t[0]+" "+cut(t[1]);
 }
 const FSTEP=["รับออเดอร์","กำลังผลิต","ผลิตครบ","ขึ้นรถ","ถึงมือลูกค้า"];
+function countUp(el){   // 🔢 ตัวเลขนับขึ้น (ease-out ~0.7s) — เล่นเฉพาะตอนเพิ่งเข้าจอ
+  const v=+el.dataset.v||0; if(!v){ el.textContent="0"; return; }
+  const t0=performance.now(), dur=700;
+  const step=n=>{ const p=Math.min(1,(n-t0)/dur); el.textContent=Math.round(v*p*(2-p)); if(p<1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
 function fpos(st){ return st>=7?4 : st>=6?3 : st===5?2.5 : st===4?2 : st===3?1 : 0; }
 function vFlight(){
   const el=document.getElementById("main"); el.className="";
@@ -1734,7 +1758,7 @@ function vFlight(){
   };
   el.innerHTML = `<div class="page flpage">
   <div class="flh"><h2>🛫 งานผลิตวันนี้ · ${branch}</h2><span class="fldate">${fmtD(todayISO)}</span>
-    <span class="flsum"><b class="s1">🏭 กำลังผลิต ${n3}</b><b class="s2">⏳ รอคิว ${nq}</b><b class="s3">📦 รอส่ง ${nr}</b><b class="s4">🏁 ส่งแล้ววันนี้ ${sent.length}</b></span></div>
+    <span class="flsum"><b class="s1">🏭 กำลังผลิต <span class="cnt-up" data-v="${n3}">${n3}</span></b><b class="s2">⏳ รอคิว <span class="cnt-up" data-v="${nq}">${nq}</span></b><b class="s3">📦 รอส่ง <span class="cnt-up" data-v="${nr}">${nr}</span></b><b class="s4">🏁 ส่งแล้ววันนี้ <span class="cnt-up" data-v="${sent.length}">${sent.length}</span></b></span></div>
   ${act.length? act.map(flr).join("") : `<div class="empty" style="font-size:15px;padding:30px 0">— วันนี้ยังไม่มีงานค้างในไลน์ผลิต —</div>`}
   ${sent.length? `<div class="sec" style="color:#34d399;margin-top:16px">🏁 ส่งถึงมือลูกค้าแล้ววันนี้</div>`+sent.map(flr).join("") : ""}
   <div class="who" style="text-align:center;margin-top:14px">อัปเดตอัตโนมัติ · 007 Production</div></div>`;
@@ -2169,11 +2193,29 @@ function render(){
     + (view==="board"||view==="flight" ? `<button class="vtab ${TVMODE?"on":""}" title="โหมดจอ TV — ตัวใหญ่ อ่านได้ข้ามโรงงาน" onclick="TVMODE=!TVMODE;render()">📺 จอ TV</button>` : "");
   document.body.classList.toggle("dk", view==="board"||view==="flight");            // 🌑 บอร์ดเครื่อง = Mission Control (มืด)
   document.body.classList.toggle("tv", TVMODE && (view==="board"||view==="flight"));  // 📺 ขยายทุกอย่างเมื่อเปิดโหมดจอ TV
+  /* 🎬 FLIP: จำตำแหน่งการ์ดบนบอร์ดก่อนวาดใหม่ → การ์ดที่ย้ายคอลัมน์ "ลื่น" ไปที่ใหม่ ไม่วาร์ป */
+  const sameBoard = view==="board" && window.__lastView===view+"|"+branch;
+  let flipPrev=null;
+  if(sameBoard){
+    flipPrev={};
+    document.querySelectorAll('#main .bcard[id^="tk-"]').forEach(n=>{ const r=n.getBoundingClientRect(); flipPrev[n.id]=[r.left,r.top]; });
+  }
   ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, stock:vStock, report:vReport, flight:vFlight})[view]();
+  if(flipPrev){
+    document.querySelectorAll('#main .bcard[id^="tk-"]').forEach(n=>{
+      const p=flipPrev[n.id]; if(!p) return;
+      const r=n.getBoundingClientRect(), dx=p[0]-r.left, dy=p[1]-r.top;
+      if(Math.abs(dx)+Math.abs(dy)<4) return;
+      n.style.transition="none"; n.style.transform=`translate(${dx}px,${dy}px)`;
+      requestAnimationFrame(()=>{ n.style.transition="transform .35s cubic-bezier(.2,.8,.2,1)"; n.style.transform="";
+        setTimeout(()=>{ n.style.transition=""; }, 420); });
+    });
+  }
   const mainEl=document.getElementById("main");
   if(window.__lastView !== view+"|"+branch){
     mainEl.classList.add("vin");                       // 🎬 การ์ดสไลด์เข้าเวลาเปลี่ยนหน้า (ครั้งเดียว)
     setTimeout(()=>mainEl.classList.remove("vin"), 450);
+    if(view==="flight") mainEl.querySelectorAll(".cnt-up").forEach(countUp);   // 🔢 นับขึ้นเฉพาะตอนเพิ่งเข้าจอ
   }
   window.__lastView = view+"|"+branch;
   renderSyncs();
