@@ -713,9 +713,16 @@ function orderProduce(so, isRe){
   c.items.forEach(it=>{
     if(done.has(it.seq) && !isRe) return;
     const mach=machineOf(it.stk,it.des,branch,c.customer,cardOnline(c));
-    if(!mach || !canProduce(branch,mach)) return;
+    if(!mach) return;
+    let useMach=mach;
+    if(!canProduce(branch,mach)){
+      // เครื่องเสีย/ไม่มีเครื่อง → ใช้ทางออกที่ขายเลือกไว้: เข้าคิวเครื่องที่รอซ่อม หรือ งานพับมือ
+      const alt=document.getElementById("alt-"+so+"-"+it.seq);
+      if(!alt || !alt.value) return;
+      useMach=alt.value;
+    }
     const cb=document.getElementById("cb-"+so+"-"+it.seq);
-    if(cb && cb.checked){ const k=mach+"|"+(coilKeyOf(it.stk)||"-"); (byKey[k]=byKey[k]||[]).push(it); }
+    if(cb && cb.checked){ const k=useMach+"|"+(coilKeyOf(it.stk)||"-"); (byKey[k]=byKey[k]||[]).push(it); }
   });
   const ks=Object.keys(byKey); if(!ks.length) return;
   act(async ()=>{
@@ -1257,9 +1264,22 @@ function soCardHtml(c, approvers){
         const who=whoCan(type,c.customer).filter(b=>b!==branch);
         const downHere=(DOWN[branch]||[]).includes(mach);
         const sent=sentTo(c.so,x);
-        return `<div class="oi noprod"><span class="mchip bad">${mach}</span><span class="d">${esc(it.des)}<div class="warn">⚠️ ${downHere?"เครื่อง"+mach+"ที่ "+branch+" เสียอยู่":"สาขา "+branch+" ไม่มีเครื่อง"+mach}${who.length?" — ผลิตได้ที่ "+who.join("/"):" — ไม่มีสาขาไหนผลิตได้"}</div>${
+        const already=done.has(x);
+        /* 🖐⏳ ทางออกเมื่อสั่งไม่ได้ (feedback เมย์+รุ้ง 2 ส.ค.):
+           - เครื่องที่สาขามีแต่เสีย → สั่ง "เข้าคิวรอซ่อม" ได้ ใบไปนอนรอในคอลัมน์แดงบนบอร์ด ซ่อมเสร็จทำต่อทันที
+           - มีโต๊ะ "งานพับมือ" ในสาขา → สั่งผลิตแบบพับมือได้เลย (บานเกล็ดระบาย 304/457 ฯลฯ)
+           จากนั้นใบไหลตาม วางแผน→ผลิต→แพ็ค→ส่ง ปกติทุกขั้น — งานไม่หลุดออกนอกระบบอีก */
+        const hand=(MACHINES[branch]||[]).includes("งานพับมือ") && mach!=="งานพับมือ";
+        const opts=[ ...(downHere?[[mach,"⏳ สั่งเข้าคิวรอเครื่องซ่อม ("+mach+")"]]:[]),
+                     ...(hand?[["งานพับมือ","🖐 ผลิตที่ "+branch+" แบบพับมือ"]]:[]) ];
+        const canAlt = !already && !sent && opts.length;
+        if(canAlt) anyBox=true;
+        return `<div class="oi noprod">${canAlt?`<input type="checkbox" id="cb-${c.so}-${x}">`:""}<span class="mchip bad">${mach}</span><span class="d">${esc(it.des)}<div class="warn">⚠️ ${downHere?"เครื่อง"+mach+"ที่ "+branch+" เสียอยู่":"สาขา "+branch+" ไม่มีเครื่อง"+mach}${who.length?" — ผลิตได้ที่ "+who.join("/"):" — ไม่มีสาขาไหนผลิตได้"}</div>${
           sent ? `<div class="dtag" style="display:inline-block;margin-top:4px">✓ ส่งให้ ${sent} ผลิตแล้ว</div>`
-          : who.length ? `<div style="margin-top:5px">${who.map(w=>`<button class="btn amber" style="padding:7px 11px;font-size:11.5px" onclick="dispatchCross('${esq(c.so)}',${x},'${w}')">🏢 ส่งให้ ${w} ผลิตเลย →</button>`).join(" ")}</div>` : ""
+          : already ? `<div class="dtag" style="display:inline-block;margin-top:4px">✓ สั่งแล้ว 🔒</div>`
+          : (canAlt?`<div style="margin-top:5px"><select id="alt-${c.so}-${x}" style="border:1px solid var(--line);border-radius:9px;padding:7px;font-size:12.5px;font-family:inherit;max-width:100%;background:var(--panel);color:var(--ink)" onchange="const cb=document.getElementById('cb-${c.so}-${x}'); if(cb) cb.checked=!!this.value">
+              <option value="">— เลือกทางออก แล้วติ๊กสั่งได้เลย —</option>${opts.map(o=>`<option value="${esc(o[0])}">${o[1]}</option>`).join("")}</select></div>`:"")
+            + (who.length&&!sent ? `<div style="margin-top:5px">${who.map(w=>`<button class="btn amber" style="padding:7px 11px;font-size:11.5px" onclick="dispatchCross('${esq(c.so)}',${x},'${w}')">🏢 ส่งให้ ${w} ผลิตเลย →</button>`).join(" ")}</div>` : "")
         }</span><span class="q">${qty}</span></div>`;
       }
       if(done.has(x)){
@@ -1418,8 +1438,21 @@ function tktHead(t, c){
   </div>`;
 }
 function metLine(t){
-  const M=tMetrics(t);
-  return `<div class="met"><span>ผลิต <b>${fmt(M.m)} ม.</b></span><span><b>${M.sh}</b> แผ่น</span><span>ยาวสุด <b>${M.mx?fmt(M.mx,2):"—"} ม.</b></span><span>≈ <b>${fmt(M.kg,0)} กก.</b></span></div>`;
+  // โชว์เฉพาะค่าที่ระบบรู้จริง — งานออนไลน์บางใบ parse ได้แค่เมตรรวม "0 แผ่น / ยาวสุด —" ทำให้ช่างเข้าใจผิด (feedback ปิยะ BK)
+  const M=tMetrics(t), p=[];
+  if(M.m)  p.push(`<span>ผลิต <b>${fmt(M.m)} ม.</b></span>`);
+  if(M.sh) p.push(`<span><b>${M.sh}</b> แผ่น</span>`);
+  if(M.mx) p.push(`<span>ยาวสุด <b>${fmt(M.mx,2)} ม.</b></span>`);
+  if(M.kg) p.push(`<span>≈ <b>${fmt(M.kg,0)} กก.</b></span>`);
+  return p.length? `<div class="met">${p.join("")}</div>` : "";
+}
+function itemLines(t){
+  // 📏 งานออนไลน์/เข้าสต็อค: ช่างต้องเห็น "รายการ×ความยาว×จำนวน" บนการ์ดเลย ป้ายสีอย่างเดียวไม่พอ (feedback ปิยะ BK)
+  if(!(t.online||t.stock)) return "";
+  const its=(t.oitems&&t.oitems.length)? t.oitems : tItems(t);
+  if(!its.length) return "";
+  return `<div class="who">`+its.slice(0,4).map(i=>`▸ ${esc(i.des)} — <b>${fmt(i.qty)} ${esc(unitTh(i.unit||""))}</b>`).join("<br>")
+    +(its.length>4?`<br>… อีก ${its.length-4} รายการ`:"")+`</div>`;
 }
 function timeLine(t){
   // 🕐 เวลาเป็น key ของ process: ออกใบ → อนุมัติ → วางแผน → เริ่ม (รอคิวนานเท่าไหร่) → เสร็จ (ผลิตจริงกี่นาที)
@@ -1510,7 +1543,7 @@ function vBoard(){
           <div class="strip"><i class="${t.st===3&&!paused(t)?"run":""}" style="width:${pct}%;background:${STGC[t.st]}"></i></div>
           <div class="tk-h"><span class="so">${t.online?"🛍 ":""}${t.stock?"🏭 ":""}${esc(t.so)}</span>${sameCoil?'<span class="bdg" style="background:#e6f4ea;color:var(--green)">🔗 ต่อคอยล์เดิม</span>':""}<span class="bdg" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${STG[t.st]}</span></div>
           <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
-          ${metLine(t)}
+          ${metLine(t)}${itemLines(t)}
           <div class="who">👷 <b>${esc(t.assignee||"ยังไม่มีคนรับ")}</b>${t.st>=3?` · เริ่มโดย ${esc(t.by.started||"")}`:""}</div>
           ${canJoin(t)||openWk(t).length ? `<div class="who">👥 ${openWk(t).length
             ? openWk(t).map(w=>`<span class="bdg" style="background:#eef3ff;color:#1f5eff">${esc(String(w.name||"").split(" ")[0])}</span>`).join(" ")+` <span style="color:var(--muted)">(${openWk(t).length} คน)</span>`

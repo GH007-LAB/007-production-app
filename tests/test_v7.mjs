@@ -22,6 +22,7 @@ window.__MOCK_DB__ = (() => {
       {id:3,branch:'SKN',name:'ครอบข้าง 457',note:'',status:'up',sort:3},
       {id:4,branch:'SKN',name:'PU สแน็ปล็อค',note:'',status:'up',sort:4},
       {id:5,branch:'SKN',name:'ลอนรั้ว 182',note:'',status:'up',sort:5},
+      {id:99,branch:'SKN',name:'งานพับมือ',note:'งานที่เครื่องรีดทำไม่ได้',status:'up',sort:90},
       {id:6,branch:'BK',name:'ตรง',note:'',status:'up',sort:1},
       {id:7,branch:'BK',name:'ครอบข้าง 457',note:'',status:'up',sort:2},
       {id:8,branch:'BK',name:'สเปน',note:'เครื่องเสีย',status:'down',sort:3},
@@ -941,6 +942,61 @@ ok('v9.3: ชื่อลูกค้าถูกย่อ ไม่โชว์
 await clickText('📺 จอ TV'); await page.waitForTimeout(150);
 ok('v9.3: จอสถานะเปิดโหมด TV ได้ (ตัวใหญ่ แขวนหน้าร้าน)', await page.evaluate(() => document.body.classList.contains('tv')));
 await clickText('📺 จอ TV'); await page.waitForTimeout(150);
+
+// ---- 34. v9.4: feedback ปิยะ/รุ้ง/เมย์ — งานออนไลน์โชว์รายการ · เครื่องเสียสั่งเข้าคิวได้ · 🖐 พับมือ ----
+// (ก) ปิยะ: งานออนไลน์ parse ได้แค่เมตรรวม → ห้ามโชว์ "0 แผ่น" หลอกตา + โชว์รายการยาว×จำนวน
+await page.evaluate(async () => {
+  const now=new Date().toISOString();
+  window.__STATE__.tks.push({id:'on1', branch:'SKN', sonum:'OL680004', machine:'ตรง-R แดง ปีกขวา', stage:2, route:'A',
+    source:'online', label:'ดำด้าน 0.30', item_seqs:[], assignee:'', people:{ordered:'ทีมออนไลน์',approved:'ทีมออนไลน์'},
+    times:{ordered:now}, created_at:now, prod_m:18.6, sheets:0, max_len:0, weight_kg:40,
+    oitems:[{des:'เมทัลชีท ดำด้าน คละยาว',qty:18.6,unit:'มร'}]});
+  await reload(); render();
+});
+await clickText('บอร์ดเครื่อง'); await page.waitForTimeout(250);
+const onTxt = await page.locator('#tk-on1').innerText();
+ok('v9.4: การ์ดออนไลน์ไม่โชว์ "0 แผ่น" หลอกตา', onTxt.includes('18.6 ม.') && !onTxt.includes('0 แผ่น') && !onTxt.includes('ยาวสุด'));
+ok('v9.4: การ์ดออนไลน์โชว์รายการ ยาว×จำนวน (หน่วย ม.)', onTxt.includes('คละยาว') && /18\.6 ม\./.test(onTxt));
+
+// (ข) เมย์: เครื่องเสียทั้งกลุ่ม → สั่งเข้าคิวรอซ่อมได้ · (ค) รุ้ง: 🖐 พับมือ
+await page.evaluate(async () => {
+  const now=new Date().toISOString(), d=now.slice(0,10);
+  window.__STATE__.machines.forEach(m=>{ if(m.branch==='SKN'&&m.name.startsWith('ตรง-')) m.status='down'; });
+  window.__STATE__.sos.push({branch:'SKN',sonum:'SO68FIXQ',sodat:d,dlvdat:d,cuscod:'F001',cusnam:'ลูกค้ารอเครื่องซ่อม',docstat:'N',synced_at:now});
+  window.__STATE__.its.push({branch:'SKN',sonum:'SO68FIXQ',seq:1,stkcod:'01A-ZI-030',stkdes:'2.00 -6 ตรง ซิงค์ 0.30',ordqty:12,remqty:12,unit:'มร',synced_at:now});
+  window.__STATE__.sos.push({branch:'SKN',sonum:'SO68HAND',sodat:d,dlvdat:d,cuscod:'H001',cusnam:'ช่างประเสริฐ ทดสอบ',docstat:'N',synced_at:now});
+  window.__STATE__.its.push({branch:'SKN',sonum:'SO68HAND',seq:1,stkcod:'01A-ZI-030',stkdes:'1.10 -4 ตรง ซิงค์ 0.30',ordqty:4.4,remqty:4.4,unit:'มร',synced_at:now});
+  await reload(); render();
+});
+await clickText('ฝั่งขาย'); await page.waitForTimeout(250);
+const fq = page.locator('.socard:has-text("SO68FIXQ")');
+ok('v9.4: เครื่องเสีย → มีคำเตือน + ช่องเลือกทางออก', (await fq.innerText()).includes('เสียอยู่') && (await fq.locator('select[id^="alt-"]').count())===1);
+const altTxt = await fq.locator('select[id^="alt-"]').innerText();
+ok('v9.4: ทางออกมีทั้ง ⏳ เข้าคิวรอซ่อม และ 🖐 พับมือ', /เข้าคิวรอเครื่องซ่อม/.test(altTxt) && /พับมือ/.test(altTxt));
+await fq.locator('select[id^="alt-"]').selectOption({ index: 1 });   // ⏳ เข้าคิวรอซ่อม
+ok('v9.4: เลือกทางออกแล้ว checkbox ติ๊กให้เอง', await fq.locator('input[type=checkbox]').isChecked());
+await fq.locator('button:has-text("สั่ง+อนุมัติใบผลิต")').click(); await page.waitForTimeout(400);
+const fqT = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68FIXQ'));
+ok('v9.4: สั่งเข้าคิวเครื่องที่รอซ่อมได้จริง (เมย์)', !!fqT && fqT.stage===1 && fqT.machine.startsWith('ตรง-'));
+
+const hd = page.locator('.socard:has-text("SO68HAND")');
+await hd.locator('select[id^="alt-"]').selectOption('งานพับมือ');
+await hd.locator('button:has-text("สั่ง+อนุมัติใบผลิต")').click(); await page.waitForTimeout(400);
+const hdT = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68HAND'));
+ok('v9.4: สั่งผลิตแบบ 🖐 พับมือได้ (รุ้ง)', !!hdT && hdT.stage===1 && hdT.machine==='งานพับมือ');
+
+// พับมือไหลต่อ: วางแผน → เข้าคิว → โผล่คอลัมน์ งานพับมือ บนบอร์ด
+await clickText('ฝั่งผลิต: วางแผน'); await page.waitForTimeout(250);
+const hCard = page.locator('.tkt:has-text("SO68HAND")');
+await hCard.locator('button:has-text("A ผลิตใหม่")').click(); await page.waitForTimeout(150);
+await hCard.locator('button:has-text("เข้าคิวเครื่อง")').click(); await page.waitForTimeout(400);
+await clickText('บอร์ดเครื่อง'); await page.waitForTimeout(250);
+const handCol = page.locator('.col:has-text("งานพับมือ")');
+ok('v9.4: บอร์ดมีคอลัมน์ งานพับมือ และใบเข้าคิวแล้ว', (await handCol.count())===1 && (await handCol.innerText()).includes('SO68HAND'));
+await page.evaluate(async () => {   // คืนสถานะเครื่อง
+  window.__STATE__.machines.forEach(m=>{ if(m.branch==='SKN'&&m.name.startsWith('ตรง-')) m.status='up'; });
+  await reload(); render();
+});
 
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));
