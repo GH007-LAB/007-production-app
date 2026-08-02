@@ -236,12 +236,79 @@ body.tv .bdg{font-size:12px}
 body.tv .bc-foot .btn{font-size:14px;padding:11px 16px}
 body.tv .empty{font-size:13.5px}
 body.tv .strip{height:7px}
+/* ═══ ✨ v9.5 Visual layer — มิติ/แสง/ภาพประกอบ/ลูกเล่นเข้า-ออก (CSS+SVG ล้วน ไม่กิน CPU) ═══ */
+/* พื้นหลังมีมิติ ไม่ใช่กระดาษแบน */
+body{background:radial-gradient(1100px 380px at 75% -8%, #e7ecfa 0%, rgba(231,236,250,0) 60%),
+     radial-gradient(800px 300px at -5% 0%, #f3efe4 0%, rgba(243,239,228,0) 55%), var(--bg)}
+body.dk{background:radial-gradient(1000px 460px at 80% -10%, rgba(30,58,138,.35), transparent 60%),
+     radial-gradient(700px 320px at 0% 0%, rgba(8,145,178,.12), transparent 55%), var(--bg)}
+/* โลโก้ลายลอนเหล็ก */
+h1 .logo,.login h2 .logo{width:22px;height:22px;flex:0 0 auto}
+.login h2 .lg-big{width:34px;height:34px}
+h1{display:flex;align-items:center;gap:8px}
+h1 .ttl{font-weight:600;letter-spacing:.2px}
+h1 .ttl b{font-weight:800;background:linear-gradient(90deg,#1a56db,#0e93c9);-webkit-background-clip:text;background-clip:text;color:transparent}
+body.dk h1 .ttl b{background:linear-gradient(90deg,#60a5fa,#22d3ee);-webkit-background-clip:text;background-clip:text;color:transparent}
+.login h2{display:flex;align-items:center;gap:10px}
+.login h2 .ttl b{background:linear-gradient(90deg,#1a56db,#0e93c9);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* จุด LIVE เต้นเบา ๆ — รู้ทันทีว่าระบบหายใจอยู่ */
+.conn.live::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px;vertical-align:1px;animation:ping 1.8s ease-out infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(6,118,71,.45)}70%{box-shadow:0 0 0 6px rgba(6,118,71,0)}100%{box-shadow:0 0 0 0 rgba(6,118,71,0)}}
+/* 🎬 การ์ดสไลด์เข้าเวลาเปลี่ยนหน้า (เฉพาะตอน view/สาขาเปลี่ยน — .vin ถูกถอดใน 450ms) */
+@keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+#main.vin .page>*{animation:rise .26s ease both}
+#main.vin .page>*:nth-child(2){animation-delay:.03s}
+#main.vin .page>*:nth-child(3){animation-delay:.06s}
+#main.vin .page>*:nth-child(4){animation-delay:.09s}
+#main.vin .page>*:nth-child(5){animation-delay:.12s}
+#main.vin .page>*:nth-child(n+6){animation-delay:.15s}
+#main.vin.boardmode .col{animation:rise .3s ease both}
+#main.vin.boardmode .col:nth-child(2){animation-delay:.05s}
+#main.vin.boardmode .col:nth-child(3){animation-delay:.1s}
+#main.vin.boardmode .col:nth-child(n+4){animation-delay:.15s}
+/* ปุ่มหลักมี gradient + interaction ชัด */
+.btn.blue{background:linear-gradient(135deg,#1a56db,#2f6bff)}
+.btn.green{background:linear-gradient(135deg,#067647,#0a9457)}
+.btn.blue:hover,.btn.green:hover,.btn.dark:hover{filter:brightness(1.08)}
+.btn:focus-visible,.vtab:focus-visible,.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vtab.on{background:linear-gradient(135deg,#1a56db,#2f6bff)}
+/* การ์ดมีเส้นแสงบนหัวจาง ๆ */
+.socard,.tkt{position:relative;overflow:hidden}
+.socard::before,.tkt::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(26,86,219,.28),transparent);opacity:0;transition:opacity .2s}
+.socard:hover::before,.tkt:hover::before{opacity:1}
+body.dk .bcard{transition:border-color .15s, transform .15s}
+body.dk .bcard:hover{border-color:#2d64a8;transform:translateY(-1px)}
+/* empty state มีภาพประกอบ (ม้วนคอยล์+แผ่นออก) ไม่ใช่ขีดเฉย ๆ */
+.empty{padding:52px 0 18px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cg fill='none' stroke='%238a94a6' stroke-width='2.4' stroke-linecap='round' opacity='.55'%3E%3Ccircle cx='17' cy='23' r='10'/%3E%3Ccircle cx='17' cy='23' r='4'/%3E%3Cpath d='M27 23q0-10-10-10M17 33h26M36 29l4 4-4 4'/%3E%3C/g%3E%3C/svg%3E") no-repeat top center/40px}
+body.dk .empty{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cg fill='none' stroke='%235d6b93' stroke-width='2.4' stroke-linecap='round' opacity='.8'%3E%3Ccircle cx='17' cy='23' r='10'/%3E%3Ccircle cx='17' cy='23' r='4'/%3E%3Cpath d='M27 23q0-10-10-10M17 33h26M36 29l4 4-4 4'/%3E%3C/g%3E%3C/svg%3E")}
+/* login = ประตูหน้าบ้าน — แสง aurora ขยับช้า ๆ */
+.login-bg{overflow:hidden}
+.login-bg::before{content:"";position:absolute;inset:-40%;pointer-events:none;
+  background:radial-gradient(620px 300px at 28% 32%, rgba(34,211,238,.16), transparent 60%),
+             radial-gradient(720px 400px at 74% 68%, rgba(37,99,235,.28), transparent 62%);
+  animation:aur 10s ease-in-out infinite alternate}
+@keyframes aur{to{transform:translate(4%,3%) scale(1.06)}}
+.login{position:relative}
+/* scrollbar บาง โค้ง ทันสมัย */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#cfcfc7;border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:#b9b9b0}
+body.dk ::-webkit-scrollbar-thumb{background:#22305a}
+body.dk ::-webkit-scrollbar-thumb:hover{background:#2d3f75}
+/* header เนียนขึ้นนิด */
+header{background:linear-gradient(180deg,var(--panel),var(--panel))}
+body.dk header{background:linear-gradient(180deg,#0e1830,#0d1527)}
+/* ลดทุกอย่างเมื่อผู้ใช้ตั้งค่า reduce motion */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+}
 </style>
 </head>
 <body>
 <header>
   <div class="h1r">
-    <h1>🏭 007 Production</h1>
+    <h1><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lgw" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a56db"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M2 10 Q6 4 10 10 T18 10 T26 10 T30 10" fill="none" stroke="url(#lgw)" stroke-width="3" stroke-linecap="round"/><path d="M2 17.5 Q6 11.5 10 17.5 T18 17.5 T26 17.5 T30 17.5" fill="none" stroke="url(#lgw)" stroke-width="3" stroke-linecap="round" opacity=".65"/><path d="M2 25 Q6 19 10 25 T18 25 T26 25 T30 25" fill="none" stroke="url(#lgw)" stroke-width="3" stroke-linecap="round" opacity=".35"/></svg><span class="ttl">007 <b>Production</b></span></h1>
     <span class="conn off" id="conn">…</span>
     <div class="syncs" id="syncs"></div>
     <span class="userchip" id="userchip" style="display:none"></span>
@@ -265,7 +332,7 @@ body.tv .strip{height:7px}
 
 <div class="login-bg" id="loginbg">
   <div class="login">
-    <h2>🏭 007 Production</h2>
+    <h2><svg class="logo lg-big" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lgw" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a56db"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M2 10 Q6 4 10 10 T18 10 T26 10 T30 10" fill="none" stroke="url(#lgw)" stroke-width="3" stroke-linecap="round"/><path d="M2 17.5 Q6 11.5 10 17.5 T18 17.5 T26 17.5 T30 17.5" fill="none" stroke="url(#lgw)" stroke-width="3" stroke-linecap="round" opacity=".65"/><path d="M2 25 Q6 19 10 25 T18 25 T26 25 T30 25" fill="none" stroke="url(#lgw)" stroke-width="3" stroke-linecap="round" opacity=".35"/></svg><span class="ttl">007 <b>Production</b></span></h2>
     <div class="sub" id="lg-sub">login ด้วยอีเมลของคุณ — ระบบจะส่งลิงก์เข้าเมล กดลิงก์แล้วเข้าระบบอัตโนมัติ</div>
     <div id="lg-email-pane">
       <input id="lg-email" type="email" placeholder="you@gmail.com" autocomplete="email"
@@ -2103,6 +2170,12 @@ function render(){
   document.body.classList.toggle("dk", view==="board"||view==="flight");            // 🌑 บอร์ดเครื่อง = Mission Control (มืด)
   document.body.classList.toggle("tv", TVMODE && (view==="board"||view==="flight"));  // 📺 ขยายทุกอย่างเมื่อเปิดโหมดจอ TV
   ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, stock:vStock, report:vReport, flight:vFlight})[view]();
+  const mainEl=document.getElementById("main");
+  if(window.__lastView !== view+"|"+branch){
+    mainEl.classList.add("vin");                       // 🎬 การ์ดสไลด์เข้าเวลาเปลี่ยนหน้า (ครั้งเดียว)
+    setTimeout(()=>mainEl.classList.remove("vin"), 450);
+  }
+  window.__lastView = view+"|"+branch;
   renderSyncs();
 }
 
