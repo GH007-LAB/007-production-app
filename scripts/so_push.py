@@ -180,26 +180,38 @@ def main():
                 "youref": (r.get("YOUREF") or "").strip(),
             }
 
-        # ---- 🧾 อ่านบิลขาย (IV) → map SO -> เลข IV (v9.7: ปล่อยรถต้องเห็น IV คู่ SO) ----
-        # Express เก็บบิลขายในไฟล์คนละชื่อแล้วแต่รุ่น/การติดตั้ง — ลองตามลำดับ เจอไฟล์ไหนใช้ไฟล์นั้น
-        # แถวรายการบิลที่ดึงจาก SO จะมีเลข SO อ้างอยู่ (SONUM) — ใช้ตัวนั้น map
+        # ---- 🧾 อ่านบิลขาย (IV/AI) → map SO -> เลข IV (v9.8: ยืนยันจากคลัง Finny R65 8/7/2569) ----
+        # Express เก็บเอกสารขายใน ARTRN.DBF: DOCNUM ขึ้นต้น IV=ใบกำกับ · AI=ขายสด/มัดจำ
+        # รายการบิลอยู่ ARTRNIT.DBF — แถวที่ดึงจาก SO จะอ้างเลข SO (SONUM) → ใช้ map
+        # fallback: header ARTRN ใช้ SONUM/YOUREF · ไฟล์ชื่ออื่น (รุ่นเก่า) ลอง OEIV/OEIVIT
         so_iv = {}
-        for hdr_f, it_f in (("OEIV.DBF", "OEIVIT.DBF"), ("ARIV.DBF", "ARIVIT.DBF"), ("OEBILL.DBF", "OEBILLIT.DBF")):
-            fp = os.path.join(src, it_f)
+        def _collect_iv(fp, num_keys):
+            n0 = len(so_iv)
+            for r in read_dbf(fp, fields={"DOCNUM", "IVNUM", "SONUM", "YOUREF"}):
+                iv = ""
+                for k in num_keys:
+                    iv = (r.get(k) or "").strip()
+                    if iv:
+                        break
+                if not iv or iv[:2] not in ("IV", "AI"):
+                    continue
+                so_ref = (r.get("SONUM") or "").strip() or (r.get("YOUREF") or "").strip()
+                if so_ref in heads:
+                    so_iv.setdefault(so_ref, set()).add(iv)
+            return len(so_iv) - n0
+        for f in ("ARTRNIT.DBF", "ARTRN.DBF", "OEIVIT.DBF", "OEIV.DBF"):
+            fp = os.path.join(src, f)
             if not os.path.exists(fp):
                 continue
             try:
-                for r in read_dbf(fp, fields={"IVNUM", "DOCNUM", "BILLNO", "SONUM"}):
-                    so_ref = (r.get("SONUM") or "").strip()
-                    iv = (r.get("IVNUM") or r.get("DOCNUM") or r.get("BILLNO") or "").strip()
-                    if so_ref in heads and iv:
-                        so_iv.setdefault(so_ref, set()).add(iv)
-                log("IV source: %s (%d SO matched)" % (it_f, len(so_iv)))
+                got = _collect_iv(fp, ("DOCNUM", "IVNUM"))
+                log("IV source: %s (+%d SO matched, total %d)" % (f, got, len(so_iv)))
+                if so_iv:
+                    break        # ได้ mapping จากไฟล์รายการแล้ว ไม่ต้องอ่าน header ซ้ำ
             except Exception as e:
-                log("IV read skip %s: %s" % (it_f, e))
-            break
-        else:
-            log("IV file not found in %s — ivnum ว่างไว้ก่อน (แจ้ง Claude ชื่อไฟล์บิลขาย)" % src)
+                log("IV read skip %s: %s" % (f, e))
+        if not so_iv:
+            log("IV mapping ว่าง — เช็คว่ามี ARTRN/ARTRNIT ใน %s (แจ้ง Claude ถ้าไฟล์ชื่ออื่น)" % src)
         for so, ivs in so_iv.items():
             heads[so]["ivnum"] = ",".join(sorted(ivs))
 

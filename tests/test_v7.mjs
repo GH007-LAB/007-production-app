@@ -118,6 +118,7 @@ for (const k of ['1','1','1','1']) await page.locator('.pinpad button', { hasTex
 await page.waitForTimeout(300);
 ok('PIN login เข้าได้ (Gem)', !(await page.locator('#loginbg').isVisible()));
 ok('badge LIVE', (await page.locator('#conn').textContent()) === 'LIVE');
+await page.evaluate(() => { PPO_MODE=false; render(); });   // เทสต์ legacy งานออนไลน์ทั้งชุด — ปิดโหมด PPO ชั่วคราว (เปิดคืนใน block 37)
 
 // ---- 2. ฝั่งขาย: สั่งผลิต SO68A001 ----
 await clickText('ฝั่งขาย');
@@ -1037,6 +1038,32 @@ ok('v9.7: ปล่อยรถโดยไม่มี IV → เตือน�
 ok('v9.7: ใบออกจัดส่งได้จริง + log ติดธง ⚠ ไม่มี IV',
    (await page.evaluate(() => window.__STATE__.tks.find(t=>t.id==='iv1').stage))===6 &&
    (await page.evaluate(() => window.__STATE__.events.some(e=>/ยังไม่มี IV/.test(e.detail||'')))));
+
+// ---- 37. v9.8: 🛍 แยกงานออนไลน์ → PPO + 🧾 เช็คผลิตแล้วต้องตรง IV (แนวทาง Finny) ----
+await page.evaluate(() => { PPO_MODE=true; render(); }); await page.waitForTimeout(200);
+ok('v9.8: โหมด PPO → แท็บ 🛍 ออนไลน์หายจาก PPP (งานใหม่ไปที่ PPO)', !(await page.locator('.vtabs').innerText()).includes('ออนไลน์'));
+ok('v9.8: ใบออนไลน์ที่ค้างในไลน์ยังอยู่บนบอร์ด (ไหลต่อจนจบ)', await page.evaluate(() => TK.some(t=>t.online && alive(t))));
+
+await page.evaluate(async () => {
+  const now=new Date().toISOString(), d=now.slice(0,10);
+  const S=window.__STATE__;
+  S.sos.push({branch:'SKN',sonum:'SO68GAP',sodat:d,dlvdat:d,cuscod:'G001',cusnam:'ลูกค้าบิลไม่ครบ',docstat:'N',synced_at:now,ivnum:'IV6900777'});
+  S.its.push({branch:'SKN',sonum:'SO68GAP',seq:1,stkcod:'01A-ZI-030',stkdes:'2.50 -4 ตรง ซิงค์ 0.30',ordqty:10,remqty:10,unit:'มร',synced_at:now});
+  S.tks.push({id:'gap1', branch:'SKN', sonum:'SO68GAP', machine:'ตรง-R แดง ปีกขวา', stage:5, route:'A',
+    label:'ซิงค์ 0.30', item_seqs:[1], assignee:'ช่าง', people:{ordered:'ขาย',approved:'ขาย',packed:'แพ็ค'},
+    times:{ordered:now, done:now, packed:now}, created_at:now, prod_m:10, sheets:4, max_len:2.5, weight_kg:50});
+  await reload(); render();
+});
+await clickText('รวมของ/ส่ง'); await page.waitForTimeout(250);
+const gapCard = page.locator('.socard:has-text("SO68GAP")');
+ok('v9.8: มี IV แต่ REMQTY ของรายการที่ผลิตแล้วยัง > 0 → เตือน "IV ตัดไม่ครบ"', (await gapCard.innerText()).includes('IV ตัดไม่ครบ 1 รายการ'));
+await gapCard.locator('button:has-text("🚚 ออกจัดส่ง")').click(); await page.waitForTimeout(400);
+ok('v9.8: ปล่อยรถทั้งที่บิลตัดไม่ครบ → เตือนดังที่หัวจอ+toast', (await page.locator('#conn').innerText()).includes('ตัดไม่ครบ'));
+await page.evaluate(async () => {   // Express ตัดบิลครบ → rem=0 → sync รอบถัดไป
+  window.__STATE__.its.find(i=>i.sonum==='SO68GAP').remqty=0;
+  await reload(); render();
+});
+ok('v9.8: บิลตัดครบ (rem=0) → คำเตือนหายเอง', !(await page.locator('.socard:has-text("SO68GAP")').innerText()).includes('ตัดไม่ครบ'));
 
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));

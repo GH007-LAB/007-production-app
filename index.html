@@ -880,6 +880,8 @@ async function reVerify(so){
 const XSO_R = ["💬 ทำไว้เทียบราคาเฉย ๆ ลูกค้าไม่เอา","🙅 ลูกค้ายกเลิกออเดอร์","✏️ คีย์ผิด/ออกใบใหม่แทน","🔁 ย้ายไปสาขาอื่น","✏️ อื่นๆ"];
 let XSOSHOW={}, XOPEN=false;
 let TVMODE=false;      // 📺 โหมดจอ TV บนบอร์ด — ตัวใหญ่ แขวนจอในโรงงานให้ทั้งทีมเห็นคิว
+let PPO_MODE=true;     // 🛍 งานผลิตออนไลน์ย้ายไประบบ PPO (ปอนด์เชื่อมข้อมูลกับ PPP แล้ว) — PPP เหลือออฟไลน์ล้วน (Gem 3 ส.ค.)
+                       //    ใบออนไลน์ที่ค้างในไลน์ยังไหลต่อจนจบ แค่ปิดประตูสร้างงานใหม่ (แท็บ 🛍)
 /* 📍 โหมดตามใบ (feedback คุณรุ้ง ขาย SKN): ค้นหา/คลิกการ์ด → กระโดดไปหน้าที่ใบอยู่จริง + ไฮไลต์กะพริบ */
 let FLASH=null, PKQ="", PKOPEN=false;   // ใบที่ต้องไฮไลต์ · คำค้นหน้ารวมของ · กล่องส่งสำเร็จวันนี้เปิดอยู่ไหม
 function anchorAttr(t){ return `id="tk-${t.id}"${FLASH===t.id?' class="flash-add"':''}`; }
@@ -1102,11 +1104,28 @@ function packSO(so){
   const list=tks().filter(t=>t.so===so&&t.st===4);
   act(async ()=>{ for(const t of list) await patchTicket(t,{stage:5,people:{...t.by,packed:USER.name}},"pack","📦 แพ็ค/รวมของครบ"); });
 }
+/* 🧾 เช็ค "ของที่ผลิตแล้วต้องตรงกับ IV" (Gem+Finny 3 ส.ค.)
+   หลัก: OESOIT.REMQTY = จำนวนที่ยังไม่ถูกดึงเข้าบิล — ถ้า SO ออก IV แล้ว
+   แต่รายการที่เรา "ออกใบผลิตไปแล้ว" ยัง rem > 0 = บิลตัดไม่ครบ/ไม่ตรง
+   → เตือนทีมจัดส่ง + ขาย/คนเช็คของ ก่อนของขึ้นรถ */
+function ivGap(so){
+  const c=findSO(so); if(!c || !c.iv) return [];
+  const seqs=new Set();
+  TK.filter(t=>t.branch===branch && t.so===so && alive(t) && !t.stock)
+    .forEach(t=>(t.idxs||[]).forEach(x=>seqs.add(x)));
+  return (c.items||[]).filter(i=>seqs.has(i.seq) && (+i.rem||0) > 0);
+}
+function ivGapHtml(so){
+  const g=ivGap(so); if(!g.length) return "";
+  return `<div class="warn" style="margin:4px 0 6px">🧾⚠ <b>IV ตัดไม่ครบ ${g.length} รายการ</b> — ผลิตแล้วแต่บิลยังไม่ตัด: ${g.slice(0,2).map(i=>esc(i.des)).join(" · ")}${g.length>2?" …":""}<br><span style="color:var(--muted);font-weight:400">แจ้งฝ่ายขาย/คนเช็คของ เทียบใบผลิตกับ IV ก่อนปล่อยรถ</span></div>`;
+}
 function shipSO(so){
   const c=findSO(so)||{};
   const noIV = !c.iv && c.docstat!=="M";
   if(noIV)   // 🧾 ส่งของต้องมีบิล — เตือนดัง ๆ ก่อนปล่อยรถ (Gem 2 ส.ค.: ดู SO อย่างเดียวไม่พอ ต้องดู IV คู่กัน)
     alertBar("SO "+so+" ยังไม่ออก IV — เช็คบิลกับทีมขายก่อนปล่อยรถ");
+  else if(ivGap(so).length)
+    alertBar("SO "+so+" มี IV แล้วแต่ตัดไม่ครบ "+ivGap(so).length+" รายการ — เทียบใบผลิตกับบิลก่อนปล่อยรถ");
   const list=tks().filter(t=>t.so===so&&t.st===5);
   act(async ()=>{ for(const t of list) await patchTicket(t,{stage:6,people:{...t.by,shipped:USER.name}},"ship","🚚 ออกจัดส่ง"+(noIV?" ⚠ ยังไม่มี IV":"")); });
 }
@@ -1403,6 +1422,7 @@ function soCardHtml(c, approvers){
         ${c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว</span>`:""}
         ${c.x?`<span class="bdg late">❌ ยกเลิกแล้ว</span>`:""}
         ${dueBdg(c)}</div>
+      ${ivGapHtml(c.so)}
       ${c.x?`<div class="warn" style="margin:2px 0 7px">❌ <b>ขายยกเลิกใบนี้</b> — โดย <b>${esc(c.xby)}</b>${c.xat?` · ${fmtT(c.xat)}`:""}<br>${esc(c.xreason)}<br><span style="color:var(--muted)">เอกสารใน Express ไม่ถูกแตะ — ยกเลิกที่นี่คือซ่อนออกจากสายตาฝ่ายผลิตเท่านั้น กดคืนได้ตลอด</span></div>`:""}
       ${rows}
       ${RSHOW[c.so]&&!reok?(()=>{
@@ -1696,6 +1716,7 @@ function vPack(){
         c.iv?`<span class="bdg paid">🧾 IV ${esc(c.iv)}</span>`
         : c.docstat==="M"?`<span class="bdg paid">💰 ตัดบิลแล้ว (รอเลข IV)</span>`
         :`<span class="bdg urgent">⏳ ยังไม่ออก IV</span>`}<span class="cu">${esc(c.customer||"")}</span>${dueBdg(c)}</div>
+      ${ivGapHtml(so)}
       ${list.map(t=>`<div class="pk-row ${FLASH===t.id?"flash":""}" id="tk-${t.id}"><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><span class="mchip">${esc(t.mach)}</span><span class="nm">${t.route==="B"?"ใช้สต็อค":"ผลิตโดย "+esc(t.assignee||t.by.done||"—")}${t.tm&&t.tm.done?` · เสร็จ ${fmtT(t.tm.done)}`:""}</span><span class="pk-st" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${t.st===3?'<i class="ldot"></i>':t.st>=4?"✓ ":""}${STG[t.st]}</span></div>`).join("")}
       ${stockItems.length?`<div class="pk-row"><span class="stag">📦 หยิบสต็อค ${stockItems.length} รายการ</span><span class="nm" style="color:var(--muted)">${esc(stockItems.slice(0,2).map(i=>i.des).join(" · "))}${stockItems.length>2?" …":""}</span></div>`:""}
       <div class="truck">🚚 จัดรถ: <span>น้ำหนักรวม <b>${fmt(Tkg,0)}</b> กก.</span><span><b>${Tsh}</b> แผ่น</span><span>ยาวสุด <b>${Tmx?fmt(Tmx,2):"—"}</b> ม.</span></div>
@@ -2203,11 +2224,11 @@ function render(){
     `<button class="tab ${b===branch?"on":""}" onclick="branch='${b}';render()">${b}</button>`).join("");
   const nPlan=tks().filter(t=>t.st===1).length + tks().filter(t=>t.st===0&&t.xborder).length;
   const ONLINE_BR = ["SKN","BK"];   // สาขาที่ผลิต+ส่งงานออนไลน์ตอนนี้
-  if(view==="online" && !ONLINE_BR.includes(branch)) view="order";
+  if(view==="online" && (!ONLINE_BR.includes(branch)||PPO_MODE)) view="order";
   const nJob=JOBS.filter(j=>j.branch===branch&&j.status==="new").length
     + CARDS[branch].filter(c=>cardOnline(c)&&!c.x&&(c.date||"")>=cutView3()&&!TK.some(t=>t.branch===branch&&t.so===c.so&&alive(t))).length;
   const V=[["order","🛒 ฝั่งขาย: สั่งผลิต",0],
-    ...(ONLINE_BR.includes(branch)?[["online","🛍 ออนไลน์",nJob]]:[]),
+    ...(ONLINE_BR.includes(branch)&&!PPO_MODE?[["online","🛍 ออนไลน์",nJob]]:[]),
     ["plan","📋 ฝั่งผลิต: วางแผน",nPlan],["board","🎛️ บอร์ดเครื่อง",0],["pack","📦 รวมของ/ส่ง",0],["flight","🛫 สถานะวันนี้",0],
     ["stock","🏭 ผลิตเข้าสต็อค",tks().filter(t=>t.stock&&t.st===4).length],["report","📊 เวลา",0]];
   document.getElementById("vtabs").innerHTML = V.map(([v,l,n])=>
