@@ -22,6 +22,8 @@ window.__MOCK_DB__ = (() => {
       {id:3,branch:'SKN',name:'ครอบข้าง 457',note:'',status:'up',sort:3},
       {id:4,branch:'SKN',name:'PU สแน็ปล็อค',note:'',status:'up',sort:4},
       {id:5,branch:'SKN',name:'ลอนรั้ว 182',note:'',status:'up',sort:5},
+      {id:97,branch:'SKN',name:'พับครอบ',note:'ครอบหน้ากว้างไม่ตรงเครื่องรีด',status:'up',sort:6},
+      {id:98,branch:'SKN',name:'ย้ำกันสาด',note:'',status:'up',sort:7},
       {id:99,branch:'SKN',name:'งานพับมือ',note:'งานที่เครื่องรีดทำไม่ได้',status:'up',sort:90},
       {id:6,branch:'BK',name:'ตรง',note:'',status:'up',sort:1},
       {id:7,branch:'BK',name:'ครอบข้าง 457',note:'',status:'up',sort:2},
@@ -1064,6 +1066,32 @@ await page.evaluate(async () => {   // Express ตัดบิลครบ → r
   await reload(); render();
 });
 ok('v9.8: บิลตัดครบ (rem=0) → คำเตือนหายเอง', !(await page.locator('.socard:has-text("SO68GAP")').innerText()).includes('ตัดไม่ครบ'));
+
+// ---- 38. v9.9: FB คุณหย่อย — ครอบข้าง 304 → พับครอบ · กันสาด → ย้ำกันสาด · ใบอ้างเครื่องนอกระบบต้องไม่หายเงียบ ----
+await page.evaluate(async () => {
+  const now=new Date().toISOString(), d=now.slice(0,10);
+  const S=window.__STATE__;
+  S.sos.push({branch:'SKN',sonum:'SO68CAP',sodat:d,dlvdat:d,cuscod:'Y001',cusnam:'ลูกค้าครอบ 304',docstat:'N',synced_at:now});
+  S.its.push({branch:'SKN',sonum:'SO68CAP',seq:1,stkcod:'02A-ZI-030',stkdes:'2.00 -3 ครอบข้าง 304 ซิงค์ 0.30',ordqty:6,remqty:6,unit:'มร',synced_at:now});
+  S.sos.push({branch:'SKN',sonum:'SO68AWN',sodat:d,dlvdat:d,cuscod:'Y002',cusnam:'ลูกค้ากันสาด',docstat:'N',synced_at:now});
+  S.its.push({branch:'SKN',sonum:'SO68AWN',seq:1,stkcod:'02A-ZI-030',stkdes:'กันสาด 120 ซม. ซิงค์ 0.30',ordqty:3,remqty:3,unit:'ชุด',synced_at:now});
+  S.tks.push({id:'orph1', branch:'SKN', sonum:'SO68LOST', machine:'เครื่องเก่าที่ถูกลบ', stage:2, route:'A',
+    label:'ซิงค์ 0.30', item_seqs:[1], assignee:'', people:{ordered:'ขาย',approved:'ขาย'},
+    times:{ordered:now}, created_at:now, prod_m:5, sheets:2, max_len:2.5, weight_kg:20});
+  await reload(); render();
+});
+await clickText('ฝั่งขาย'); await page.waitForTimeout(250);
+await page.locator('.socard:has-text("SO68CAP") button:has-text("สั่ง+อนุมัติใบผลิต")').click(); await page.waitForTimeout(400);
+const capT = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68CAP'));
+ok('v9.9: ครอบข้าง 304 ที่ SKN → เข้าเครื่อง พับครอบ อัตโนมัติ', !!capT && capT.machine==='พับครอบ');
+await page.locator('.socard:has-text("SO68AWN") button:has-text("สั่ง+อนุมัติใบผลิต")').click(); await page.waitForTimeout(400);
+const awnT = await page.evaluate(() => window.__STATE__.tks.find(t=>t.sonum==='SO68AWN'));
+ok('v9.9: งานกันสาด → เข้าเครื่อง ย้ำกันสาด', !!awnT && awnT.machine==='ย้ำกันสาด');
+await clickText('บอร์ดเครื่อง'); await page.waitForTimeout(300);
+const bTxt = await page.locator('#main').innerText();
+ok('v9.9: บอร์ดมีคอลัมน์ พับครอบ และ ย้ำกันสาด', bTxt.includes('พับครอบ') && bTxt.includes('ย้ำกันสาด'));
+ok('v9.9: ใบที่อ้างเครื่องนอกระบบ → โผล่คอลัมน์แดง ❓ ไม่หายเงียบ',
+   bTxt.includes('เครื่องเก่าที่ถูกลบ') && bTxt.includes('SO68LOST') && bTxt.includes('ไม่มีในตารางเครื่อง'));
 
 console.log(T.join('\n'));
 console.log('EVENTS LOGGED:', await page.evaluate(() => window.__STATE__.events.length));

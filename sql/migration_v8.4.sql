@@ -182,3 +182,20 @@ alter table so_live add column if not exists ivnum text not null default '';
 -- เช็คผล: ต้องได้ 1
 select count(*) as col_ivnum from information_schema.columns
  where table_name='so_live' and column_name='ivnum';
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 9) 🔧 เพิ่มเครื่องที่มีจริงหน้างานแต่ไม่มีในระบบ (v9.9 — FB คุณหย่อย SKN 4 ส.ค.)
+--    เคสจริง: ครอบข้าง 304 อยู่ในใบผลิตแต่ระบบมองไม่เห็น — กติกา routing
+--    มีอยู่แล้วว่า ครอบหน้ากว้าง 304 (เครื่องรีด SKN เป็น 457) ต้องไป
+--    "พับครอบ" แต่ตาราง machine ไม่มีเครื่องนี้ → ใบเลยไม่มีคอลัมน์ให้อยู่
+--    เครื่องย้ำกันสาด ก็มีจริงแต่ไม่เคยถูกใส่ในระบบ
+--    รันซ้ำได้
+-- ---------------------------------------------------------------
+insert into machine (branch, name, note, sort) values
+  ('SKN','พับครอบ','ครอบหน้ากว้างไม่ตรงเครื่องรีด (304/ครอบพับ/ตามแบบ)',6),
+  ('SKN','ย้ำกันสาด','งานย้ำกันสาด',7)
+on conflict (branch, name) do nothing;
+
+-- เช็คผล: ต้องเห็นทั้ง 2 เครื่อง
+select name, sort from machine where branch='SKN' and name in ('พับครอบ','ย้ำกันสาด') order by sort;

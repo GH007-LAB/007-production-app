@@ -538,6 +538,7 @@ function machineType(stk, des){
   if(stk.startsWith("01CU")) return "ตรง";
   if(stk.startsWith("01A")) return "ตรง";
   if(/บานเกล็ด/.test(des)) return "บานเกล็ด";
+  if(/กันสาด/.test(des)) return "ย้ำกันสาด";   // FB คุณหย่อย 4 ส.ค.: งานกันสาดทำที่เครื่องย้ำกันสาด
   if(stk.startsWith("02")){
     if(/ตามแบบ/.test(des)) return "พับครอบ";
     if(/จั่ว/.test(des)) return "ครอบจั่ว";
@@ -1696,7 +1697,22 @@ function vBoard(){
         </div>`;
       }).join("")||'<div class="empty">— ว่าง —</div>'}</div>
     </div>`;
-  }).join("")+`
+  }).join("")
+  /* ❓ ใบผลิตที่อ้างเครื่องที่ไม่อยู่ในตาราง machine (เครื่องถูกลบ/เปลี่ยนชื่อ/ยังไม่ได้เพิ่ม)
+     เดิมจะ "หายเงียบ" จากบอร์ด — FB คุณหย่อย 4 ส.ค. (ครอบข้าง 304) คือเคสแบบนี้
+     ต้องโผล่เป็นคอลัมน์แดงเสมอ ให้คนเห็นและแก้ได้ ไม่ใช่งานหาย */
+  + (()=>{ const orph={};
+      tks().filter(t=>t.route==="A"&&t.st>=2&&t.st<=4&&t.mach&&!mach.includes(t.mach))
+        .forEach(t=>(orph[t.mach]=orph[t.mach]||[]).push(t));
+      return Object.entries(orph).map(([m,list])=>`<div class="col" style="--cc:#d92d20;outline:2px dashed #d92d20">
+        <div class="col-h"><span class="t">❓ ${esc(m)}</span><span class="dn">ไม่มีในตารางเครื่อง</span><span class="cnt">${list.length}</span></div>
+        <div class="cards">${list.map(t=>`<div class="bcard ${FLASH===t.id?"flash":""}" id="tk-${t.id}" onclick="openM('${t.id}')">
+          <div class="tk-h"><span class="so">${esc(t.so)}</span></div>
+          <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>
+          <div class="warn" style="margin-top:5px">ใบนี้อ้างเครื่อง "${esc(m)}" ที่ไม่อยู่ในระบบ — แจ้งแอดมินเพิ่มเครื่องในตาราง machine หรือย้ายเครื่องที่แท็บ 📋 วางแผน</div>
+        </div>`).join("")}</div></div>`).join("");
+    })()
+  +`
     <div class="col" style="--cc:#b54708"><div class="col-h"><span class="t">⏸ รอวัตถุดิบ</span><span class="cnt">${tks().filter(t=>t.route==="C"&&t.st===1).length}</span></div>
     <div class="cards">${tks().filter(t=>t.route==="C"&&t.st===1).map(t=>`<div class="bcard" onclick="openM('${t.id}')"><div class="tk-h"><span class="so">${esc(t.so)}</span></div><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><div class="who">ไปที่แท็บ 📋 วางแผน เพื่อปล่อยงาน</div></div>`).join("")||'<div class="empty">— ว่าง —</div>'}</div></div>`;
 }
