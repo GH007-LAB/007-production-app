@@ -2356,7 +2356,7 @@ async function handleLineToken(){
 async function enterByLineId(session, lineId){
   let row=null;
   try{
-    const {data,error}=await sb.from("staff").select("*").eq("line_id",lineId).eq("active",true).maybeSingle();
+    const {data,error}=await sb.rpc("staff_by_line_id",{p_line_id:lineId}).maybeSingle();
     if(error) throw error;
     row=data;
   }catch(e){ console.error("staff by line_id:", e); }
