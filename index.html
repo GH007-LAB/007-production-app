@@ -362,7 +362,9 @@ body.dk .toast{background:#101a33;border-color:#7f1d1d;color:#fecaca}
         style="width:100%;border:1px solid var(--line);border-radius:11px;padding:13px 14px;font-size:15px;font-family:inherit;outline:none;margin-bottom:9px">
       <button id="lg-send" onclick="sendOtp()" style="width:100%;border:none;border-radius:11px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;background:var(--accent);color:#fff">ส่งลิงก์เข้าเมล</button>
       <div class="lg-wait" id="lg-wait">📬 ส่งแล้ว — เปิดอีเมลแล้ว<b>กดลิงก์ Sign in</b> ได้เลย (หน้านี้จะเข้าระบบให้เอง)</div>
-      <div style="text-align:center;margin-top:12px"><a href="#" onclick="lgMode('pin');return false" style="font-size:12px;color:var(--muted)">ใช้ PIN (จอกลางไลน์ผลิต) →</a></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0 10px;color:#98a2b3;font-size:11px"><span style="flex:1;height:1px;background:#e6e6e0"></span>หรือ<span style="flex:1;height:1px;background:#e6e6e0"></span></div>
+      <button id="lg-line-btn" onclick="location.href='/api/line/start'" style="width:100%;border:none;border-radius:11px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;background:#06C755;color:#fff;display:flex;align-items:center;justify-content:center;gap:8px"><svg viewBox="0 0 24 24" width="20" height="20" fill="#fff" aria-hidden="true"><path d="M12 2C6.48 2 2 5.64 2 10.13c0 4.02 3.55 7.39 8.35 8.03.32.07.77.21.88.49.1.25.06.65.03.9l-.14.85c-.04.25-.2.98.86.53s5.7-3.36 7.78-5.75C21.13 13.6 22 11.96 22 10.13 22 5.64 17.52 2 12 2z"/></svg>เข้าด้วย LINE</button>
+      <div style="text-align:center;margin-top:14px"><a href="#" onclick="lgMode('pin');return false" style="font-size:12px;color:var(--muted)">ใช้ PIN (จอกลางไลน์ผลิต) →</a></div>
     </div>
     <div id="lg-pin-pane" style="display:none">
       <div class="lg-branches" id="lg-branches"></div>
@@ -370,6 +372,12 @@ body.dk .toast{background:#101a33;border-color:#7f1d1d;color:#fecaca}
       <div class="pinrow" id="pinrow"></div>
       <div class="pinpad" id="pinpad"></div>
       <div style="text-align:center;margin-top:12px"><a href="#" onclick="lgMode('email');return false" style="font-size:12px;color:var(--muted)">← login ด้วยอีเมลแทน</a></div>
+    </div>
+    <div id="lg-line-pane" style="display:none">
+      <input id="lg-line-email" type="email" placeholder="อีเมลบริษัทของคุณ" autocomplete="email"
+        style="width:100%;border:1px solid var(--line);border-radius:11px;padding:13px 14px;font-size:15px;font-family:inherit;outline:none;margin-bottom:9px">
+      <button id="lg-line-link" onclick="lineLink()" style="width:100%;border:none;border-radius:11px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;background:#06C755;color:#fff">ผูกบัญชี LINE</button>
+      <div style="text-align:center;margin-top:12px"><a href="#" onclick="lgMode('email');return false" style="font-size:12px;color:var(--muted)">← กลับหน้า login</a></div>
     </div>
     <div class="lg-err" id="lg-err"></div>
   </div>
@@ -2297,7 +2305,9 @@ function renderLogin(){
 function lgMode(m){
   document.getElementById("lg-email-pane").style.display = m==="email"?"":"none";
   document.getElementById("lg-pin-pane").style.display = m==="pin"?"":"none";
+  const lp=document.getElementById("lg-line-pane"); if(lp) lp.style.display="none";
   document.getElementById("lg-err").textContent="";
+  if(m==="email"){ const sb2=document.getElementById("lg-sub"); if(sb2) sb2.textContent="login ด้วยอีเมลของคุณ — ระบบจะส่งลิงก์เข้าเมล กดลิงก์แล้วเข้าระบบอัตโนมัติ"; }
   if(m==="pin") renderLogin();
 }
 let otpPoll=null;
@@ -2323,6 +2333,64 @@ function enterByEmail(em){
   const s=STAFF.find(s=>s.email&&s.email.toLowerCase()===em);
   if(!s){ document.getElementById("lg-err").textContent="อีเมลนี้ยังไม่ได้รับสิทธิ์"; DB.signOut(); return; }
   enterAsStaff(s, "email");
+}
+/* ================= LINE login ================= */
+/* กลับมาจาก /api/line/callback เป็น #lt=<token> → verify ตั้ง session ของ Supabase */
+async function handleLineToken(){
+  const h=location.hash||"";
+  const m=/[#&]lt=([^&]+)/.exec(h);
+  if(!m) return;
+  const token=decodeURIComponent(m[1]);
+  // ล้าง hash กัน token ค้าง/verify ซ้ำตอน reload
+  try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
+  try{
+    const {error}=await sb.auth.verifyOtp({ token_hash: token, type:"magiclink" });
+    if(error) throw error;
+  }catch(e){
+    console.error("LINE verifyOtp:", e);
+    return "เข้าด้วย LINE ไม่สำเร็จ — ลองใหม่อีกครั้ง";   // ให้ boot เอาไปแสดงหลัง lgMode (กัน lg-err ถูกล้าง)
+  }
+  return null;
+}
+/* มี session ที่ผูก line_id แล้ว → หา staff ตาม line_id; ไม่เจอ = ยังไม่ผูก → โชว์ UI ผูกบัญชี */
+async function enterByLineId(session, lineId){
+  let row=null;
+  try{
+    const {data,error}=await sb.from("staff").select("*").eq("line_id",lineId).eq("active",true).maybeSingle();
+    if(error) throw error;
+    row=data;
+  }catch(e){ console.error("staff by line_id:", e); }
+  if(row){ enterAsStaff(row, "line"); return; }
+  showLineLink(session);
+}
+let lineSession=null;
+function showLineLink(session){
+  lineSession=session;
+  document.getElementById("lg-email-pane").style.display="none";
+  document.getElementById("lg-pin-pane").style.display="none";
+  document.getElementById("lg-line-pane").style.display="";
+  const sub=document.getElementById("lg-sub"); if(sub) sub.textContent="ผูกบัญชี LINE ครั้งแรก — กรอกอีเมลบริษัทเพื่อยืนยันตัวตน";
+  document.getElementById("lg-err").textContent="";
+}
+async function lineLink(){
+  const err=document.getElementById("lg-err");
+  const em=(document.getElementById("lg-line-email").value||"").trim().toLowerCase();
+  if(!em||!em.includes("@")){ err.textContent="กรอกอีเมลบริษัทก่อนครับ"; return; }
+  const tok=lineSession&&lineSession.access_token;
+  if(!tok){ err.textContent='เซสชัน LINE หมดอายุ — กด "เข้าด้วย LINE" ใหม่'; return; }
+  const btn=document.getElementById("lg-line-link");
+  btn.disabled=true; btn.textContent="กำลังผูก…";
+  try{
+    const res=await fetch("/api/line/link",{method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+tok},
+      body:JSON.stringify({email:em})});
+    if(res.status===404){ btn.disabled=false; btn.textContent="ผูกบัญชี LINE"; err.textContent="ไม่พบอีเมลนี้ในรายชื่อพนักงาน"; return; }
+    if(!res.ok) throw new Error("HTTP "+res.status);
+  }catch(e){ btn.disabled=false; btn.textContent="ผูกบัญชี LINE"; err.textContent="ผูกไม่สำเร็จ: "+(e.message||e); return; }
+  btn.disabled=false; btn.textContent="ผูกบัญชี LINE"; err.textContent="";
+  // ผูกสำเร็จ → staff.line_id ผูกแล้ว → ลองเข้าระบบอีกครั้ง (คราวนี้ต้องเจอ)
+  const lineId=lineSession.user&&lineSession.user.user_metadata&&lineSession.user.user_metadata.line_id;
+  await enterByLineId(lineSession, lineId);
 }
 function enterAsStaff(s, mode){
   USER={dbid:s.id, name:s.name, role:s.role, branch:s.branch, mode,
@@ -2382,14 +2450,22 @@ async function boot(){
     document.getElementById("lg-err").textContent="ต่อฐานข้อมูลไม่ได้ — เช็คอินเทอร์เน็ตแล้วรีเฟรช";
     return;
   }
-  // คืน session: email (supabase เก็บเอง) หรือ PIN (จอไลน์)
-  const se=await DB.getSessionEmail();
-  if(se){ enterByEmail(se); return; }
+  // LINE: ถ้ากลับมาจาก callback พร้อม #lt=<token> → verify ตั้ง session ก่อน
+  const _lineErr=await handleLineToken();
+  // คืน session: LINE (line_id) → email (supabase เก็บเอง) → PIN (จอไลน์)
+  const {data:{session:_ses}}=await sb.auth.getSession();
+  if(_ses&&_ses.user){
+    const _lid=_ses.user.user_metadata&&_ses.user.user_metadata.line_id;
+    if(_lid){ await enterByLineId(_ses,_lid); return; }
+    const _em=_ses.user.email?_ses.user.email.toLowerCase():null;
+    if(_em){ enterByEmail(_em); return; }
+  }
   try{
     const pu=JSON.parse(localStorage.getItem("prod007_pin_user")||"null");
     if(pu&&pu.id){ const s=STAFF.find(x=>x.id===pu.id); if(s){ enterAsStaff(s,"pin"); return; } }
   }catch(e){}
   lgMode("email"); renderLogin();
+  if(_lineErr) document.getElementById("lg-err").textContent=_lineErr;
 }
 boot();
 </script>

@@ -1,0 +1,7 @@
+{
+  "name": "007-production-app",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2"
+  }
+}
