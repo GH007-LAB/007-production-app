@@ -2500,12 +2500,14 @@ async function boot(){
     const _em=_ses.user.email?_ses.user.email.toLowerCase():null;
     if(_em){ enterByEmail(_em); return; }
   }
-  try{
-    const pu=JSON.parse(localStorage.getItem("prod007_pin_user")||"null");
-    if(pu&&pu.id){ const s=STAFF.find(x=>x.id===pu.id); if(s){ enterAsStaff(s,"pin"); return; } }
-  }catch(e){}
-  lgMode("email"); renderLogin();
-  if(_lineErr) document.getElementById("lg-err").textContent=_lineErr;
+  // ไม่มี session → ล็อกอินกลางที่เดียว (หน้าแรก app.007metals.com) แล้ว SSO cookie พากลับเข้ามาเอง
+  // (เลิกใช้ login ของแอพเอง: email/LINE/PIN — ใช้ล็อกอินกลางทุกที่)
+  if(location.hostname.endsWith("007metals.com")){
+    location.replace("https://app.007metals.com/");
+    return;
+  }
+  // dev/preview (ไม่ใช่โดเมนจริง) → ไม่มีล็อกอินกลาง แสดงข้อความ
+  document.getElementById("lg-err").textContent = _lineErr || "กรุณาเข้าผ่าน production.007metals.com (ล็อกอินกลาง)";
 }
 boot();
 </script>
