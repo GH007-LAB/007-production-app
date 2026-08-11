@@ -385,9 +385,41 @@ body.dk .toast{background:#101a33;border-color:#7f1d1d;color:#fecaca}
 
 <script>
 /* ================= CONFIG ================= */
+/* ย้ายมาโปรเจกต์กลาง (syvfdbvmwaeyokytckwb) เพื่อ SSO ร่วมกับแอพอื่นทุกตัว
+   key = anon key กลาง (public — ฝังในโค้ด client ได้ตามปกติ) */
 const CONFIG = {
-  url: "https://dbbhgacstsddonprgiuo.supabase.co",
-  key: "sb_publishable_qeQZH08Oan3cMxmhCNGnVQ_XmOfx4s6"
+  url: "https://syvfdbvmwaeyokytckwb.supabase.co",
+  key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5dmZkYnZtd2FleW9reXRja3diIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTI3ODEsImV4cCI6MjEwMDc2ODc4MX0.I1RwZX2S1PAsj-d53oba5kxSQu0VShY4CoTMxvNmS8k"
+};
+
+/* ================= SSO cookie storage adapter =================
+   แชร์ session ข้าม *.007metals.com (login ที่ hub แล้วเข้าแอพนี้ได้เลย)
+   เก็บ session ใน cookie ชื่อ/รูปแบบเดียวกับ @supabase/ssr v0.5.x ที่แอพ Next.js ใช้:
+     cookie: sb-<ref>-auth-token[.0.1..]  ·  value: "base64-"+base64url(JSON)  ·  chunk 3180 ต่อ cookie
+   PIN kiosk ไม่เกี่ยว (ใช้ localStorage prod007_pin_user เหมือนเดิม) */
+const SB_COOKIE_DOMAIN = location.hostname.endsWith("007metals.com") ? ".007metals.com" : "";
+const SB_CHUNK = 3180;
+function _b2bin(b){ let s=""; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return s; }
+function _b64urlEnc(str){ const b=new TextEncoder().encode(str); return btoa(_b2bin(b)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function _b64urlDec(s){ s=s.replace(/-/g,"+").replace(/_/g,"/"); while(s.length%4) s+="="; const bin=atob(s); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new TextDecoder().decode(u); }
+function _ckRead(name){ const m=document.cookie.match(new RegExp("(?:^|; )"+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"=([^;]*)")); return m?m[1]:null; }
+function _ckWrite(name,val){ let c=name+"="+val+"; path=/; max-age=34560000; samesite=lax"; if(location.protocol==="https:") c+="; secure"; if(SB_COOKIE_DOMAIN) c+="; domain="+SB_COOKIE_DOMAIN; document.cookie=c; }
+function _ckDel(name){ let c=name+"=; path=/; max-age=0; samesite=lax"; if(location.protocol==="https:") c+="; secure"; if(SB_COOKIE_DOMAIN) c+="; domain="+SB_COOKIE_DOMAIN; document.cookie=c; }
+const cookieStorage = {
+  getItem(key){
+    let raw=_ckRead(key);
+    if(raw===null){ let s="",i=0,p; while((p=_ckRead(key+"."+i))!==null){ s+=p; i++; } raw=s||null; }
+    if(!raw) return null;
+    if(raw.startsWith("base64-")){ try{ return _b64urlDec(raw.slice(7)); }catch(e){ return null; } }
+    return raw;
+  },
+  setItem(key,value){
+    this.removeItem(key);
+    const enc="base64-"+_b64urlEnc(value);
+    if(enc.length<=SB_CHUNK){ _ckWrite(key,enc); }
+    else { for(let i=0,o=0;o<enc.length;i++,o+=SB_CHUNK) _ckWrite(key+"."+i, enc.slice(o,o+SB_CHUNK)); }
+  },
+  removeItem(key){ _ckDel(key); for(let i=0;i<24;i++){ if(_ckRead(key+"."+i)!==null) _ckDel(key+"."+i); else break; } }
 };
 
 /* ================= DAL (Data Access Layer) =================
@@ -419,8 +451,16 @@ function dropMissingCol(table, error){
 function soCancelReady(){ return !COL_MISS["so_live.cancelled_at"]; }
 let DB = {
   async init(){
-    await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js");
-    sb = window.supabase.createClient(CONFIG.url, CONFIG.key);
+    await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js");
+    sb = window.supabase.createClient(CONFIG.url, CONFIG.key, {
+      auth: {
+        storage: cookieStorage,
+        storageKey: "sb-syvfdbvmwaeyokytckwb-auth-token",
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
   },
   async getStaff(){ const {data,error} = await sb.from("staff").select(STAFF_COLS).eq("active",true).order("id"); if(error) throw error; return data; },
   async verifyPin(id,pin){ const {data,error} = await sb.rpc("verify_pin",{p_staff:id,p_pin:pin}); return !error && data===true; },
