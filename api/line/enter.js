@@ -12,8 +12,10 @@
 //   4) map ตำแหน่ง → role ของแอพผลิต แล้วสร้าง/ผูกแถว staff ให้อัตโนมัติ
 //      (FK created_by/staff_id ชี้เข้า staff(id) จึงต้องมีแถวจริงเสมอ)
 //
-// Authorization: Bearer <supabase access_token> ของ session กลาง (ต้องเป็นล็อกอิน LINE)
-// body (ไม่บังคับ): { email } — ใช้เฉพาะกรณี employees.line_id ยังว่าง
+// Authorization: Bearer <supabase access_token> ของ session กลาง
+// ไม่รับอีเมลจาก body โดยเจตนา — ตัวตนต้องมาจากสิ่งที่พิสูจน์แล้วเท่านั้น
+//   (line_id ใน session LINE ที่ hub อนุมัติ · หรืออีเมลจริงของ session ที่ยืนยันด้วย magic link)
+//   ถ้ายอมให้พิมพ์อีเมลเอง = ใครก็ได้ที่ผ่านด่าน LINE จะอ้างเป็นพนักงานที่ยังไม่ผูก LINE ได้
 const { createClient } = require("@supabase/supabase-js");
 
 const APP_CODE = "production";
@@ -69,17 +71,6 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const body = await readJsonBody(req);
-  if (body === null) {
-    res.status(400).json({ error: "bad-request" });
-    return;
-  }
-  let claimedEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (claimedEmail && (claimedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(claimedEmail))) {
-    res.status(400).json({ error: "invalid-email" });
-    return;
-  }
-
   const admin = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -125,23 +116,18 @@ module.exports = async function handler(req, res) {
       if (error) throw error;
       if (data && data.length) emp = data[0];
     }
-    const lookupEmail = claimedEmail || realEmail;
-    if (!emp && lookupEmail) {
+    // อีเมลที่ใช้เทียบได้มีทางเดียว: อีเมลจริงของ session (พิสูจน์ความเป็นเจ้าของกล่องจดหมาย
+    // ด้วย magic link แล้ว) — ไม่รับอีเมลที่ผู้ใช้พิมพ์เข้ามา
+    if (!emp && realEmail) {
       const { data, error } = await admin
-        .from("employees").select(empCols).eq("active", true).ilike("email", lookupEmail).limit(2);
+        .from("employees").select(empCols).eq("active", true).ilike("email", realEmail).limit(2);
       if (error) throw error;
       if (data && data.length > 1) { res.status(409).json({ error: "email-ambiguous" }); return; }
-      if (data && data.length) {
-        // กันสวมสิทธิ์: อีเมลที่ผูก LINE อื่นไว้แล้ว ห้ามคนอื่นมาอ้าง
-        if (data[0].line_id && lineId && data[0].line_id !== lineId) {
-          res.status(409).json({ error: "already-linked" });
-          return;
-        }
-        emp = data[0];
-      }
+      if (data && data.length) emp = data[0];
     }
     if (!emp) {
-      res.status(404).json({ error: lookupEmail ? "employee-not-found" : "need-email" });
+      // LINE ยังไม่ผูกทะเบียนกลาง → ต้องให้แอดมินผูกที่ hub เท่านั้น (ห้าม self-service)
+      res.status(404).json({ error: "not-linked" });
       return;
     }
 
@@ -157,7 +143,7 @@ module.exports = async function handler(req, res) {
 
     // 4) map ตำแหน่ง → role
     const role = roleFromEmployee(emp);
-    const empEmail = emp.email ? emp.email.toLowerCase() : lookupEmail || null;
+    const empEmail = emp.email ? emp.email.toLowerCase() : realEmail || null;
 
     // 5) มีแถว staff อีเมลตรงอยู่แล้ว → ผูก line_id ให้ / ไม่มี → สร้างใหม่
     let staffRow = null;

@@ -373,11 +373,10 @@ body.dk .toast{background:#101a33;border-color:#7f1d1d;color:#fecaca}
       <div class="pinpad" id="pinpad"></div>
       <div style="text-align:center;margin-top:12px"><a href="#" onclick="lgMode('email');return false" style="font-size:12px;color:var(--muted)">← login ด้วยอีเมลแทน</a></div>
     </div>
-    <div id="lg-line-pane" style="display:none">
-      <input id="lg-line-email" type="email" placeholder="อีเมลบริษัทของคุณ" autocomplete="email"
-        style="width:100%;border:1px solid var(--line);border-radius:11px;padding:13px 14px;font-size:15px;font-family:inherit;outline:none;margin-bottom:9px">
-      <button id="lg-line-link" onclick="lineLink()" style="width:100%;border:none;border-radius:11px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;background:#06C755;color:#fff">ผูกบัญชี LINE</button>
-      <div style="text-align:center;margin-top:12px"><a href="#" onclick="lgMode('email');return false" style="font-size:12px;color:var(--muted)">← กลับหน้า login</a></div>
+    <!-- เลิกให้ผูกบัญชีเองด้วยการพิมพ์อีเมล (สวมสิทธิ์พนักงานที่ยังไม่ผูก LINE ได้)
+         เข้าไม่ได้ = แสดงเหตุผล + ให้แอดมินจัดการที่ hub เท่านั้น -->
+    <div id="lg-blocked-pane" style="display:none">
+      <div style="text-align:center;margin-top:12px"><a href="https://app.007metals.com/" style="font-size:12px;color:var(--muted)">← กลับหน้ารวมแอป</a></div>
     </div>
     <div class="lg-err" id="lg-err"></div>
   </div>
@@ -2345,7 +2344,7 @@ function renderLogin(){
 function lgMode(m){
   document.getElementById("lg-email-pane").style.display = m==="email"?"":"none";
   document.getElementById("lg-pin-pane").style.display = m==="pin"?"":"none";
-  const lp=document.getElementById("lg-line-pane"); if(lp) lp.style.display="none";
+  const lp=document.getElementById("lg-blocked-pane"); if(lp) lp.style.display="none";
   document.getElementById("lg-err").textContent="";
   if(m==="email"){ const sb2=document.getElementById("lg-sub"); if(sb2) sb2.textContent="login ด้วยอีเมลของคุณ — ระบบจะส่งลิงก์เข้าเมล กดลิงก์แล้วเข้าระบบอัตโนมัติ"; }
   if(m==="pin") renderLogin();
@@ -2372,13 +2371,13 @@ async function sendOtp(){
 /* ทางเข้าฝั่งเซิร์ฟเวอร์ — เทียบกับทะเบียนพนักงานกลาง (employees + app_access)
    แล้วสร้าง/ผูกแถว staff ให้อัตโนมัติ ใช้ได้แม้ยังไม่ได้ติดตั้ง RPC prod_enter
    คืน {staff} เมื่อผ่าน หรือ {error:"..."} เมื่อไม่ผ่าน (ให้ผู้เรียกตัดสินใจแสดงผล) */
-async function enterViaApi(session, email){
+async function enterViaApi(session){
   const tok=session&&session.access_token;
   if(!tok) return {error:"no-session"};
   try{
     const res=await fetch("/api/line/enter",{method:"POST",
       headers:{"Content-Type":"application/json","Authorization":"Bearer "+tok},
-      body:JSON.stringify(email?{email}:{})});
+      body:"{}"});
     let j=null; try{ j=await res.json(); }catch(e){}
     if(res.ok && j && j.staff) return {staff:j.staff};
     return {error:(j&&j.error)||("http-"+res.status)};
@@ -2386,12 +2385,20 @@ async function enterViaApi(session, email){
 }
 const ENTER_MSG={
   "no-app-access":"บัญชีนี้ยังไม่ได้รับสิทธิ์แอพระบบผลิต — ให้แอดมินติ๊กให้ที่ app.007metals.com/admin/access",
-  "employee-not-found":"ไม่พบอีเมลนี้ในทะเบียนพนักงาน",
-  "already-linked":"อีเมลนี้ผูกกับบัญชี LINE อื่นไว้แล้ว — แจ้งแอดมิน",
+  "not-linked":"บัญชี LINE นี้ยังไม่ได้ผูกกับทะเบียนพนักงาน — ให้แอดมินอนุมัติ/ผูกให้ที่ app.007metals.com แล้วเข้าใหม่",
   "line-already-used":"บัญชี LINE นี้ผูกกับพนักงานคนอื่นไว้แล้ว — แจ้งแอดมิน",
   "email-ambiguous":"อีเมลนี้ซ้ำกันหลายคนในทะเบียน — แจ้งแอดมิน",
 };
 function enterErrText(code){ return ENTER_MSG[code]||("เข้าระบบไม่สำเร็จ ("+code+") — แจ้งแอดมิน"); }
+/* เข้าไม่ได้ → บอกเหตุผลอย่างเดียว ไม่มีช่องให้กรอกอะไรทั้งนั้น */
+function showEnterBlocked(msg){
+  document.getElementById("loginbg").style.display="";
+  document.getElementById("lg-email-pane").style.display="none";
+  document.getElementById("lg-pin-pane").style.display="none";
+  document.getElementById("lg-blocked-pane").style.display="";
+  const sub=document.getElementById("lg-sub"); if(sub) sub.textContent="เข้าแอพระบบผลิตไม่ได้";
+  document.getElementById("lg-err").textContent=msg;
+}
 
 async function enterByEmail(em){
   const s=STAFF.find(s=>s.email&&s.email.toLowerCase()===em);
@@ -2404,7 +2411,7 @@ async function enterByEmail(em){
   }catch(e){ console.error("prod_enter:", e); }
   // RPC ยังไม่ได้ติดตั้ง/ไม่เจอ → ถามเซิร์ฟเวอร์ (service role) อีกทาง
   const {data:{session:_s}}=await sb.auth.getSession();
-  const r=await enterViaApi(_s, em);
+  const r=await enterViaApi(_s);
   if(r.staff){ enterAsStaff(r.staff, "email"); return; }
   document.getElementById("lg-err").textContent=enterErrText(r.error);
   DB.signOut();
@@ -2444,46 +2451,12 @@ async function enterByLineId(session, lineId){
     }catch(e){ console.error("staff by line_id:", e); }
   }
   if(row){ enterAsStaff(row, "line"); return; }
-  /* ยังไม่เจอ → ให้เซิร์ฟเวอร์เทียบทะเบียนพนักงานกลางให้ (ไม่ต้องพึ่ง RPC prod_enter)
-     ผ่าน = สร้างแถว staff ให้อัตโนมัติแล้วเข้าเลย · ไม่มีสิทธิ์แอพ = บอกเหตุผลตรง ๆ
-     หา employees จาก line_id ไม่เจอ (ยังไม่ผูกกลาง) = ค่อยขออีเมลบริษัทตามเดิม */
-  const r=await enterViaApi(session, null);
+  /* ยังไม่เจอ → ให้เซิร์ฟเวอร์เทียบทะเบียนพนักงานกลางให้
+     ผ่าน = สร้างแถว staff ให้อัตโนมัติแล้วเข้าเลย
+     ไม่ผ่าน = บอกเหตุผลอย่างเดียว (เลิกให้กรอกอีเมลผูกเอง — สวมสิทธิ์ได้) */
+  const r=await enterViaApi(session);
   if(r.staff){ enterAsStaff(r.staff, "line"); return; }
-  if(r.error==="no-app-access"||r.error==="line-already-used"){
-    document.getElementById("loginbg").style.display="";
-    document.getElementById("lg-email-pane").style.display="none";
-    document.getElementById("lg-pin-pane").style.display="none";
-    document.getElementById("lg-line-pane").style.display="none";
-    const sub=document.getElementById("lg-sub"); if(sub) sub.textContent="เข้าแอพระบบผลิตไม่ได้";
-    document.getElementById("lg-err").textContent=enterErrText(r.error);
-    return;
-  }
-  showLineLink(session);
-}
-let lineSession=null;
-function showLineLink(session){
-  lineSession=session;
-  document.getElementById("loginbg").style.display="";
-  document.getElementById("lg-email-pane").style.display="none";
-  document.getElementById("lg-pin-pane").style.display="none";
-  document.getElementById("lg-line-pane").style.display="";
-  const sub=document.getElementById("lg-sub"); if(sub) sub.textContent="ผูกบัญชี LINE ครั้งแรก — กรอกอีเมลบริษัทเพื่อยืนยันตัวตน";
-  document.getElementById("lg-err").textContent="";
-}
-async function lineLink(){
-  const err=document.getElementById("lg-err");
-  const em=(document.getElementById("lg-line-email").value||"").trim().toLowerCase();
-  if(!em||!em.includes("@")){ err.textContent="กรอกอีเมลบริษัทก่อนครับ"; return; }
-  const tok=lineSession&&lineSession.access_token;
-  if(!tok){ err.textContent='เซสชัน LINE หมดอายุ — กด "เข้าด้วย LINE" ใหม่'; return; }
-  const btn=document.getElementById("lg-line-link");
-  btn.disabled=true; btn.textContent="กำลังผูก…";
-  /* ผูกผ่านทะเบียนพนักงานกลาง (employees) — เดิมหาแต่ในตาราง staff ของแอพนี้
-     ซึ่งเป็นชื่อตัวอย่างไม่มีอีเมลใคร เลยขึ้น "ไม่พบอีเมลนี้" ทุกคน */
-  const r=await enterViaApi(lineSession, em);
-  btn.disabled=false; btn.textContent="ผูกบัญชี LINE";
-  if(r.staff){ err.textContent=""; enterAsStaff(r.staff, "line"); return; }
-  err.textContent=enterErrText(r.error);
+  showEnterBlocked(enterErrText(r.error));
 }
 function enterAsStaff(s, mode){
   USER={dbid:s.id, name:s.name, role:s.role, branch:s.branch, mode,
