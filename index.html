@@ -2369,10 +2369,17 @@ async function sendOtp(){
     if(se){ clearInterval(otpPoll); enterByEmail(se); }
   }, 2500);
 }
-function enterByEmail(em){
+async function enterByEmail(em){
   const s=STAFF.find(s=>s.email&&s.email.toLowerCase()===em);
-  if(!s){ document.getElementById("lg-err").textContent="อีเมลนี้ยังไม่ได้รับสิทธิ์"; DB.signOut(); return; }
-  enterAsStaff(s, "email");
+  if(s){ enterAsStaff(s, "email"); return; }
+  // ไม่อยู่ในตาราง staff → ลองพนักงานกลาง (prod_enter สร้างแถว staff ให้เอง)
+  try{
+    const {data,error}=await sb.rpc("prod_enter",{p_email:em}).maybeSingle();
+    if(error) throw error;
+    if(data){ enterAsStaff(data, "email"); return; }
+  }catch(e){ console.error("prod_enter:", e); }
+  document.getElementById("lg-err").textContent="อีเมลนี้ยังไม่ได้รับสิทธิ์";
+  DB.signOut();
 }
 /* ================= LINE login ================= */
 /* กลับมาจาก /api/line/callback เป็น #lt=<token> → verify ตั้ง session ของ Supabase */
@@ -2392,14 +2399,22 @@ async function handleLineToken(){
   }
   return null;
 }
-/* มี session ที่ผูก line_id แล้ว → หา staff ตาม line_id; ไม่เจอ = ยังไม่ผูก → โชว์ UI ผูกบัญชี */
+/* มี session ที่ผูก line_id แล้ว → prod_enter หาใน staff + พนักงานกลาง (สร้างแถว staff ให้เอง)
+   ไม่เจอทั้งสองทาง (ไม่ใช่พนักงาน/ไม่มีสิทธิ์แอพนี้) ค่อยโชว์ UI ผูกบัญชีแบบเดิม */
 async function enterByLineId(session, lineId){
   let row=null;
   try{
-    const {data,error}=await sb.rpc("staff_by_line_id",{p_line_id:lineId}).maybeSingle();
+    const {data,error}=await sb.rpc("prod_enter",{p_line_id:lineId}).maybeSingle();
     if(error) throw error;
     row=data;
-  }catch(e){ console.error("staff by line_id:", e); }
+  }catch(e){ console.error("prod_enter:", e); }
+  if(!row){
+    try{
+      const {data,error}=await sb.rpc("staff_by_line_id",{p_line_id:lineId}).maybeSingle();
+      if(error) throw error;
+      row=data;
+    }catch(e){ console.error("staff by line_id:", e); }
+  }
   if(row){ enterAsStaff(row, "line"); return; }
   showLineLink(session);
 }
