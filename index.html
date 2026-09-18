@@ -124,6 +124,11 @@ table.items td.q{text-align:right;white-space:nowrap;font-weight:700}
 .pk-st{font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 7px;white-space:nowrap}
 .truck{background:#f2faf4;border:1.5px dashed #9ad2ae;border-radius:12px;padding:9px 12px;margin-top:9px;font-size:12.5px;display:flex;gap:14px;flex-wrap:wrap}
 .truck b{font-size:15px}
+/* 🔍 แถบค้นหา SO — แถวของตัวเองเหนือเนื้อหา ใช้ร่วมทุกหน้า (CTO 18 ก.ย. 69) */
+#sobar:empty{display:none}
+#sobar{padding:10px 14px 0}
+#sobar .urgbox{margin-bottom:0}
+.sohit{font-size:12px;color:var(--muted);padding:6px 2px 0}
 .urgbox{display:flex;gap:6px;margin-bottom:11px}
 .urgbox input{flex:1;border:1px solid var(--line);border-radius:11px;padding:9px 11px;font-size:13px;font-family:inherit;outline:none;background:var(--panel);color:var(--ink)}
 /* login */
@@ -339,6 +344,7 @@ body.dk .toast{background:#101a33;border-color:#7f1d1d;color:#fecaca}
     <div class="vtabs" id="vtabs"></div>
   </div>
 </header>
+<div id="sobar"></div>
 <main id="main"></main>
 
 <div id="toasts"></div>
@@ -931,7 +937,8 @@ let TVMODE=false;      // 📺 โหมดจอ TV บนบอร์ด — �
 let PPO_MODE=true;     // 🛍 งานผลิตออนไลน์ย้ายไประบบ PPO (ปอนด์เชื่อมข้อมูลกับ PPP แล้ว) — PPP เหลือออฟไลน์ล้วน (Gem 3 ส.ค.)
                        //    ใบออนไลน์ที่ค้างในไลน์ยังไหลต่อจนจบ แค่ปิดประตูสร้างงานใหม่ (แท็บ 🛍)
 /* 📍 โหมดตามใบ (feedback คุณรุ้ง ขาย SKN): ค้นหา/คลิกการ์ด → กระโดดไปหน้าที่ใบอยู่จริง + ไฮไลต์กะพริบ */
-let FLASH=null, PKQ="", PKOPEN=false;   // ใบที่ต้องไฮไลต์ · คำค้นหน้ารวมของ · กล่องส่งสำเร็จวันนี้เปิดอยู่ไหม
+let FLASH=null, SOQ="", PKOPEN=false;   // ใบที่ต้องไฮไลต์ · คำค้น SO (ใช้ร่วมทุกหน้า) · กล่องส่งสำเร็จวันนี้เปิดอยู่ไหม
+let SOQT=null;                          // ตัวหน่วงพิมพ์ กันวาดใหม่ทุกตัวอักษร
 function anchorAttr(t){ return `id="tk-${t.id}"${FLASH===t.id?' class="flash-add"':''}`; }
 function gotoTicket(id){
   const t=TK.find(x=>x.id===id); if(!t) return;
@@ -947,7 +954,30 @@ function gotoSO(so){   // จากการ์ด SO ฝั่งขาย → 
   if(!l.length) return;
   gotoTicket(l.slice().sort((a,b)=>a.st-b.st)[0].id);
 }
-function pkSearchGo(){ PKQ=((document.getElementById("q-pk")||{}).value||"").trim(); render(); }   // ฟอร์มยกเลิกที่กางอยู่ · กล่อง "ที่ยกเลิกไว้" เปิดอยู่หรือไม่
+/* 🔍 ค้นหา SO — ใช้ร่วมกันทุกหน้า (วางแผน · บอร์ดเครื่อง · รวมของ · สถานะวันนี้)
+   คำค้นค้างไว้ข้ามแท็บโดยตั้งใจ: พิมพ์เลข SO ครั้งเดียวแล้วสลับดูได้ว่าใบนี้อยู่ขั้นไหนของแต่ละหน้า
+   พิมพ์แล้วหน่วง 220 มิลลิวินาทีค่อยวาด — บอร์ดเครื่องมีการ์ดเป็นร้อย วาดทุกตัวอักษรจะหน่วง */
+function soType(v){
+  clearTimeout(SOQT);
+  SOQT=setTimeout(()=>{
+    SOQ=(v||"").trim(); render();
+    const i=document.getElementById("q-so");
+    if(i && SOQ){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); }   // วาดใหม่แล้วช่องค้นหาถูกสร้างใหม่ ต้องคืนโฟกัสเอง
+  }, 220);
+}
+function soClear(){ clearTimeout(SOQT); SOQ=""; render(); }
+/* ใบนี้ตรงคำค้นไหม — ดูทั้งเลข SO และชื่อลูกค้า (ชื่ออยู่คนละที่ ต้องดึงจาก findSO) */
+function soHit(t){
+  const q=SOQ.trim().toUpperCase(); if(!q) return true;
+  return String(t.so||"").toUpperCase().includes(q)
+      || String((findSO(t.so)||{}).customer||"").toUpperCase().includes(q);
+}
+/* แถบค้นหา — หน้าตาเดียวกันทุกหน้า */
+function soBar(ph){
+  return `<div class="urgbox"><input id="q-so" value="${esc(SOQ)}" placeholder="${esc(ph||"🔍 ค้นหา SO — เลขที่ SO / ชื่อลูกค้า")}"
+    oninput="soType(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();soType(this.value)}">
+    ${SOQ?`<button class="btn grey" onclick="soClear()">✕ ล้าง</button>`:""}</div>`;
+}
 function liveTk(so){ return TK.filter(t=>t.branch===branch && t.so===so && alive(t)); }
 function xsoAsk(so){
   const n=liveTk(so).length;
@@ -1644,7 +1674,7 @@ function timeLine(t){
 }
 function vPlan(){
   const el=document.getElementById("main"); el.className="";
-  const list=tks().filter(t=>t.st===1).sort((a,b)=>{
+  const list=tks().filter(t=>t.st===1&&soHit(t)).sort((a,b)=>{
     const da=(findSO(a.so)||{}).due||"9999", db=(findSO(b.so)||{}).due||"9999";
     return da<db?-1:da>db?1:0;
   });
@@ -1654,7 +1684,7 @@ function vPlan(){
   const runsHtml=runs.length?`<div class="hint" style="background:#f2faf4;border-color:#9ad2ae">🤖 <b>AI จัดชุดคอยล์</b> (ลดเวลาสลับวัตถุดิบ): ${runs.map(([k,v])=>{
     const lb=v[0].label; return `<span class="cchip" style="margin:2px 4px 2px 0"><i style="background:${swc(lb)}"></i>${esc(lb)} × <b>${v.length} ใบ</b> (${v.map(t=>String(t.so).slice(-4)).join(",")})</span>`;
   }).join("")} — กด A ผลิตใหม่เรียงติดกันเป็นชุดเดียว</div>`:"";
-  const incoming=tks().filter(t=>t.st===0&&t.xborder);
+  const incoming=tks().filter(t=>t.st===0&&t.xborder&&soHit(t));
   const incomingHtml=incoming.length?`<div class="hint" style="background:#efe9ff;border-color:#cfc2f2">📥 <b>งานจากสาขาอื่น — รอรับ (อนุมัติ 2 ฝั่ง: ฝั่งส่งกดแล้ว รอฝั่งเรารับ)</b></div>`+incoming.map(t=>`
     <div class="tkt ${FLASH===t.id?"flash":""}" id="tk-${t.id}" style="border-color:#cfc2f2">${tktHead(t,null)}
       <div class="who">ส่งมาจาก <b>${t.fromBranch}</b> โดย <b>${esc(t.by.ordered||"")}</b> · ${esc((t.oitems&&t.oitems[0]&&t.oitems[0].from)||"")}</div>
@@ -1700,7 +1730,7 @@ function vPlan(){
 function vBoard(){
   const el=document.getElementById("main"); el.className="boardmode";
   const mach=MACHINES[branch];
-  const inMach=m=>tks().filter(t=>t.route==="A"&&t.mach===m&&t.st>=2&&t.st<=4)
+  const inMach=m=>tks().filter(t=>t.route==="A"&&t.mach===m&&t.st>=2&&t.st<=4&&soHit(t))
     .sort((a,b)=>(a.key||"")<(b.key||"")?-1:(a.key||"")>(b.key||"")?1:a.priority-b.priority);
   el.innerHTML = mach.map((m,i)=>{
     const down=(DOWN[branch]||[]).includes(m);
@@ -1766,7 +1796,7 @@ function vBoard(){
 function vPack(){
   const el=document.getElementById("main"); el.className="";
   const bySo={};
-  tks().filter(t=>!t.stock).forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));   // ใบผลิตเข้าสต็อคไม่มีลูกค้า → ไม่เข้าโมดูลรวมของ/จัดส่ง (อยู่แท็บ 🏭)
+  tks().filter(t=>!t.stock&&soHit(t)).forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));   // ใบผลิตเข้าสต็อคไม่มีลูกค้า → ไม่เข้าโมดูลรวมของ/จัดส่ง (อยู่แท็บ 🏭)
   const sos=Object.keys(bySo);
   const pkCard=(so,shipped)=>{
     const list=bySo[so], c=findSO(so)||{};
@@ -1800,15 +1830,16 @@ function vPack(){
   const doneToday = sos.filter(so=>isArr(so) && arrT(so).slice(0,10)===todayISO);
   const doneOld   = sos.filter(so=>isArr(so) && arrT(so).slice(0,10)!==todayISO);
   /* 🔍 ตามใบ: พิมพ์เลข SO/ชื่อลูกค้า → เห็นทุกใบผลิตพร้อมขั้นปัจจุบัน + ปุ่มกระโดดไปการ์ดจริง */
-  const qq=PKQ.trim().toUpperCase();
+  const qq=SOQ.trim().toUpperCase();
   const hitT = t => t.so.toUpperCase().includes(qq) || String((findSO(t.so)||{}).customer||"").toUpperCase().includes(qq);
   const hits = qq? TK.filter(t=>t.branch===branch && alive(t) && hitT(t)).sort((a,b)=>a.st-b.st) : [];
   el.innerHTML = `<div class="page">
   <div class="hint">📦 <b>รวมของระดับบิล</b> — ทุกใบผลิตของ SO ต้องเสร็จครบก่อนแพ็ค · สรุป <b>น้ำหนัก/จำนวนแผ่น/ยาวสุด</b> สำหรับจัดรถ · ใบที่<b>ส่งสำเร็จวันก่อน ๆ ถูกเก็บออกจากหน้านี้</b> — ตามใบเก่าพิมพ์ค้นด้านล่าง</div>
-  <div class="urgbox"><input id="q-pk" value="${esc(PKQ)}" placeholder="🔍 ตามใบ — เลข SO / ชื่อลูกค้า : ใบนี้ถึงขั้นไหนแล้ว" onkeydown="if(event.key==='Enter')pkSearchGo()"><button class="btn grey" onclick="pkSearchGo()">ตามใบ</button>${PKQ?`<button class="btn grey" onclick="PKQ='';render()">✕</button>`:""}</div>`
+  `
+  + soBar("🔍 ค้นหา SO — เลขที่ SO / ชื่อลูกค้า : ใบนี้ถึงขั้นไหนแล้ว")
   + (qq? `<div class="socard">${hits.length? `<div class="sec" style="margin-top:0">📍 พบ ${hits.length} ใบผลิต — กดเพื่อกระโดดไปการ์ดจริง</div>`+
       hits.map(t=>`<div class="pk-row"><span class="so" style="font-weight:700">${esc(t.so)}</span><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><span class="nm">${esc((findSO(t.so)||{}).customer||"")}${t.mach?` · ${esc(t.mach)}`:""}</span><span class="pk-st" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${t.st===3?'<i class="ldot"></i>':""}${STG[t.st]}</span><button class="btn grey" style="padding:6px 10px;font-size:12px" onclick="gotoTicket('${t.id}')">📍 ไปที่ใบ</button></div>`).join("")
-    : `<div class="empty">— ไม่พบ "${esc(PKQ)}" ในใบผลิตของสาขานี้ —</div>`}</div>` : "")
+    : `<div class="empty">— ไม่พบ "${esc(SOQ)}" ในใบผลิตของสาขานี้ —</div>`}</div>` : "")
   + (act.length? act.map(so=>pkCard(so,false)).join("") : `<div class="empty">— ไม่มีบิลค้างแพ็ค/ค้างส่ง —</div>`)
   + (doneToday.length? `<div class="hint" id="pkdone" style="margin-top:12px">✅ <b>ส่งสำเร็จวันนี้ ${doneToday.length} ใบ</b> — เก็บออกจากรายการหลัก ไม่บังใบที่ยังต้องทำ
       <button class="btn grey" style="padding:5px 10px;margin-left:6px" onclick="PKOPEN=!PKOPEN;render()">${PKOPEN?"ซ่อน":"ดู"}</button></div>`
@@ -1837,7 +1868,7 @@ function fpos(st){ return st>=7?4 : st>=6?3 : st===5?2.5 : st===4?2 : st===3?1 :
 function vFlight(){
   const el=document.getElementById("main"); el.className="";
   const bySo={};
-  tks().filter(t=>!t.stock).forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));
+  tks().filter(t=>!t.stock&&soHit(t)).forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));
   const rows=[];
   Object.keys(bySo).forEach(so=>{
     const list=bySo[so];
@@ -2307,7 +2338,16 @@ function render(){
     flipPrev={};
     document.querySelectorAll('#main .bcard[id^="tk-"]').forEach(n=>{ const r=n.getBoundingClientRect(); flipPrev[n.id]=[r.left,r.top]; });
   }
+  /* แถบค้นหา SO — โชว์ในหน้าที่ CTO สั่ง (18 ก.ย. 69) · หน้ารวมของมีแถบในตัวเองอยู่แล้ว */
+  const SOVIEWS={plan:"📋 ค้นหา SO ในงานที่รอวางแผน", board:"🎛️ ค้นหา SO บนบอร์ดเครื่อง", flight:"🛫 ค้นหา SO ในสถานะวันนี้"};
+  document.getElementById("sobar").innerHTML = SOVIEWS[view]
+    ? soBar(SOVIEWS[view]+" — เลขที่ SO / ชื่อลูกค้า") : "";
   ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, stock:vStock, report:vReport, flight:vFlight})[view]();
+  // คืนโฟกัสให้ช่องค้นหาหลังวาดใหม่ (innerHTML สร้าง input ใหม่ทุกครั้ง)
+  if(SOQ && SOVIEWS[view]){
+    const i=document.getElementById("q-so");
+    if(i && document.activeElement!==i){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  }
   if(flipPrev){
     document.querySelectorAll('#main .bcard[id^="tk-"]').forEach(n=>{
       const p=flipPrev[n.id]; if(!p) return;
