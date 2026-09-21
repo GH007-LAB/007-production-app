@@ -712,7 +712,12 @@ function jobMeta(so){
 function orderedIdx(so){
   const s=new Set();
   // ใบที่ยกเลิกไปแล้วต้องไม่นับว่า "สั่งไปแล้ว" — ไม่งั้นขายสั่งรายการเดิมซ้ำไม่ได้ ต้องไปขออนุมัติซ้ำทั้งที่ใบเก่าถูกทิ้งแล้ว
-  TK.filter(t=>t.so===so && alive(t)).forEach(t=>t.idxs.forEach(x=>s.add(x)));
+  // ⚠️ เลข SO ซ้ำข้ามสาขาได้ (Express รันเลขแยกสาขา — 33 เลขชนกันแล้ว) ต้องนับเฉพาะใบของ "SO สาขานี้":
+  //   ใบที่สาขานี้สั่งเอง (branch ตรง) หรือใบที่สาขานี้ส่งให้สาขาอื่นผลิต (xborder + fromBranch ตรง)
+  //   CTO 21 ก.ย. 69: SKN SO6905517 ใบใหม่ขึ้น "สั่งครบแล้ว" ทันที เพราะไปเจอใบ BK SO6905517 ของ 8 ส.ค.
+  //   (19 รายการ ส่งสำเร็จไปแล้ว) → ขายติ๊กสั่งไม่ได้เลย
+  TK.filter(t=>t.so===so && alive(t) && (t.xborder ? t.fromBranch===branch : t.branch===branch))
+    .forEach(t=>t.idxs.forEach(x=>s.add(x)));
   return s;
 }
 function sentTo(so, seq){
