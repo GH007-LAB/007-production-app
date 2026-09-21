@@ -959,24 +959,33 @@ function gotoSO(so){   // จากการ์ด SO ฝั่งขาย → 
    พิมพ์แล้วหน่วง 220 มิลลิวินาทีค่อยวาด — บอร์ดเครื่องมีการ์ดเป็นร้อย วาดทุกตัวอักษรจะหน่วง */
 function soType(v){
   clearTimeout(SOQT);
-  SOQT=setTimeout(()=>{
-    SOQ=(v||"").trim(); render();
-    const i=document.getElementById("q-so");
-    if(i && SOQ){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); }   // วาดใหม่แล้วช่องค้นหาถูกสร้างใหม่ ต้องคืนโฟกัสเอง
-  }, 220);
+  SOQT=setTimeout(()=>{ SOQ=(v||"").trim(); render(); }, 220);
 }
-function soClear(){ clearTimeout(SOQT); SOQ=""; render(); }
+function soClear(){ clearTimeout(SOQT); SOQ=""; const i=document.getElementById("q-so"); if(i) i.value=""; render(); }
 /* ใบนี้ตรงคำค้นไหม — ดูทั้งเลข SO และชื่อลูกค้า (ชื่ออยู่คนละที่ ต้องดึงจาก findSO) */
 function soHit(t){
   const q=SOQ.trim().toUpperCase(); if(!q) return true;
   return String(t.so||"").toUpperCase().includes(q)
       || String((findSO(t.so)||{}).customer||"").toUpperCase().includes(q);
 }
-/* แถบค้นหา — หน้าตาเดียวกันทุกหน้า */
-function soBar(ph){
-  return `<div class="urgbox"><input id="q-so" value="${esc(SOQ)}" placeholder="${esc(ph||"🔍 ค้นหา SO — เลขที่ SO / ชื่อลูกค้า")}"
-    oninput="soType(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();soType(this.value)}">
-    ${SOQ?`<button class="btn grey" onclick="soClear()">✕ ล้าง</button>`:""}</div>`;
+/* แถบค้นหา — หน้าตาเดียวกันทุกหน้า · อยู่ใน #sobar นอก #main และ "ไม่ถูกสร้างใหม่" ตอน render
+   (CTO 21 ก.ย. 69: บนมือถือพิมพ์เลขต่อกันไม่ได้ — เดิม render() แทน innerHTML ทุกครั้งที่พิมพ์
+    ช่อง input ถูกทำลาย/สร้างใหม่ คีย์บอร์ดจึงรีเซ็ตกลับเป็นตัวอักษรทุกตัวที่กด)
+   ph=null → ซ่อนแถบ */
+function soBarSync(ph){
+  const box=document.getElementById("sobar");
+  if(!ph){ box.innerHTML=""; return; }
+  let i=document.getElementById("q-so");
+  if(!i){
+    box.innerHTML=`<div class="urgbox"><input id="q-so" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" enterkeyhint="search"
+      oninput="soType(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();soType(this.value)}">
+      <button id="q-so-x" class="btn grey" onclick="soClear()">✕ ล้าง</button></div>`;
+    i=document.getElementById("q-so"); i.value=SOQ;
+  }
+  i.placeholder=ph;
+  // ไม่แตะ i.value ขณะผู้ใช้ยังพิมพ์อยู่ (SOQ ตามหลัง 220ms) — เซ็ตเฉพาะตอนต่างกันและช่องไม่ได้โฟกัส
+  if(document.activeElement!==i && i.value!==SOQ) i.value=SOQ;
+  document.getElementById("q-so-x").style.display = SOQ ? "" : "none";
 }
 function liveTk(so){ return TK.filter(t=>t.branch===branch && t.so===so && alive(t)); }
 function xsoAsk(so){
@@ -1836,7 +1845,6 @@ function vPack(){
   el.innerHTML = `<div class="page">
   <div class="hint">📦 <b>รวมของระดับบิล</b> — ทุกใบผลิตของ SO ต้องเสร็จครบก่อนแพ็ค · สรุป <b>น้ำหนัก/จำนวนแผ่น/ยาวสุด</b> สำหรับจัดรถ · ใบที่<b>ส่งสำเร็จวันก่อน ๆ ถูกเก็บออกจากหน้านี้</b> — ตามใบเก่าพิมพ์ค้นด้านล่าง</div>
   `
-  + soBar("🔍 ค้นหา SO — เลขที่ SO / ชื่อลูกค้า : ใบนี้ถึงขั้นไหนแล้ว")
   + (qq? `<div class="socard">${hits.length? `<div class="sec" style="margin-top:0">📍 พบ ${hits.length} ใบผลิต — กดเพื่อกระโดดไปการ์ดจริง</div>`+
       hits.map(t=>`<div class="pk-row"><span class="so" style="font-weight:700">${esc(t.so)}</span><span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span><span class="nm">${esc((findSO(t.so)||{}).customer||"")}${t.mach?` · ${esc(t.mach)}`:""}</span><span class="pk-st" style="background:${STGC[t.st]}22;color:${STGC[t.st]}">${t.st===3?'<i class="ldot"></i>':""}${STG[t.st]}</span><button class="btn grey" style="padding:6px 10px;font-size:12px" onclick="gotoTicket('${t.id}')">📍 ไปที่ใบ</button></div>`).join("")
     : `<div class="empty">— ไม่พบ "${esc(SOQ)}" ในใบผลิตของสาขานี้ —</div>`}</div>` : "")
@@ -2339,15 +2347,10 @@ function render(){
     document.querySelectorAll('#main .bcard[id^="tk-"]').forEach(n=>{ const r=n.getBoundingClientRect(); flipPrev[n.id]=[r.left,r.top]; });
   }
   /* แถบค้นหา SO — โชว์ในหน้าที่ CTO สั่ง (18 ก.ย. 69) · หน้ารวมของมีแถบในตัวเองอยู่แล้ว */
-  const SOVIEWS={plan:"📋 ค้นหา SO ในงานที่รอวางแผน", board:"🎛️ ค้นหา SO บนบอร์ดเครื่อง", flight:"🛫 ค้นหา SO ในสถานะวันนี้"};
-  document.getElementById("sobar").innerHTML = SOVIEWS[view]
-    ? soBar(SOVIEWS[view]+" — เลขที่ SO / ชื่อลูกค้า") : "";
+  const SOVIEWS={plan:"📋 ค้นหา SO ในงานที่รอวางแผน", board:"🎛️ ค้นหา SO บนบอร์ดเครื่อง",
+                 pack:"🔍 ค้นหา SO — ใบนี้ถึงขั้นไหนแล้ว", flight:"🛫 ค้นหา SO ในสถานะวันนี้"};
+  soBarSync(SOVIEWS[view] ? SOVIEWS[view]+" — เลขที่ SO / ชื่อลูกค้า" : null);
   ({order:vOrder, online:vOnline, plan:vPlan, board:vBoard, pack:vPack, stock:vStock, report:vReport, flight:vFlight})[view]();
-  // คืนโฟกัสให้ช่องค้นหาหลังวาดใหม่ (innerHTML สร้าง input ใหม่ทุกครั้ง)
-  if(SOQ && SOVIEWS[view]){
-    const i=document.getElementById("q-so");
-    if(i && document.activeElement!==i){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
-  }
   if(flipPrev){
     document.querySelectorAll('#main .bcard[id^="tk-"]').forEach(n=>{
       const p=flipPrev[n.id]; if(!p) return;
