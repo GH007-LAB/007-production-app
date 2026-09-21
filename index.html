@@ -709,6 +709,9 @@ function jobMeta(so){
   const j = JOBS.find(j=>j.order_no===so);
   return j ? {so:j.order_no, customer:"🛍 "+j.platform+" · "+j.receiver, due:todayISO, cusCode:"", docstat:"N", items:[]} : null;
 }
+/* SO ของ "ใบผลิต" ต้องหาที่สาขาต้นทาง — ใบ xborder ที่ BK ผลิตให้ SKN คือ SO ของ SKN
+   ถ้าใช้ findSO(t.so) เฉย ๆ บนบอร์ด BK จะไปเจอ SO เลขเดียวกันของ BK เอง (ลูกค้าคนละคน) */
+function soOf(t){ return findSO(t.so, t.xborder ? (t.fromBranch||t.branch) : t.branch); }
 function orderedIdx(so){
   const s=new Set();
   // ใบที่ยกเลิกไปแล้วต้องไม่นับว่า "สั่งไปแล้ว" — ไม่งั้นขายสั่งรายการเดิมซ้ำไม่ได้ ต้องไปขออนุมัติซ้ำทั้งที่ใบเก่าถูกทิ้งแล้ว
@@ -865,7 +868,7 @@ function alertBar(msg){
 function orderProduce(so, isRe){
   const c=findSO(so); if(!c) return;
   const done=orderedIdx(so), byKey={};
-  const approver = REOK[so];
+  const approver = REOK[branch+"|"+so];
   if(isRe && !approver) return;   // สั่งซ้ำต้องผ่านอนุมัติก่อนเท่านั้น
   c.items.forEach(it=>{
     if(done.has(it.seq) && !isRe) return;
@@ -897,7 +900,7 @@ function orderProduce(so, isRe){
           ? "🔁 สั่งผลิตซ้ำ ("+its.length+" รายการ) — ขอโดย "+USER.name+" · อนุมัติซ้ำโดย "+approver.name+" · สาเหตุ: "+approver.reason
           : "🛒 สั่ง+อนุมัติใบผลิต ("+its.length+" รายการ) → เข้าฝั่งผลิตทันที");
     }
-    delete REOK[so];
+    delete REOK[branch+"|"+so];
   });
 }
 function searchGo(){ const el=document.getElementById("q-so"); q = el?el.value:""; render(); }
@@ -927,7 +930,7 @@ async function reVerify(so){
   const ok=await DB.verifyPin(s.id, pin.value);
   if(!ok){ alertBar("PIN ไม่ถูกต้อง"); pin.value=""; return; }
   const full = reason + ((rNote&&rNote.value.trim())? " — "+rNote.value.trim() : "");
-  REOK[so]={name:s.name, reason:full};
+  REOK[branch+"|"+so]={name:s.name, reason:full};
   delete RSHOW[so]; render();
 }
 /* ================= ❌ ขายยกเลิก SO (v8.7) =================
@@ -971,7 +974,7 @@ function soClear(){ clearTimeout(SOQT); SOQ=""; const i=document.getElementById(
 function soHit(t){
   const q=SOQ.trim().toUpperCase(); if(!q) return true;
   return String(t.so||"").toUpperCase().includes(q)
-      || String((findSO(t.so)||{}).customer||"").toUpperCase().includes(q);
+      || String((soOf(t)||{}).customer||"").toUpperCase().includes(q);
 }
 /* แถบค้นหา — หน้าตาเดียวกันทุกหน้า · อยู่ใน #sobar นอก #main และ "ไม่ถูกสร้างใหม่" ตอน render
    (CTO 21 ก.ย. 69: บนมือถือพิมพ์เลขต่อกันไม่ได้ — เดิม render() แทน innerHTML ทุกครั้งที่พิมพ์
@@ -996,7 +999,7 @@ function liveTk(so){ return TK.filter(t=>t.branch===branch && t.so===so && alive
 function xsoAsk(so){
   const n=liveTk(so).length;
   if(n){ alertBar("SO "+so+" มีใบผลิตที่ยังเดินอยู่ "+n+" ใบ — ไปยกเลิกใบผลิตที่แท็บ 📋 วางแผน ก่อน"); return; }
-  XSOSHOW[so]=!XSOSHOW[so]; render();
+  XSOSHOW[branch+"|"+so]=!XSOSHOW[branch+"|"+so]; render();
 }
 function xsoDo(so){
   const c=findSO(so); if(!c) return;
@@ -1007,7 +1010,7 @@ function xsoDo(so){
   const full = reason + ((note&&note.value.trim())? " — "+note.value.trim() : "");
   act(async ()=>{
     await DB.setSOCancel(branch, so, {cancelled_at:nowISO(), cancelled_by:USER.name, cancel_reason:full});
-    delete XSOSHOW[so];
+    delete XSOSHOW[branch+"|"+so];
   });
 }
 function xsoUndo(so){ act(()=>DB.setSOCancel(branch, so, {cancelled_at:null, cancelled_by:"", cancel_reason:""})); }
@@ -1462,7 +1465,7 @@ function soCardHtml(c, approvers){
     const done=orderedIdx(c.so);
     const soOrdT=TK.filter(t=>t.branch===branch&&t.so===c.so&&!t.by.rejected).map(t=>(t.tm&&t.tm.ordered)||t.created).sort().pop()||null;
     const inter=INTER[c.cusCode]&&INTER[c.cusCode]!==branch?INTER[c.cusCode]:null;
-    const reok=REOK[c.so];
+    const reok=REOK[branch+"|"+c.so];
     const oso=cardOnline(c);
     let anyBox=false, hasOrdered=false;
     const shBtn = it => isCustomShape(it.des)
@@ -1535,7 +1538,7 @@ function soCardHtml(c, approvers){
         <button class="btn dark" onclick="reVerify('${esq(c.so)}')">✔ ยืนยัน</button>
         <div class="who">ระบบบันทึกถาวร: ใครขอ · ใครอนุมัติ · เวลา · สาเหตุ — ดูย้อนหลังได้ในประวัติใบผลิต</div></div>`;
       })():""}
-      ${XSOSHOW[c.so]&&!c.x?`<div class="planx show">
+      ${XSOSHOW[branch+"|"+c.so]&&!c.x?`<div class="planx show">
         ❌ <b>ยกเลิก SO ${c.so}</b> — สาเหตุ <select id="xs-${c.so}">
           <option value="">— เลือกสาเหตุ (บังคับ) —</option>${XSO_R.map(r=>`<option>${r}</option>`).join("")}</select>
         <input id="xn-${c.so}" placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)" style="min-width:180px;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px">
@@ -1562,7 +1565,7 @@ function vOrder(){
   const xs =allx.filter(c=> c.x && ((c.date||"") >= cutView3() || c.fetched || (qq && (c.so.toUpperCase().includes(qq)||(c.customer||"").toUpperCase().includes(qq)))));
   const cs = qq
     ? all.filter(c=> c.so.toUpperCase().includes(qq) || (c.customer||"").toUpperCase().includes(qq))
-    : all.filter(c=> (c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]);
+    : all.filter(c=> (c.date||"") >= cutView3() || c.fetched || REOK[branch+"|"+c.so] || RSHOW[c.so]);
   const nOld = qq? 0 : all.length - cs.length;
   const approvers = STAFF.filter(s=>s.role==="admin" && (s.branch===branch||s.branch==="ALL"));  // Gem เคาะ: สั่งซ้ำ = admin (หัวหน้าแผนก) เท่านั้น
   el.innerHTML = `<div class="page">
@@ -1581,7 +1584,7 @@ function vOnline(){
   const el=document.getElementById("main"); el.className="";
   const jobs=JOBS.filter(j=>j.branch===branch && j.status!=="done");
   const approvers = STAFF.filter(s=>s.role==="admin" && (s.branch===branch||s.branch==="ALL"));  // Gem เคาะ: สั่งซ้ำ = admin (หัวหน้าแผนก) เท่านั้น
-  const osos = CARDS[branch].filter(c=> cardOnline(c) && !c.x && ((c.date||"") >= cutView3() || c.fetched || REOK[c.so] || RSHOW[c.so]));
+  const osos = CARDS[branch].filter(c=> cardOnline(c) && !c.x && ((c.date||"") >= cutView3() || c.fetched || REOK[branch+"|"+c.so] || RSHOW[c.so]));
   el.innerHTML = `<div class="page">
   <div class="hint">🛍 <b>งานออนไลน์</b> — SO ของ<b>ลูกค้ารหัสขึ้นต้น O</b> (Shopee/TikTok/Lazada) จาก Express แยกมาอยู่หน้านี้ทั้งหมด ไม่ปนฝั่งขายหน้าร้าน · สั่งผลิตเหมือนเดิม (งานตรงเข้า <b>ตรง-R เครื่องแดง ปีกขวา</b> ก่อน — ทีมผลิตย้ายไปเครื่องเขียวได้ที่บอร์ด) · ด้านล่างคือออเดอร์จากไฟล์ tag ที่ไม่ผ่าน SO · ตัวอ่านไฟล์ tag อัตโนมัติกำลังตามมา (รอตัวอย่างไฟล์จริง)</div>` +
   (osos.length? `<div class="sec" style="margin:4px 0 8px">🧾 SO ออนไลน์ (${osos.length} ใบ · 3 วันล่าสุด — ใบเก่าพิมพ์เลข SO ในช่องค้นหาแท็บ 🛒 แล้วกดดึง ระบบจะพามาที่นี่)</div>` + osos.map(c=>soCardHtml(c, approvers)).join("") : `<div class="empty">— ไม่มี SO ออนไลน์ (ลูกค้ารหัส O) ในช่วง 3 วัน —</div>`) +
@@ -1709,7 +1712,7 @@ function vPlan(){
   const ops=STAFF.filter(s=>s.role==="operator"&&(s.branch===branch||s.branch==="ALL"));
   el.innerHTML = `<div class="page">`+incomingHtml+`<div class="hint">📋 <b>ฝั่งผลิต — หัวหน้าทีมกระจายงาน</b>: <b>A ผลิตใหม่</b> (เลือกเครื่อง · ระบุคนหรือปล่อยให้คนประจำเครื่องกดรับงาน) · <b>B ใช้แผ่นสต็อค</b> ข้ามไลน์ · <b>C รอวัตถุดิบ</b> · เรียงตามกำหนดส่ง</div>`+runsHtml+
   (list.length? list.map(t=>{
-    const c=findSO(t.so)||{};
+    const c=soOf(t)||{};
     const cs=coilStock(branch,t.key);
     const coilHtml = t.key===null||t.key==="" ? `<div class="coil na">— ไม่ใช้คอยล์/ยังไม่รู้วัตถุดิบ —</div>`
       : String(t.key).startsWith("PU:") ? `<div class="coil na">— PU: เช็ควัตถุดิบโฟม/ฟอยล์หน้างาน —</div>`
@@ -1813,7 +1816,7 @@ function vPack(){
   tks().filter(t=>!t.stock&&soHit(t)).forEach(t=>(bySo[t.so]=bySo[t.so]||[]).push(t));   // ใบผลิตเข้าสต็อคไม่มีลูกค้า → ไม่เข้าโมดูลรวมของ/จัดส่ง (อยู่แท็บ 🏭)
   const sos=Object.keys(bySo);
   const pkCard=(so,shipped)=>{
-    const list=bySo[so], c=findSO(so)||{};
+    const list=bySo[so], c=soOf(list[0])||{};
     const allDone=list.every(t=>t.st>=4), allPack=list.every(t=>t.st>=5), allShip=list.every(t=>t.st>=6), allArr=list.every(t=>t.st>=7);
     let Tm=0,Tsh=0,Tmx=0,Tkg=0;
     list.forEach(t=>{const M=tMetrics(t);Tm+=M.m;Tsh+=M.sh;Tmx=Math.max(Tmx,M.mx);Tkg+=M.kg;});
@@ -1845,7 +1848,7 @@ function vPack(){
   const doneOld   = sos.filter(so=>isArr(so) && arrT(so).slice(0,10)!==todayISO);
   /* 🔍 ตามใบ: พิมพ์เลข SO/ชื่อลูกค้า → เห็นทุกใบผลิตพร้อมขั้นปัจจุบัน + ปุ่มกระโดดไปการ์ดจริง */
   const qq=SOQ.trim().toUpperCase();
-  const hitT = t => t.so.toUpperCase().includes(qq) || String((findSO(t.so)||{}).customer||"").toUpperCase().includes(qq);
+  const hitT = t => t.so.toUpperCase().includes(qq) || String((soOf(t)||{}).customer||"").toUpperCase().includes(qq);
   const hits = qq? TK.filter(t=>t.branch===branch && alive(t) && hitT(t)).sort((a,b)=>a.st-b.st) : [];
   el.innerHTML = `<div class="page">
   <div class="hint">📦 <b>รวมของระดับบิล</b> — ทุกใบผลิตของ SO ต้องเสร็จครบก่อนแพ็ค · สรุป <b>น้ำหนัก/จำนวนแผ่น/ยาวสุด</b> สำหรับจัดรถ · ใบที่<b>ส่งสำเร็จวันก่อน ๆ ถูกเก็บออกจากหน้านี้</b> — ตามใบเก่าพิมพ์ค้นด้านล่าง</div>
@@ -1888,7 +1891,7 @@ function vFlight(){
     const bmin=Math.min(...list.map(t=>t.st));          // ขั้นของบิล = ใบที่รั้งท้ายสุด (คอขวด)
     const arr=list.map(t=>(t.tm&&t.tm.arrived)||"").sort().pop()||"";
     if(bmin>=7 && arr.slice(0,10)!==todayISO) return;   // ส่งแล้ววันก่อน ๆ ไม่ขึ้นจอ
-    const cso=findSO(so)||{};
+    const cso=soOf(list[0])||{};
     rows.push({so, list, bmin, cus:cso.customer||"", iv:cso.iv||""});
   });
   const act=rows.filter(r=>r.bmin<7).sort((a,b)=>b.bmin-a.bmin || (a.so<b.so?1:-1));
@@ -2244,7 +2247,7 @@ async function shSave(){
 async function openM(id){
   const t=TK.find(t=>t.id===id); if(!t) return;
   openId=id;
-  const c=findSO(t.so)||{};
+  const c=soOf(t)||{};
   document.getElementById("m-t").innerHTML = `${esc(t.so)} <span class="cchip"><i style="background:${swc(t.label)}"></i>${esc(t.label)}</span>`;
   document.getElementById("m-b").innerHTML = `
     <div><b>${esc(c.customer||"")}</b> · เครื่อง${esc(t.mach)} · สถานะ <b style="color:${STGC[t.st]}">${STG[t.st]}</b></div>
