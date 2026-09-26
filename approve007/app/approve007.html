@@ -45,7 +45,16 @@
   .sum small{display:block; font-size:13px; font-weight:400; color:var(--ink); margin-top:4px;}
   .disc{font-size:12.5px; color:var(--grey); margin-top:8px; border-left:3px solid #d4a72c; padding-left:8px;}
   .script{background:#f3f7f4; border-radius:8px; padding:10px 12px; margin-top:10px; font-size:14px;}
-  @media (max-width:700px){ th:nth-child(2), td:nth-child(2){display:none;} th{top:92px;} .price{width:74px;} body{font-size:14px;} }
+  @media (max-width:700px){
+    body{font-size:14px;} thead{display:none;}
+    #rows, #rows tr, #rows td{display:block;}
+    #rows tr{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px 4px; padding:10px 0; border-bottom:1px solid var(--line);}
+    #rows tr.cat{display:block; padding:0;} #rows td{border:0; padding:2px;}
+    #rows td:first-child, #rows td[colspan], #rows td:last-child{grid-column:1/-1;}
+    #rows td:nth-child(2){display:none;}
+    #rows td.n{white-space:normal;} #rows td.n[data-l]::before{content:attr(data-l); display:block; font-size:11px; color:var(--grey); font-weight:700;}
+    #rows td:last-child{display:flex; gap:10px; align-items:center;} .price{width:120px;}
+  }
 </style>
 </head>
 <body>
@@ -121,7 +130,7 @@ function cells(r){
   const stand = r.stand!=null ? `≥ ${fmt(r.stand)}` : '–';
   const self = r.stand==null ? `≥ ${fmt(r.self_low)}` : r.self_empty ? '<span class="mut">ลดไม่ได้</span>' : `${fmt(r.self_low)}–${fmt(r.stand-stepOf(r.stand))}`;
   const mgr = r.mgr_low<r.self_low ? `${fmt(r.mgr_low)}–${fmt(r.self_low-stepOf(r.self_low))}` : '<span class="mut">–</span>';
-  return `<td class="n g">${stand}</td><td class="n g">${self}</td><td class="n y">${mgr}</td><td class="n r">&lt; ${fmt(r.mgr_low)}</td>`;
+  return `<td class="n g" data-l="ยืนราคา">${stand}</td><td class="n g" data-l="ลดได้เอง">${self}</td><td class="n y" data-l="ผจก.">${mgr}</td><td class="n r" data-l="ขอ ผบ.">&lt; ${fmt(r.mgr_low)}</td>`;
 }
 function norm(s){ return (s||'').toLowerCase().replace(/\s+/g,''); }
 function renderBands(){
