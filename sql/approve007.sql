@@ -60,7 +60,8 @@ end $$;
 revoke all on public.approve_snapshot, public.approve_so_line, public.approve_check_log from anon, authenticated;
 
 -- 4) ลงทะเบียนแอปใน hub — แล้วติ๊กสิทธิ์รายคนที่ app.007metals.com/admin/access
---    ⚠️ ตรวจชื่อคอลัมน์ของตาราง apps ก่อนรัน (อ้างจาก /api/line/enter ที่ใช้ apps.code)
-insert into public.apps (code, name)
-select 'approve007', 'Approve007 · ขายได้เลยไหม'
-where not exists (select 1 from public.apps where code = 'approve007');
+--    คอลัมน์ตาม SP-TT-dashboard/db/central_identity.sql (name_th ไม่ใช่ name) · sort 10 ต่อจาก finance (9)
+insert into public.apps (code, name_th, url, icon, description, sort, active)
+values ('approve007', 'Approve007 · ขายได้เลยไหม', 'https://production.007metals.com/approve007',
+        'check', 'เช็คเกรดราคาบิลก่อนขาย (P-17)', 10, true)
+on conflict (code) do nothing;

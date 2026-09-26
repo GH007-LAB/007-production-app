@@ -96,7 +96,7 @@ Mac mini (build.py push ทุก 15 นาที)                         Verce
 - **เช็คไว** จับคู่ชื่อแบบไม่ฟันธง (`engine/quick.py`) ความมั่นใจ < 0.8 หรือกำกวมระหว่างยี่ห้อ = ไม่นับบรรทัดนั้น ถ้ารู้จักไม่ถึง 70% ของบิลจะไม่สรุป
 
 **ขั้นตอนเปิดใช้ (ต้องทำเอง — Claude deploy/รัน SQL ให้ไม่ได้):**
-1. Supabase กลาง: รัน `sql/approve007.sql` (ตรวจชื่อคอลัมน์ตาราง `apps` ก่อน) → ติ๊กสิทธิ์รายคนที่ app.007metals.com/admin/access
+1. Supabase กลาง: รัน `sql/approve007.sql` (คอลัมน์ `apps` ตรวจแล้ว: `name_th`) → ติ๊กสิทธิ์รายคนที่ app.007metals.com/admin/access
 2. Vercel: เพิ่ม env `APPROVE007_PUSH_TOKEN` เป็นสุ่ม ≥ 32 ตัว เช่น `openssl rand -hex 24` (`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` มีอยู่แล้ว) · ถ้าจะจำกัดโหมด ผบ. ให้ตั้ง `APPROVE007_GEM_IDS`
 3. Mac mini: `APPROVE007_PUSH_TOKEN=<ค่าเดียวกัน> bash approve007/engine/launchd/install_macmini.sh` → ติดตั้ง push ทุก 15 นาที · ทดสอบด้วย `build.py push`
 4. เปิด https://production.007metals.com/approve007 ลองเช็ค SO6903141 เทียบกับ `build.py check SO6903141 PPS` ต้องได้เกรดเดียวกัน
