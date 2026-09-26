@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Approve007 — ขายได้เลยไหม</title>
+<!-- ไฟล์นี้เปิดจาก All_on_Cloud/Approve007/ (Drive sync) · โหลดแค่ pricebands.js ที่ไม่มีทุน/GP
+     ❌ ห้ามโหลด costbook.js หรือไฟล์ใดที่มีทุนในหน้านี้ (HANDOVER PriceBands ข้อ 5.2) -->
+<script src="pricebands.js"></script>
+<style>
+  :root{ --ink:#141517; --green:#1E7A4F; --ok:#1a7f37; --okbg:#e6f4ea; --warn:#9a6700; --warnbg:#fff4d6;
+         --bad:#b3261e; --badbg:#fde7e7; --grey:#6d7370; --line:#d9ddd9; --bg:#eef1ef; --card:#fff; }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:'Leelawadee UI','Sarabun','Thonburi','Loma',sans-serif; background:var(--bg); color:var(--ink); font-size:15px;}
+  .bar{background:var(--ink); color:#fff; padding:10px 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; position:sticky; top:0; z-index:5;}
+  .logo{font-weight:800; font-size:18px; letter-spacing:.5px;} .logo b{color:#39c07f;}
+  .tag{font-size:12px; color:#bbb;}
+  .bar select{margin-left:auto; padding:6px 10px; border-radius:6px; border:0; font:inherit; font-weight:700;}
+  .tabs{display:flex; gap:6px; padding:10px 16px 0; max-width:1100px; margin:auto;}
+  .tabs button{flex:1; padding:10px; border:0; border-radius:10px 10px 0 0; background:#dfe4e0; font:inherit; font-weight:700; cursor:pointer;}
+  .tabs button.on{background:var(--card); color:var(--green);}
+  main{max-width:1100px; margin:0 auto 40px; background:var(--card); border-radius:0 0 12px 12px; padding:14px 16px;}
+  .banner{padding:10px 14px; border-radius:8px; margin:10px auto 0; max-width:1100px; font-weight:700;}
+  .banner.bad{background:var(--bad); color:#fff;} .banner.info{background:#fff; color:var(--grey); font-weight:400; font-size:13px;}
+  .tools{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;}
+  .tools input, .tools select{padding:9px 10px; border:1px solid var(--line); border-radius:8px; font:inherit;}
+  .tools input{flex:1; min-width:180px;}
+  table{width:100%; border-collapse:collapse;}
+  th{background:#f3f5f3; font-size:13px; text-align:left; padding:8px 6px; border-bottom:2px solid var(--line); position:sticky; top:52px;}
+  td{padding:8px 6px; border-bottom:1px solid #eef0ee; vertical-align:middle;}
+  td.n{white-space:nowrap; text-align:center; font-variant-numeric:tabular-nums;}
+  tr.cat td{background:#f7f8f7; font-weight:800; color:var(--green);}
+  .g{color:var(--ok);} .y{color:var(--warn);} .r{color:var(--bad);} .mut{color:var(--grey); font-size:12px;}
+  .price{width:92px; padding:7px; border:2px solid var(--line); border-radius:7px; font:inherit; font-weight:700; text-align:right;}
+  .price.stand,.price.self{border-color:var(--ok); background:var(--okbg);} .price.mgr{border-color:#d4a72c; background:var(--warnbg);}
+  .price.gem{border-color:var(--bad); background:var(--badbg);}
+  .pill{display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; font-weight:700; white-space:nowrap;}
+  .pill.stand,.pill.self{background:var(--okbg); color:var(--ok);} .pill.mgr{background:var(--warnbg); color:var(--warn);}
+  .pill.gem{background:var(--badbg); color:var(--bad);} .pill.nomatch{background:var(--warnbg); color:var(--warn);} .pill.ask,.pill.fold{background:#eee; color:#555;}
+  textarea{width:100%; min-height:130px; padding:10px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:16px;}
+  .btn{padding:10px 18px; border:0; border-radius:8px; background:var(--green); color:#fff; font:inherit; font-weight:700; cursor:pointer;}
+  .btn.ghost{background:#fff; color:var(--ink); border:1px solid var(--line);}
+  .sum{margin:12px 0; padding:12px 14px; border-radius:10px; font-size:17px; font-weight:800;}
+  .sum.ok{background:var(--okbg); color:var(--ok);} .sum.mgr{background:var(--warnbg); color:var(--warn);} .sum.gem{background:var(--badbg); color:var(--bad);}
+  .sum small{display:block; font-size:13px; font-weight:400; color:var(--ink); margin-top:4px;}
+  .disc{font-size:12.5px; color:var(--grey); margin-top:8px; border-left:3px solid #d4a72c; padding-left:8px;}
+  .script{background:#f3f7f4; border-radius:8px; padding:10px 12px; margin-top:10px; font-size:14px;}
+  @media (max-width:700px){ th:nth-child(2), td:nth-child(2){display:none;} th{top:92px;} .price{width:74px;} body{font-size:14px;} }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div><div class="logo">Approve<b>007</b></div><div class="tag">ขายได้เลยไหม · ช่วงราคาขาย (ทดลอง)</div></div>
+  <select id="br" aria-label="สาขา"></select>
+</div>
+<div id="banner"></div>
+<div class="tabs">
+  <button id="t_bands" class="on" onclick="tab('bands')">💰 ช่วงราคา</button>
+  <button id="t_quick" onclick="tab('quick')">⚡ เช็คไว</button>
+</div>
+<main>
+  <section id="p_bands">
+    <div class="tools">
+      <input id="q" placeholder="ค้นหาสินค้า เช่น JJL 0.35 / PU ลายไม้ / สกรู" oninput="renderBands()">
+      <select id="cat" onchange="renderBands()"><option value="">ทุกหมวด</option></select>
+    </div>
+    <table>
+      <thead><tr><th>สินค้า</th><th>หน่วย</th><th>🟢 ยืนราคา</th><th>🟢 ลดได้เอง</th><th>🟡 ผจก.</th><th>🔴 ขอ ผบ.</th><th>ราคาที่จะให้</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="mut" style="margin-top:8px">ราคารวม VAT ยังไม่รวมค่าส่ง — งานส่งไกลให้เช็คบิลก่อนยืนยัน · ไม่อยู่ในตาราง = ถามก่อนลด</p>
+  </section>
+
+  <section id="p_quick" hidden>
+    <p class="mut" style="margin-bottom:6px">พิมพ์รายการที่จดไว้ บรรทัดละรายการ (ไม่ต้องคีย์ Express) — ไม่ใส่ราคา = ระบบบอกราคาต่ำสุดที่ลดเองได้</p>
+    <textarea id="lines" placeholder="ลอน 0.35 JJL สี 800 ม. 108&#10;PU 25 ท้องไม้ 120 ม. 105&#10;สกรู 75 มม. 2000 ตัว 2.5"></textarea>
+    <div style="display:flex; gap:8px; margin-top:8px"><button class="btn" onclick="quick()">⚡ เช็คเลย</button>
+      <button class="btn ghost" onclick="document.getElementById('lines').value='';document.getElementById('qout').innerHTML=''">ล้าง</button></div>
+    <div id="qout"></div>
+  </section>
+</main>
+
+<script>
+const PB = window.PRICEBANDS || null;
+const TIER = {stand:'🟢 ยืนราคา ⭐', self:'🟢 ลดได้เอง', mgr:'🟡 ผจก.อนุมัติ', gem:'🔴 ขอ ผบ.', ask:'ถามก่อนลด', fold:'งานพับ (ใช้บรรทัดฐานเดิม)', nomatch:'🟡 ไม่รู้จักสินค้า'};
+const $ = id => document.getElementById(id);
+const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON.parse(v);}catch(e){return d;} },
+                set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} } };
+const fmt = v => v==null ? '–' : (Math.abs(v-Math.round(v))<1e-9 ? v.toLocaleString('th-TH') : v.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2}));
+const stepOf = v => v>=50 ? 1 : 0.05;
+
+function init(){
+  if(!PB){ $('banner').innerHTML='<div class="banner bad">⛔ ไม่พบไฟล์ pricebands.js — เปิดไฟล์นี้จากโฟลเดอร์ All_on_Cloud/Approve007 เท่านั้น</div>'; return; }
+  const brs = Object.keys(PB.branches);
+  $('br').innerHTML = brs.map(b=>`<option>${b}</option>`).join('');
+  $('br').value = store.get('a7_br', brs[0]); if(!brs.includes($('br').value)) $('br').value = brs[0];
+  $('br').onchange = ()=>{ store.set('a7_br', $('br').value); fillCats(); renderBands(); };
+  const exp = new Date(PB.valid_until+'T23:59:59') < new Date();
+  const msg = PB.stale ? `⛔ หมดอายุ ห้ามใช้ — ${PB.stale}` : exp ? `⛔ หมดอายุ ห้ามใช้ — ตารางนี้ใช้ได้ถึง ${thDate(PB.valid_until)} (ระบบไม่ได้อัปเดต) · ใช้ Rate 1 + อำนาจลด 5 บ./ม. ตามประกาศเดิมไปก่อน` : '';
+  $('banner').innerHTML = msg ? `<div class="banner bad">${msg}</div>` :
+    `<div class="banner info">อัปเดต ${thDate(PB.generated)} · ใช้ได้ถึง ${thDate(PB.valid_until)} · ใบราคา ${PB.rate_sheet||'–'}</div>`;
+  if(exp || PB.stale) document.body.dataset.expired = '1';
+  fillCats(); renderBands();
+}
+function thDate(iso){ const [y,m,d]=iso.split('-').map(Number); return `${d}/${m}/${y+543}`; }
+function rows(){ return (PB && PB.branches[$('br').value]) || []; }
+function fillCats(){ const cs=[...new Set(rows().map(r=>r.cat))]; $('cat').innerHTML='<option value="">ทุกหมวด</option>'+cs.map(c=>`<option>${c}</option>`).join(''); }
+function tab(t){ ['bands','quick'].forEach(x=>{ $('p_'+x).hidden = x!==t; $('t_'+x).classList.toggle('on', x===t); }); }
+
+/* ชั้นราคา — ใช้ขอบที่ engine (Python) คำนวณมาแล้วเท่านั้น หน้านี้ไม่คำนวณ GP เอง */
+function classify(price, r){
+  if(r.status!=='ok') return r.status;
+  if(r.stand!=null && price>=r.stand) return 'stand';
+  if(!r.self_empty && price>=r.self_low) return 'self';
+  if(price>=r.mgr_low) return 'mgr';
+  return 'gem';
+}
+function cells(r){
+  if(r.status==='fold') return `<td class="n" colspan="4">${r.note||'งานพับ'}</td>`;
+  if(r.status!=='ok') return `<td class="n" colspan="4">${esc(r.note||'ถามก่อนลด')}</td>`;
+  const stand = r.stand!=null ? `≥ ${fmt(r.stand)}` : '–';
+  const self = r.stand==null ? `≥ ${fmt(r.self_low)}` : r.self_empty ? '<span class="mut">ลดไม่ได้</span>' : `${fmt(r.self_low)}–${fmt(r.stand-stepOf(r.stand))}`;
+  const mgr = r.mgr_low<r.self_low ? `${fmt(r.mgr_low)}–${fmt(r.self_low-stepOf(r.self_low))}` : '<span class="mut">–</span>';
+  return `<td class="n g">${stand}</td><td class="n g">${self}</td><td class="n y">${mgr}</td><td class="n r">&lt; ${fmt(r.mgr_low)}</td>`;
+}
+function norm(s){ return (s||'').toLowerCase().replace(/\s+/g,''); }
+function renderBands(){
+  const qs = $('q').value.toLowerCase().split(/\s+/).filter(Boolean), cat = $('cat').value; let html='', last=null;
+  rows().forEach((r,i)=>{
+    if(cat && r.cat!==cat) return;
+    const hay = norm(r.name+' '+r.cat+' '+r.codes.join(' '));
+    if(qs.some(w=>!hay.includes(w))) return;   // ทุกคำต้องเจอ ไม่สนลำดับ
+    if(r.cat!==last){ last=r.cat; html+=`<tr class="cat"><td colspan="7">${r.cat}</td></tr>`; }
+    const inp = r.status==='ok' ? `<input class="price" inputmode="decimal" data-i="${i}" oninput="paint(this)" placeholder="ราคา">` : '';
+    html += `<tr><td>${r.name}${r.fast?' <span class="pill self">⚡หมุนเร็ว</span>':''}<div class="mut">${r.codes.slice(0,3).join(' · ')}${r.codes.length>3?' …':''}</div></td>
+      <td class="n">${r.unit}</td>${cells(r)}<td class="n">${inp}<div class="mut" id="lbl${i}"></div></td></tr>`;
+  });
+  $('rows').innerHTML = html || '<tr><td colspan="7" class="mut">ไม่พบสินค้า — ถามก่อนลด</td></tr>';
+}
+function paint(el){
+  const r = rows()[+el.dataset.i], v = parseFloat(el.value);
+  el.className='price'; $('lbl'+el.dataset.i).textContent='';
+  if(!(v>0)) return;
+  const t = classify(v, r); el.classList.add(t); $('lbl'+el.dataset.i).textContent = TIER[t];
+}
+
+/* ⚡ เช็คไว — จับคู่ชื่อที่เซลพิมพ์เข้ากับรายการในตาราง (แมตช์ไม่ได้ = ไม่ฟันธง ห้ามเดา) */
+const SYN = [[/ท้องไม้|ลายไม้|วอลนัท|ไม้/g,' ลายไม้ '],[/ฟอยล์|ฟอยด์/g,' ฟอยล์ '],[/ซิ้ง|ซิงก์|ซิงค์|zinc/gi,' ซิงค์ '],
+  [/สแน็ปล็อค|สแนปล็อค|snaplock|สแนป/gi,' snaplock '],[/คูล|cool/gi,' cool '],[/แซ็คส์|แซค|zacs/gi,' zacs '],
+  [/จิงโจ้|jjl/gi,' jjl '],[/ms|dmn|ไดมอนด์|diamond|total|นำเข้า/gi,' นำเข้า '],[/pu|พียู/gi,' pu '],[/สกรู/g,' สกรู ']];
+const COLORS = /ขาว|แดง|น้ำเงิน|ฟ้า|เขียว|เทา|ครีม|ดำ|ส้ม|น้ำตาล|สี/;
+const UNIT_RE = /(ม\.|ม|เมตร|แผ่น|ตัว|เส้น|ท่อน|ม้วน|ชิ้น|ถุง)(?![ก-๙a-z])/;
+function tokens(s){
+  let t = ' '+s.toLowerCase()+' '; SYN.forEach(([re,rep])=>{ t=t.replace(re,rep); });
+  if(COLORS.test(s)) t+=' สี ';
+  const thk = (s.match(/0\.\d\d/)||[])[0];
+  return {words:new Set(t.split(/[\s,/()]+/).filter(w=>w.length>1 && !/^\d/.test(w))), thk, pu:/(^|\s)pu(\s|$)/.test(t)};
+}
+function parseLine(line){
+  const s = line.replace(/,/g,'').trim(); if(!s) return null;
+  const nums = [...s.matchAll(/(\d+(?:\.\d+)?)\s*([ก-๙a-zA-Z.]*)/g)].map(m=>({v:parseFloat(m[1]), u:m[2], raw:m[0], idx:m.index}));
+  let qty=null, unit='', price=null;
+  const q = nums.find(n=>UNIT_RE.test(n.u) && !/^0\.\d\d$/.test(String(n.v)));
+  if(q){ qty=q.v; unit=q.u.match(UNIT_RE)[1]; }
+  const tail = nums.filter(n=>n!==q && !/^0\.\d\d$/.test(n.raw.trim()) && !/มม|mm|k$/i.test(n.u));
+  const last = tail[tail.length-1];
+  if(last && last.idx > (q?q.idx:-1) && !UNIT_RE.test(last.u)) price = last.v;
+  return {text:s, qty, unit, price};
+}
+function matchRow(line){
+  const a = tokens(line); let best=null, bestS=0;
+  rows().forEach(r=>{
+    const b = tokens(r.name+' '+r.cat);
+    if(a.thk && b.thk && a.thk!==b.thk) return;
+    if(a.pu !== b.pu) return;
+    let s = a.thk && b.thk ? 2 : 0;
+    a.words.forEach(w=>{ if(b.words.has(w)) s+= (w==='สี'||w==='ซิงค์') ? 1.5 : 1; });
+    if(a.words.has('สี') && b.words.has('ซิงค์')) s-=2;
+    if(a.words.has('ซิงค์') && b.words.has('สี')) s-=2;
+    if(/25k|25 ?k/i.test(line) && /25k/i.test(r.name)) s+=1;
+    if(/35k|35 ?k/i.test(line) && /35k/i.test(r.name)) s+=1;
+    if(/75/.test(line) && /75/.test(r.name)) s+=1;
+    if(a.pu){ s+=1; if(/(^|\D)(25|50)\s*(มม|mm)?(\D|$)/i.test(line) && new RegExp((line.match(/(^|\D)(25|50)(\D|$)/)||[])[2]+'mm').test(r.name)) s+=1; }
+    if(a.words.has('snaplock') !== b.words.has('snaplock')) s-=1;
+    if(s>bestS){ bestS=s; best=r; }
+  });
+  return bestS>=3 ? best : null;   // คะแนนต่ำ = ไม่ฟันธง
+}
+function chaseGuard(key){   // กันไล่ราคา: รายการเดิมเช็คซ้ำ > 5 ครั้ง/ชม. → หยุดตอบ
+  const now=Date.now(), log=store.get('a7_chase',{}); const arr=(log[key]||[]).filter(t=>now-t<3600e3); arr.push(now);
+  log[key]=arr; store.set('a7_chase',log); return arr.length>5;
+}
+function quick(){
+  const lines = $('lines').value.split('\n').map(parseLine).filter(Boolean);
+  if(!lines.length){ $('qout').innerHTML=''; return; }
+  let html='<table style="margin-top:12px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th><th>ผล</th></tr></thead><tbody>';
+  let tot=0, known=0, worst=0, blocked=false; const rank={stand:0,self:0,mgr:1,gem:2};
+  lines.forEach(l=>{
+    const r = matchRow(l.text); const val = (l.qty||1)*(l.price||0); tot+=val;
+    let res, extra='';
+    if(!r){ res='nomatch'; extra='พิมพ์ชื่อ/ความหนาให้ชัดขึ้น หรือถามก่อนลด'; }
+    else if(r.status!=='ok'){ res=r.status; known+=val; }
+    else if(chaseGuard(r.name+'|'+$('br').value)){ blocked=true; res='ask'; extra='เช็ครายการนี้ซ้ำหลายครั้งแล้ว — ส่งเข้าแชทให้ผจก./ผบ. ช่วยดู'; }
+    else if(l.price==null){ res='self'; known+=val;
+      extra = r.stand==null ? `ราคาต่ำสุดที่ขายได้เลย: <b>${fmt(r.self_low)}</b>/${r.unit}` :
+        r.self_empty ? `ยืนราคา <b>${fmt(r.stand)}</b>/${r.unit} (รายการนี้ลดเองไม่ได้)` :
+        `ยืน <b>${fmt(r.stand)}</b> · ลดเองได้ถึง <b>${fmt(r.self_low)}</b>/${r.unit}`; }
+    else { res=classify(l.price, r); known+=val; worst=Math.max(worst, rank[res]||0);
+      if(res==='mgr'||res==='gem') extra = r.self_empty ? `ขยับเป็น ${fmt(r.stand)} = ขายได้เลย` : `ขยับเป็น ${fmt(r.self_low)} = ขายได้เลย`; }
+    html += `<tr><td>${esc(l.text)}</td><td>${r?esc(r.name):'<span class="mut">—</span>'}</td>
+      <td><span class="pill ${res}">${TIER[res]}</span>${extra?`<div class="mut">${extra}</div>`:''}</td></tr>`;
+  });
+  html+='</tbody></table>';
+  const priced = lines.some(l=>l.price!=null);
+  let sum;
+  if(document.body.dataset.expired) sum = `<div class="sum gem">⛔ ตารางหมดอายุ — ใช้ Rate 1 + ลดเองได้ ≤ 5 บ./ม. ตามประกาศเดิม</div>`;
+  else if(blocked) sum = `<div class="sum mgr">🟡 ส่งเข้าแชทให้ผจก./ผบ. ช่วยดู</div>`;
+  else if(priced && tot>0 && known/tot<0.7) sum = `<div class="sum mgr">🟡 ยังสรุปไม่ได้ — ระบบรู้จักสินค้าไม่ถึง 70% ของมูลค่า<small>แก้ชื่อสินค้าให้ชัด หรือส่งรายการให้ผจก.ช่วยเช็ค</small></div>`;
+  else if(!priced) sum = `<div class="sum ok">ราคาที่ให้ได้อยู่ในตารางด้านบน<small>ยืนราคาก่อนเสมอ — ลูกค้าต่อค่อยลดทีละขั้น</small></div>`;
+  else sum = [ `<div class="sum ok">🟢 ขายได้เลย ✅<small>ทุกบรรทัดอยู่ในชั้นที่เซลตัดสินเองได้</small></div>`,
+               `<div class="sum mgr">🟡 ต้องให้ ผจก.อนุมัติ<small>ขยับราคาบรรทัดสีเหลืองขึ้นตามที่แนะนำ = ขายได้เลย</small></div>`,
+               `<div class="sum gem">🔴 ต้องขอ ผบ. พร้อมเหตุผล<small>หรือขยับราคาบรรทัดสีแดงขึ้นตามที่แนะนำ</small></div>`][worst];
+  const hasPU = lines.some(l=>/pu|พียู/i.test(l.text));
+  $('qout').innerHTML = sum + html +
+    `<div class="script"><b>สคริปต์ตอบลูกค้า:</b> ของแท้มีใบรับประกันผู้ผลิต ส่งถึงไม่บุบ 100% ครับ · ถ้าลูกค้าต่อ ให้ลดค่าส่ง/ของแถมก่อน${hasPU?' — ไม่ลด PU เป็นตัวนำ':''}</div>
+     <div class="disc">ผลนี้ตรวจจากรายการที่พิมพ์มา (ดูรายบรรทัด ยังไม่ใช่เกรดทั้งบิล) — ก่อนปริ้นส่งลูกค้า ให้เช็คซ้ำจากบิล Express จริง</div>`;
+}
+function esc(s){ return s.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Approve007 · สร้างช่วงราคาทุกเช้า 06:30 บน Mac mini (งาน deterministic = launchd ตามกติกา 3 ชั้น)
+     ติดตั้งด้วย install_macmini.sh — ไม่ต้องแก้ไฟล์นี้มือ (__ENGINE__ / __AOC__ ถูกแทนตอนติดตั้ง) -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.007metals.approve007</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string><string>python3</string>
+    <string>__ENGINE__/build.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>APPROVE007_ALL_ON_CLOUD</key><string>__AOC__</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/approve007.out.log</string>
+  <key>StandardErrorPath</key><string>/tmp/approve007.err.log</string>
+</dict>
+</plist>
