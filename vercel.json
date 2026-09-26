@@ -1,0 +1,49 @@
+{
+  "functions": {
+    "api/approve/*.py": {
+      "includeFiles": "approve007/{engine,server}/**",
+      "maxDuration": 15
+    }
+  },
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "approve.007metals.com"
+        }
+      ],
+      "destination": "/approve007",
+      "permanent": false
+    },
+    {
+      "source": "/:path((?!approve007$|api/|_vercel/).+)",
+      "has": [
+        {
+          "type": "host",
+          "value": "approve.007metals.com"
+        }
+      ],
+      "destination": "/approve007",
+      "permanent": false
+    },
+    {
+      "source": "/approve007",
+      "has": [
+        {
+          "type": "host",
+          "value": "production.007metals.com"
+        }
+      ],
+      "destination": "https://approve.007metals.com/approve007",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/approve007",
+      "destination": "/approve007/app/approve007.html"
+    }
+  ]
+}

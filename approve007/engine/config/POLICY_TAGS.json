@@ -1,0 +1,12 @@
+{
+  "version": "DRAFT-2569-09-26",
+  "approved_by": "TO-CONFIRM (ผบ. ยังไม่เคาะ — Charter P-17 ข้อ 7 D2/D4)",
+  "_note": "ร่างเท่านั้น · engine อ่านเฉพาะป้ายที่ status = 'confirmed' · ป้ายที่ยัง TO-CONFIRM ไม่ถูกใช้ตัดสิน (ยกเว้น protect จากข้อมูล Purch ตาม HANDOVER PriceBands ข้อ 3) · ผบ. เป็นคนเดียวที่แก้ไฟล์นี้",
+  "cash_cow":       { "status": "TO-CONFIRM", "codes": [], "floor": "cost+freight+GP8%", "max_codes": 20, "note": "Purch เสนอจากยอดหมุนจริง ≤ 20 รหัส ให้ ผบ. ติ๊ก" },
+  "push":           { "status": "TO-CONFIRM", "codes": [], "auto_from_purch_deadstock_days": 90, "floor": "cost*1.05" },
+  "protect":        { "status": "active-from-purch", "codes": [], "auto_from_purch_lowstock": true, "min_gp": 20, "note": "ของเหลือน้อย/คอยล์หมด → ชั้น 'ลดได้เอง' ว่าง" },
+  "profit_maker":   { "status": "confirmed", "prefixes": ["03VP-PU"], "rule": "ห้ามลดนำ — แนะนำลดค่าส่ง/ของแถมก่อน", "source": "ประกาศ 13 ส.ค. 69" },
+  "loyal_customer": { "status": "TO-CONFIRM", "min_repeat_bills": 5, "gp_15_19_to": "B", "note": "ให้ราคาสุดตั้งแต่แรก" },
+  "blocked_ar":     { "status": "TO-CONFIRM", "source": "Sommer AR", "max_grade_price": "Rate 1" },
+  "fold_07ETC":     { "status": "confirmed", "floor": "full_width_steel_price*1.30", "source": "ประกาศ 13 ส.ค. 69" }
+}

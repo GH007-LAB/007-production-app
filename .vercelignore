@@ -1,0 +1,5 @@
+# ไม่ขึ้นเว็บ production.007metals.com (ทุกไฟล์ใน repo ถูกเสิร์ฟเป็น static ถ้าไม่ตัดออก)
+# tests มีข้อมูลจำลองที่ใกล้เคียงทุนจริง · เอกสาร/สคริปต์ Mac mini ไม่ใช่ของหน้าเว็บ · เฉพาะ approve007 เท่านั้น
+approve007/tests
+approve007/engine/launchd
+approve007/*.md

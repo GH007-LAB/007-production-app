@@ -1,0 +1,803 @@
+{
+ "_note": "แผนที่ STKCOD ↔ แถวในใบราคาขายแผ่น ↔ แถวใบต้นทุนคอยล์ · regex ทั้งหมดเดาจากรหัสที่เห็นใน dealscore.py (01A-ZI-035-JJL, 01A-WA-035-ZC, 03VP-PU2525FOILWALNU) — ⚠️ TO-VERIFY บน Mac mini: รัน `python3 build.py --inspect` ดูรายการ 'ขายดีแต่ยังไม่มี Rate 1' แล้วเติม/แก้ regex ที่นี่ · แถวแรกที่ตรงชนะ",
+ "coil_processing_per_m": 2.5,
+ "families": [
+  {
+   "key": "jjl_zinc_030",
+   "label": "JJL ซิงค์ 0.30",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์"
+    ],
+    "thk_startswith": "0.30 JJL"
+   },
+   "stkcod": [
+    "^01A-ZI-030-JJL"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "รุ่นซิงค์ จิงโจ้",
+    "label_startswith": "0.30 JJL"
+   }
+  },
+  {
+   "key": "jjl_color_030",
+   "label": "JJL สี 0.30",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "รุ่นสี จิงโจ้"
+    ],
+    "thk_startswith": "0.30 JJL"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-030-JJL"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "รุ่นสี จิงโจ้",
+    "label_startswith": "0.30 JJL"
+   }
+  },
+  {
+   "key": "jjl_zinc_035",
+   "label": "JJL ซิงค์ 0.35",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์"
+    ],
+    "thk_startswith": "0.35 JJL"
+   },
+   "stkcod": [
+    "^01A-ZI-035-JJL"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "รุ่นซิงค์ จิงโจ้",
+    "label_startswith": "0.35 JJL"
+   }
+  },
+  {
+   "key": "jjl_color_035",
+   "label": "JJL สี 0.35",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "รุ่นสี จิงโจ้"
+    ],
+    "thk_startswith": "0.35 JJL"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-035-JJL"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "รุ่นสี จิงโจ้",
+    "label_startswith": "0.35 JJL"
+   }
+  },
+  {
+   "key": "zacs_zinc_030",
+   "label": "Zacs ซิงค์ 0.30",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์"
+    ],
+    "thk_startswith": "0.30 Zacs"
+   },
+   "stkcod": [
+    "^01A-ZI-030-ZACS"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "(Bluescope Zacs)",
+    "label_startswith": "0.30 Zacs"
+   }
+  },
+  {
+   "key": "zacs_zinc_035",
+   "label": "Zacs ซิงค์ 0.35",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์"
+    ],
+    "thk_startswith": "0.35 Zacs"
+   },
+   "stkcod": [
+    "^01A-ZI-035-ZACS"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "(Bluescope Zacs)",
+    "label_startswith": "0.35 Zacs"
+   }
+  },
+  {
+   "key": "zacs_zinc_040",
+   "label": "Zacs ซิงค์ 0.40",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์"
+    ],
+    "thk_startswith": "0.40 Zacs"
+   },
+   "stkcod": [
+    "^01A-ZI-040-ZACS"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "(Bluescope Zacs)",
+    "label_startswith": "0.40 Zacs"
+   }
+  },
+  {
+   "key": "zacs_cool_030",
+   "label": "Zacs Cool/Dazzle/Natural 0.30",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Zacs Cool"
+    ],
+    "thk_startswith": "0.30 Cool"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-030-(ZC|ZCL|COOL|DZ|NT)\\b"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "Zacs Cool",
+    "az": "AZ90",
+    "label_startswith": "0.30 Cool"
+   }
+  },
+  {
+   "key": "zacs_cool_035",
+   "label": "Zacs Cool/Dazzle/Natural 0.35",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Zacs Cool"
+    ],
+    "thk_startswith": "0.35 Cool"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-035-(ZC|ZCL|COOL|DZ|NT)\\b"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "Zacs Cool",
+    "az": "AZ90",
+    "label_startswith": "0.35 Cool"
+   }
+  },
+  {
+   "key": "zacs_cool_040",
+   "label": "Zacs Cool/Dazzle/Natural 0.40",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Zacs Cool"
+    ],
+    "thk_startswith": "0.40 Cool"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-040-(ZC|ZCL|COOL|DZ|NT)\\b"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "Zacs Cool",
+    "az": "AZ90",
+    "label_startswith": "0.40 Cool"
+   }
+  },
+  {
+   "key": "zacs_cool_047",
+   "label": "Zacs Cool/Dazzle/Natural 0.47",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Zacs Cool"
+    ],
+    "thk_startswith": "0.47 Cool"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-047-(ZC|ZCL|COOL|DZ|NT)\\b"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "Zacs Cool",
+    "az": "AZ90",
+    "label_startswith": "0.47 Cool"
+   }
+  },
+  {
+   "key": "zincalume_047",
+   "label": "Zincalume 0.47",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์"
+    ],
+    "thk_startswith": "0.47 Zincalume"
+   },
+   "stkcod": [
+    "^01A-ZI-047-(ZL|ZCM|ZINC)"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "Zincalume",
+    "label_startswith": "0.47 Zincalume"
+   }
+  },
+  {
+   "key": "zincalume_050",
+   "label": "Zincalume 0.50",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์"
+    ],
+    "thk_startswith": "0.50 Zincalume"
+   },
+   "stkcod": [
+    "^01A-ZI-050-(ZL|ZCM|ZINC)"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "Zincalume",
+    "label_startswith": "0.50 Zincalume"
+   }
+  },
+  {
+   "key": "colorbond_051",
+   "label": "Colorbond 0.51",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Colorbond"
+    ],
+    "thk_startswith": "0.51"
+   },
+   "stkcod": [
+    "^01A-[A-Z0-9]+-05[01]-(CB|CLB)"
+   ],
+   "coil": {
+    "block": "ราคาต้นทุน",
+    "section_contains": "Colobond",
+    "label_startswith": "0.51"
+   }
+  },
+  {
+   "key": "supergalum_035",
+   "label": "KG SuperGalum 0.35",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "SuperGalum"
+    ],
+    "thk_startswith": "0.35 Supergalum"
+   },
+   "stkcod": [
+    "^01A-ZI-035-(SG|SGL|KG)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "Supergalum",
+    "label_startswith": "0.35 KG"
+   }
+  },
+  {
+   "key": "supergalum_040",
+   "label": "KG SuperGalum 0.40",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "SuperGalum"
+    ],
+    "thk_startswith": "0.40 Supergalum"
+   },
+   "stkcod": [
+    "^01A-ZI-040-(SG|SGL|KG)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "Supergalum",
+    "label_startswith": "0.40 KG"
+   }
+  },
+  {
+   "key": "supergalum_047",
+   "label": "KG SuperGalum 0.47",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "SuperGalum"
+    ],
+    "thk_startswith": "0.47 Supergalum"
+   },
+   "stkcod": [
+    "^01A-ZI-047-(SG|SGL|KG)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "Supergalum",
+    "label_startswith": "0.47 KG"
+   }
+  },
+  {
+   "key": "supergalum_050",
+   "label": "KG SuperGalum 0.50",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "SuperGalum"
+    ],
+    "thk_startswith": "0.50 Supergalum"
+   },
+   "stkcod": [
+    "^01A-ZI-050-(SG|SGL|KG)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "Supergalum",
+    "label_startswith": "0.50 KG"
+   }
+  },
+  {
+   "key": "liger_030",
+   "label": "Liger KG 0.30",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Liger"
+    ],
+    "thk_startswith": "0.30 Liger"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-030-(LG|LGR|LIGER)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "ไลเกอร์",
+    "label_startswith": "0.30 Liger"
+   }
+  },
+  {
+   "key": "liger_035",
+   "label": "Liger KG 0.35",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Liger"
+    ],
+    "thk_startswith": "0.35 Liger"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-035-(LG|LGR|LIGER)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "ไลเกอร์",
+    "label_startswith": "0.35 Liger"
+   }
+  },
+  {
+   "key": "rooftech_030",
+   "label": "Rooftech KG 0.30",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Rooftech"
+    ],
+    "thk_startswith": "0.30 Rooftech"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-030-(RT|RTP|ROOF)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "รูฟเทค",
+    "label_startswith": "0.30 Rooftech"
+   }
+  },
+  {
+   "key": "rooftech_035",
+   "label": "Rooftech KG 0.35",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Rooftech"
+    ],
+    "thk_startswith": "0.35 Rooftech"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-035-(RT|RTP|ROOF)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "รูฟเทค",
+    "label_startswith": "0.35 Rooftech"
+   }
+  },
+  {
+   "key": "rooftech_040",
+   "label": "Rooftech KG 0.40",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Rooftech"
+    ],
+    "thk_startswith": "0.40 Rooftech"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-040-(RT|RTP|ROOF)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "รูฟเทค",
+    "label_startswith": "0.40 Rooftech"
+   }
+  },
+  {
+   "key": "rooftech_047",
+   "label": "Rooftech KG 0.47",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Rooftech"
+    ],
+    "thk_startswith": "0.47 Rooftech"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-047-(RT|RTP|ROOF)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "รูฟเทค",
+    "label_startswith": "0.47 Rooftech"
+   }
+  },
+  {
+   "key": "rooftech_050",
+   "label": "Rooftech KG 0.50",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "Rooftech"
+    ],
+    "thk_startswith": "0.50 Rooftech"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-050-(RT|RTP|ROOF)"
+   ],
+   "coil": {
+    "block": "Dongbu",
+    "section_contains": "รูฟเทค",
+    "label_startswith": "0.50 Rooftech"
+   }
+  },
+  {
+   "key": "imp_zinc_030",
+   "label": "นำเข้า ซิงค์ มอก. 0.30 (Diamond/FTW/CKB/Total)",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์ มอก. เหล็กต่างประเทศ"
+    ],
+    "thk_startswith": "0.30"
+   },
+   "stkcod": [
+    "^01A-ZI-030-(DMN|DM|FTW|CKB|TT|TOTAL)"
+   ],
+   "coil": {
+    "block": "Diamond",
+    "section_contains": "มอก.",
+    "label_startswith": "0.30"
+   }
+  },
+  {
+   "key": "imp_zinc_035",
+   "label": "นำเข้า ซิงค์ มอก. 0.35 (Diamond/FTW/CKB/Total)",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์ มอก. เหล็กต่างประเทศ"
+    ],
+    "thk_startswith": "0.35"
+   },
+   "stkcod": [
+    "^01A-ZI-035-(DMN|DM|FTW|CKB|TT|TOTAL)"
+   ],
+   "coil": {
+    "block": "Diamond",
+    "section_contains": "มอก.",
+    "label_startswith": "0.35"
+   }
+  },
+  {
+   "key": "imp_zinc_040",
+   "label": "นำเข้า ซิงค์ มอก. 0.40 (Diamond/FTW/CKB/Total)",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์ มอก. เหล็กต่างประเทศ"
+    ],
+    "thk_startswith": "0.40"
+   },
+   "stkcod": [
+    "^01A-ZI-040-(DMN|DM|FTW|CKB|TT|TOTAL)"
+   ],
+   "coil": {
+    "block": "Diamond",
+    "section_contains": "มอก.",
+    "label_startswith": "0.40"
+   }
+  },
+  {
+   "key": "imp_zinc_047",
+   "label": "นำเข้า ซิงค์ มอก. 0.47 (Diamond/FTW/CKB/Total)",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "อลูซิงค์ มอก. เหล็กต่างประเทศ"
+    ],
+    "thk_startswith": "0.47"
+   },
+   "stkcod": [
+    "^01A-ZI-047-(DMN|DM|FTW|CKB|TT|TOTAL)"
+   ],
+   "coil": {
+    "block": "Diamond",
+    "section_contains": "มอก.",
+    "label_startswith": "0.47"
+   }
+  },
+  {
+   "key": "imp_color_030",
+   "label": "นำเข้า สี 0.30 (MS/DMN/Total)",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "สี เหล็กต่างประเทศ"
+    ],
+    "thk_startswith": "0.30"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-030-(MS|DMN|DM|FTW|CKB|TT|TOTAL)"
+   ],
+   "coil": {
+    "block": "Diamond",
+    "section_contains": "สีธรรมดา",
+    "label_startswith": "0.30"
+   }
+  },
+  {
+   "key": "imp_color_035",
+   "label": "นำเข้า สี 0.35 (MS/DMN/Total)",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "สี เหล็กต่างประเทศ"
+    ],
+    "thk_startswith": "0.35"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-035-(MS|DMN|DM|FTW|CKB|TT|TOTAL)"
+   ],
+   "coil": {
+    "block": "Diamond",
+    "section_contains": "สีธรรมดา",
+    "label_startswith": "0.35"
+   }
+  },
+  {
+   "key": "imp_color_040",
+   "label": "นำเข้า สี 0.40 (MS/DMN/Total)",
+   "category": "แผ่นรีดลอน",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "สี เหล็กต่างประเทศ"
+    ],
+    "thk_startswith": "0.40"
+   },
+   "stkcod": [
+    "^01A-(?!ZI-)[A-Z0-9]+-040-(MS|DMN|DM|FTW|CKB|TT|TOTAL)"
+   ],
+   "coil": {
+    "block": "Diamond",
+    "section_contains": "สีธรรมดา",
+    "label_startswith": "0.40"
+   }
+  },
+  {
+   "key": "pu760_2525_foil",
+   "label": "PU 25mm / 25k ท้องฟอยล์ (ลอน 760)",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "ลอนมาตรฐาน 760"
+    ],
+    "thk_startswith": "25mm / 25k",
+    "spec_contains": "ฟอยล์สีเงิน"
+   },
+   "stkcod": [
+    "^03VP-PU2525(?!.*(WALN|WOOD|MARB|LW))"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pu760_2525_wood",
+   "label": "PU 25mm / 25k ลายไม้/หินอ่อน (ลอน 760)",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "ลอนมาตรฐาน 760"
+    ],
+    "thk_startswith": "25mm / 25k",
+    "spec_contains": "วอลนัท"
+   },
+   "stkcod": [
+    "^03VP-PU2525.*(WALN|WOOD|MARB|LW)"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pusl_2525_foil",
+   "label": "PU Snaplock 25mm / 25k ท้องฟอยล์",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "สแนปล็อค 310 ฉนวนกันความร้อน PU FOAM"
+    ],
+    "thk_startswith": "25mm / 25k",
+    "spec_contains": "ฟอยล์สีเงิน"
+   },
+   "stkcod": [
+    "^03VP-PUSL2525(?!.*(WALN|WOOD|MARB|LW))"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pu760_2535_foil",
+   "label": "PU 25mm / 35k ท้องฟอยล์ (ลอน 760)",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "ลอนมาตรฐาน 760"
+    ],
+    "thk_startswith": "25mm / 35k",
+    "spec_contains": "ฟอยล์สีเงิน"
+   },
+   "stkcod": [
+    "^03VP-PU2535(?!.*(WALN|WOOD|MARB|LW))"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pu760_2535_wood",
+   "label": "PU 25mm / 35k ลายไม้/หินอ่อน (ลอน 760)",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "ลอนมาตรฐาน 760"
+    ],
+    "thk_startswith": "25mm / 35k",
+    "spec_contains": "วอลนัท"
+   },
+   "stkcod": [
+    "^03VP-PU2535.*(WALN|WOOD|MARB|LW)"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pusl_2535_foil",
+   "label": "PU Snaplock 25mm / 35k ท้องฟอยล์",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "สแนปล็อค 310 ฉนวนกันความร้อน PU FOAM"
+    ],
+    "thk_startswith": "25mm / 35k",
+    "spec_contains": "ฟอยล์สีเงิน"
+   },
+   "stkcod": [
+    "^03VP-PUSL2535(?!.*(WALN|WOOD|MARB|LW))"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pu760_2540_foil",
+   "label": "PU 25mm / 40k ท้องฟอยล์ (ลอน 760)",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "ลอนมาตรฐาน 760"
+    ],
+    "thk_startswith": "25mm / 40k",
+    "spec_contains": "ฟอยล์สีเงิน"
+   },
+   "stkcod": [
+    "^03VP-PU2540(?!.*(WALN|WOOD|MARB|LW))"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pu760_2540_wood",
+   "label": "PU 25mm / 40k ลายไม้/หินอ่อน (ลอน 760)",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "ลอนมาตรฐาน 760"
+    ],
+    "thk_startswith": "25mm / 40k",
+    "spec_contains": "วอลนัท"
+   },
+   "stkcod": [
+    "^03VP-PU2540.*(WALN|WOOD|MARB|LW)"
+   ],
+   "coil": null
+  },
+  {
+   "key": "pusl_2540_foil",
+   "label": "PU Snaplock 25mm / 40k ท้องฟอยล์",
+   "category": "PU Foam",
+   "unit": "ม.",
+   "rate": {
+    "section_contains": [
+     "สแนปล็อค 310 ฉนวนกันความร้อน PU FOAM"
+    ],
+    "thk_startswith": "25mm / 40k",
+    "spec_contains": "ฟอยล์สีเงิน"
+   },
+   "stkcod": [
+    "^03VP-PUSL2540(?!.*(WALN|WOOD|MARB|LW))"
+   ],
+   "coil": null
+  }
+ ]
+}
