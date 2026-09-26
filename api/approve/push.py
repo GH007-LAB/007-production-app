@@ -6,4 +6,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from approve_api import vercel_handler  # noqa: E402
 
-handler = vercel_handler("push")
+# Vercel ตรวจ entrypoint จาก "class handler" / "app" เท่านั้น — assign ธรรมดาจะไม่ถูกนับเป็น function
+class handler(vercel_handler("push")):
+    pass
