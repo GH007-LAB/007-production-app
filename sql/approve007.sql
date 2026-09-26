@@ -62,6 +62,6 @@ revoke all on public.approve_snapshot, public.approve_so_line, public.approve_ch
 -- 4) ลงทะเบียนแอปใน hub — แล้วติ๊กสิทธิ์รายคนที่ app.007metals.com/admin/access
 --    คอลัมน์ตาม SP-TT-dashboard/db/central_identity.sql (name_th ไม่ใช่ name) · sort 10 ต่อจาก finance (9)
 insert into public.apps (code, name_th, url, icon, description, sort, active)
-values ('approve007', 'Approve007 · ขายได้เลยไหม', 'https://production.007metals.com/approve007',
+values ('approve007', 'Approve007 · ขายได้เลยไหม', 'https://approve.007metals.com/',
         'check', 'เช็คเกรดราคาบิลก่อนขาย (P-17)', 10, true)
 on conflict (code) do nothing;

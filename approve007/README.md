@@ -77,13 +77,13 @@ node approve007/tests/test_app.mjs "/tmp/fx/My Drive (007skn0777@gmail.com)/All_
 ## เฟส 1 — เกรดทั้งบิลออนไลน์ (เช็คจากเลข SO · เช็คไวเกรดทั้งบิล)
 
 ```
-Mac mini (build.py push ทุก 15 นาที)                         Vercel = production.007metals.com
+Mac mini (build.py push ทุก 15 นาที)                         Vercel (project 007-production-app)
  ทุน costbook_rules · Rate 1 · สินค้า · ช่วงราคา ──snapshot──▶  /api/approve/push   (X-Approve-Token)
  บรรทัดบิล SO 60 วันพร้อมราคา (OESOIT)        ──so_lines──▶         │
                                                               Supabase: approve_snapshot · approve_so_line
  approval_requests.jsonl ◀── ผล < 75% ─── /api/approve/log            (RLS เปิด ไม่มี policy = service role เท่านั้น)
                                                                     │
- เซลเปิด production.007metals.com/approve007 (ล็อกอินกลาง) ──▶ /api/approve/check → approve_engine.grade_bill (ไฟล์เดียวกัน)
+ เซลเปิด approve.007metals.com (ล็อกอินกลาง) ──▶ /api/approve/check → approve_engine.grade_bill (ไฟล์เดียวกัน)
 ```
 
 - `api/approve/{check,bands,push,log}.py` เป็น Vercel Python ที่เรียก `server/approve_api.py` ซึ่ง import `engine/approve_engine.py` ตัวเดียวกับ Mac mini และตัวเฝ้าบิล ทุกชั้นจึงได้เกรดตรงกัน
@@ -99,7 +99,9 @@ Mac mini (build.py push ทุก 15 นาที)                         Verce
 1. Supabase กลาง: รัน `sql/approve007.sql` (คอลัมน์ `apps` ตรวจแล้ว: `name_th`) → ติ๊กสิทธิ์รายคนที่ app.007metals.com/admin/access
 2. Vercel: เพิ่ม env `APPROVE007_PUSH_TOKEN` เป็นสุ่ม ≥ 32 ตัว เช่น `openssl rand -hex 24` (`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` มีอยู่แล้ว) · ถ้าจะจำกัดโหมด ผบ. ให้ตั้ง `APPROVE007_GEM_IDS`
 3. Mac mini: `APPROVE007_PUSH_TOKEN=<ค่าเดียวกัน> bash approve007/engine/launchd/install_macmini.sh` → ติดตั้ง push ทุก 15 นาที · ทดสอบด้วย `build.py push`
-4. เปิด https://production.007metals.com/approve007 ลองเช็ค SO6903141 เทียบกับ `build.py check SO6903141 PPS` ต้องได้เกรดเดียวกัน
+4. เปิด https://approve.007metals.com ลองเช็ค SO6903141 เทียบกับ `build.py check SO6903141 PPS` ต้องได้เกรดเดียวกัน
+
+**โดเมน:** `approve.007metals.com` เป็นโดเมนที่ 2 ของ Vercel project เดียวกับแอปผลิต (ไม่ต้องตั้ง env ซ้ำ) · `vercel.json` redirect `/` ของโดเมนนี้ → `/approve007` (rewrite ทับ `index.html` ของแอปผลิตไม่ได้ เพราะ Vercel เช็คไฟล์ก่อน rewrite) และ redirect `production.007metals.com/approve007` → โดเมนใหม่ · Mac mini push ไป `production.007metals.com/api/approve` ได้เหมือนเดิม (API ชุดเดียวกัน)
 
 **ข้อจำกัด:** บิลที่เพิ่งบันทึกใช้เวลา sync ไฟล์จากสาขาขึ้น AutoExport บวกรอบ push อีกไม่เกิน 15 นาที ถ้าต้องการผลภายใน 3 วินาทีหลังกดบันทึก ให้ใช้ตัวเฝ้าบิลเฟส 2 ที่รันบนเครื่องสาขา
 

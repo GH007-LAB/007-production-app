@@ -248,7 +248,7 @@ function quick(){
      <div class="disc">ผลนี้ตรวจจากรายการที่พิมพ์มา (ดูรายบรรทัด ยังไม่ใช่เกรดทั้งบิล) — ก่อนปริ้นส่งลูกค้า ให้เช็คซ้ำจากบิล Express จริง</div>`;
 }
 function esc(s){ return s.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-/* ================= ออนไลน์ (production.007metals.com/approve007) =================
+/* ================= ออนไลน์ (approve.007metals.com · Vercel project เดียวกับแอปผลิต) =================
    ล็อกอินกลางที่เดียว (cookie SSO ร่วม *.007metals.com แบบเดียวกับแอปผลิต) → เรียก /api/approve/*
    เกรดทั้งบิลคิดฝั่งเซิร์ฟเวอร์ด้วย engine เดียวกับ Mac mini — หน้านี้ไม่เคยได้รับทุน/GP ในโหมดเซล */
 const ONLINE = /(^|\.)007metals\.com$/.test(location.hostname) || !!window.__A7_API__;
@@ -341,7 +341,7 @@ async function gradeQuick(){
   try{ $('qout').innerHTML = gradeCard(await api('check', {branch: $('br').value, text})); }
   catch(e){ $('qout').innerHTML = `<div class="sum gem">⛔ ${esc(API_ERR[e.message]||e.message)}</div>`; }
 }
-$('soForm').addEventListener('submit', e=>{ e.preventDefault(); if(!ONLINE){ $('soOut').innerHTML = '<div class="sum mgr">🟡 เช็คบิล SO ต้องเปิดผ่าน production.007metals.com/approve007 (ล็อกอินกลาง) — ไฟล์ใน Drive ใช้ได้แค่ช่วงราคา/เช็คไว</div>'; return; } checkSO(); });
+$('soForm').addEventListener('submit', e=>{ e.preventDefault(); if(!ONLINE){ $('soOut').innerHTML = '<div class="sum mgr">🟡 เช็คบิล SO ต้องเปิดผ่าน approve.007metals.com (ล็อกอินกลาง) — ไฟล์ใน Drive ใช้ได้แค่ช่วงราคา/เช็คไว</div>'; return; } checkSO(); });
 init();
 </script>
 </body>
