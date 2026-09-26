@@ -6,7 +6,7 @@ Approve007 · build — รันบน Mac mini (launchd 06:30 ทุกเช�
   python3 build.py                    สร้างช่วงราคา 3 สาขา → Approve007/pricebands.js + PDF + รายงาน ผบ. + status
   python3 build.py --inspect          รหัสขายดีที่ยังไม่มี Rate 1 / ยังไม่มีทุน (ไว้แก้ config/families.json)
   python3 build.py verify             ทดสอบเคสจริงตาม DoD (SO6903141 PPS · SO6904651 SKN)
-  python3 build.py check SO6903141 PPS [GEM|MGR]   เกรดบิลจริงจาก Express (engine เดียวกับทุกชั้น)
+  python3 build.py check SO6903141 [PPS] [GEM|MGR] เกรดบิลจริงจาก Express (ไม่ใส่สาขา = ค้นทุกสาขา · ซ้ำ = ให้เลือก)
   python3 build.py backtest [วัน=90]  baseline สัดส่วนเกรดรายสาขา/รายเซล (Charter K1/K6)
 
 ไฟล์ที่เซลเปิดได้ (Approve007/*) ห้ามมีทุน/GP — build จะ assert ก่อนเขียนทุกครั้ง
@@ -465,19 +465,51 @@ def cmd_preflight(L):
 
 def so_lines(L, sonum, br):
     rows = [r for r in read_dbf(L.dbf(br, "OESOIT.DBF"),
-                                {"SONUM", "STKCOD", "ORDQTY", "UNITPR", "TRNVAL", "TFACTOR", "STKDES"})
+                                {"SONUM", "SODAT", "STKCOD", "ORDQTY", "UNITPR", "TRNVAL", "TFACTOR", "STKDES"})
             if r.get("SONUM") == sonum]
     return [{"code": r.get("STKCOD"), "qty": r.get("ORDQTY"), "price": r.get("UNITPR"),
-             "value": r.get("TRNVAL"), "tfactor": r.get("TFACTOR") or 1, "desc": r.get("STKDES")} for r in rows]
+             "value": r.get("TRNVAL"), "tfactor": r.get("TFACTOR") or 1, "desc": r.get("STKDES"),
+             "date": as_date(r.get("SODAT"))} for r in rows]
 
 
-def cmd_check(L, sonum, br, role="SALES"):
-    D = Data(L, days=1)
-    lines = so_lines(L, sonum.upper(), br.upper())
-    if not lines:
-        print(f"ไม่พบ {sonum} ใน {br}")
+def so_header(L, sonum, br):
+    """วันที่/ลูกค้าจาก OESO (ถ้ามี) — ใช้ช่วยเซลเลือกสาขาเมื่อเลข SO ซ้ำ"""
+    p = L.dbf(br, "OESO.DBF")
+    if os.path.exists(p):
+        for r in read_dbf(p, {"SONUM", "SODAT", "CUSCOD", "CUSNAM"}):
+            if r.get("SONUM") == sonum:
+                return r
+    return {}
+
+
+def find_so(L, sonum, branches=BRANCHES):
+    """หา SO ในทุกสาขาที่ระบุ → [(สาขา, lines)] · เลข SO ซ้ำข้ามสาขาได้จริง (SO6903141 มี 3 สาขา)"""
+    return [(br, lines) for br in branches if os.path.exists(L.dbf(br, "OESOIT.DBF"))
+            for lines in [so_lines(L, sonum, br)] if lines]
+
+
+def cmd_check(L, sonum, br=None, role="SALES"):
+    """เช็คบิลจากเลข SO · ไม่ระบุสาขา = ใช้ APPROVE007_BRANCH (เครื่องสาขา) หรือค้นทั้ง 3 สาขา
+    เจอมากกว่า 1 สาขา → ไม่เดา แสดงรายการให้เลือกแล้วรันใหม่พร้อมสาขา (HANDOVER ข้อ 8)"""
+    sonum = sonum.strip().upper()
+    br = (br or os.environ.get("APPROVE007_BRANCH") or "").upper() or None
+    hits = find_so(L, sonum, (br,) if br else BRANCHES)
+    if not hits:
+        print(f"ไม่พบ {sonum} ใน {br or 'ทั้ง 3 สาขา'}")
         return None
-    res = E.grade_bill(lines, br.upper(), D.book, role=role, rate1_of=lambda c: D.rate1_of(c, br.upper())[0])
+    if len(hits) > 1:
+        print(f"⚠️ เลข {sonum} มีใน {len(hits)} สาขา — เลือกสาขาให้ถูกก่อน แล้วรันใหม่: build.py check {sonum} <สาขา>")
+        for b, lines in hits:
+            h = so_header(L, sonum, b)
+            d = as_date(h.get("SODAT")) or lines[0].get("date")
+            total = sum((l["value"] if l["value"] is not None else (l["qty"] or 0) * (l["price"] or 0)) for l in lines)
+            cus = (h.get("CUSNAM") or h.get("CUSCOD") or "").strip()
+            print(f"  • {b} ({BR_NAME[b]}): วันที่ {th_date(d) if d else '–'} · ลูกค้า {cus or '–'} · "
+                  f"{len(lines)} บรรทัด · ยอด {total:,.2f} บาท")
+        return {"ambiguous": [b for b, _ in hits]}
+    b, lines = hits[0]
+    D = Data(L, days=1)
+    res = E.grade_bill(lines, b, D.book, role=role, rate1_of=lambda c: D.rate1_of(c, b)[0])
     print(json.dumps(res, ensure_ascii=False, indent=1))
     return res
 
@@ -558,7 +590,9 @@ def main(argv):
     elif cmd == "verify":
         sys.exit(0 if cmd_verify(L) else 1)
     elif cmd == "check":
-        cmd_check(L, argv[2], argv[3], argv[4].upper() if len(argv) > 4 else "SALES")
+        rest = [a.upper() for a in argv[3:]]
+        cmd_check(L, argv[2], next((a for a in rest if a in BRANCHES), None),
+                  next((a for a in rest if a in ("SALES", "MGR", "GEM")), "SALES"))
     elif cmd == "backtest":
         cmd_backtest(L, int(argv[2]) if len(argv) > 2 else 90)
     else:

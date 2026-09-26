@@ -183,6 +183,18 @@ class EndToEnd(unittest.TestCase):
     def test_backtest_and_check(self):
         c = self.run_build("check", "SO6903141", "SKN")
         self.assertIn('"branch": "SKN"', c.stdout)                                 # SO ซ้ำข้ามสาขา → เลือกตามสาขา
+        dup = self.run_build("check", "so6903141")                                 # ไม่ระบุสาขา + เลขซ้ำ → ไม่เดา
+        self.assertIn("มีใน 2 สาขา", dup.stdout, dup.stdout + dup.stderr)
+        self.assertNotIn('"grade"', dup.stdout)
+        self.assertIn("PPS (โพนพิสัย)", dup.stdout)
+        one = self.run_build("check", "SO6904651")                                 # มีสาขาเดียว → เกรดเลย
+        self.assertIn('"branch": "SKN"', one.stdout)
+        self.assertIn("ไม่พบ", self.run_build("check", "SO0000000").stdout)
+        env = dict(self.env, APPROVE007_BRANCH="PPS")                              # เครื่องสาขา → ใช้สาขาตัวเอง
+        own = subprocess.run([sys.executable, os.path.join(ENGINE, "build.py"), "check", "SO6903141"], env=env,
+                             capture_output=True, text=True, timeout=120)
+        self.assertIn('"branch": "PPS"', own.stdout)
+        self.assertIn('"grade": "X"', own.stdout)
         b = self.run_build("backtest", "30")
         self.assertEqual(b.returncode, 0, b.stderr)
         self.assertIn("(ไม่ระบุเซล)", b.stdout)
