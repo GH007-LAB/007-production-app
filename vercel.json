@@ -18,6 +18,17 @@
       "permanent": false
     },
     {
+      "source": "/:path((?!approve007$|api/|_vercel/).+)",
+      "has": [
+        {
+          "type": "host",
+          "value": "approve.007metals.com"
+        }
+      ],
+      "destination": "/approve007",
+      "permanent": false
+    },
+    {
       "source": "/approve007",
       "has": [
         {
