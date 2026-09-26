@@ -51,6 +51,51 @@ const page = await browser.newPage();
 await page.addInitScript(() => { const D = Date; window.Date = class extends D { constructor(...a) { super(...(a.length ? a : [D.now() + 10 * 864e5])); } static now() { return D.now() + 10 * 864e5; } }; });
 await page.goto('file://' + dir + '/approve007.html');
 ok(/หมดอายุ ห้ามใช้/.test(await page.innerText('#banner')), 'ตารางเกิน 7 วัน → แถบแดง "หมดอายุ ห้ามใช้"');
+await page.close();
+// ---------- โหมดออนไลน์: หน้าเว็บ → API ตัวจริง (engine เดียวกัน) บน Supabase จำลอง ----------
+{
+  const { spawn } = await import('child_process');
+  const { mkdtempSync, copyFileSync } = await import('fs');
+  const { tmpdir } = await import('os');
+  const here = new URL('.', import.meta.url).pathname;
+  const proc = spawn('python3', [here + 'serve_api_fixture.py'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const base = await new Promise((res, rej) => { proc.stdout.once('data', d => res(d.toString().trim())); proc.once('exit', c => rej(new Error('api exit ' + c))); });
+  const bare = mkdtempSync(tmpdir() + '/a7online-');                     // ไม่มี pricebands.js → ต้องโหลดจาก API
+  copyFileSync(dir + '/approve007.html', bare + '/approve007.html');
+  for (const [tok, role] of [['tok-sale', 'SALES'], ['tok-gem', 'GEM']]) {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const errors = []; page.on('pageerror', e => errors.push(e.message));
+    const apiBodies = []; page.on('response', async r => { if (r.url().includes('/api/approve/')) apiBodies.push(await r.text()); });
+    await page.addInitScript(([b, t]) => { window.__A7_API__ = b; window.__A7_TOKEN__ = t; localStorage.setItem('a7_br', '"PPS"'); }, [base, tok]);
+    await page.goto('file://' + bare + '/approve007.html');
+    await page.waitForSelector('#rows tr');
+    ok(/ใช้ได้ถึง/.test(await page.innerText('#banner')), `${role}: โหลดช่วงราคาจาก API ได้`);
+    await page.click('#t_so');
+    await page.fill('#soNum', 'so6903141');
+    await page.click('#soForm button[type=submit]');
+    await page.waitForSelector('#soOut .sum');
+    ok(/หลายสาขา/.test(await page.innerText('#soOut')), `${role}: SO ซ้ำข้ามสาขา → ให้เลือกสาขา`);
+    await page.click('#soOut button:has-text("PPS")');
+    await page.waitForFunction(() => /เกรด/.test(document.querySelector('#soOut').innerText));
+    const t = await page.innerText('#soOut');
+    ok(/เกรด X/.test(t) && /0%/.test(t), `${role}: SO6903141 PPS → เกรด X 0%`);
+    ok(role === 'GEM' ? /GP -?\d/.test(t) : !/GP -?\d/.test(t), `${role}: ${role === 'GEM' ? 'เห็น GP' : 'ไม่เห็น GP'}`);
+    await page.click('#t_quick');
+    await page.fill('#lines', 'ลอน 0.35 zacs cool ขาว 800 ม. 125\nสกรู 75 มม. 2000 ตัว 2.5\nPU 25 ท้องไม้ 300 ม. 100');
+    await page.click('#btnGrade');
+    await page.waitForSelector('#qout .sum');
+    ok(/เกรด X/.test(await page.innerText('#qout')), `${role}: เช็คไว (เกรดทั้งบิล) ตรงกับบิลจริง = X`);
+    if (role === 'SALES') {
+      const all = apiBodies.join('\n');
+      ok(!/"gp_pct"|"cost"|131\.6|72\.8|2\.78/.test(all), 'SALES: network response ไม่มีทุน/GP');
+      if (shots) await page.screenshot({ path: `${shots}/a7_online_quick.png`, fullPage: true });
+      await page.click('#t_so'); if (shots) await page.screenshot({ path: `${shots}/a7_online_so.png`, fullPage: true });
+    }
+    ok(errors.length === 0, `${role}: ไม่มี JS error ${errors.join(' | ')}`);
+    await page.close();
+  }
+  proc.kill();
+}
 await browser.close();
 console.log(fail.length ? `APP TEST FAIL (${fail.length})` : 'APP TEST OK');
 process.exit(fail.length ? 1 : 0);

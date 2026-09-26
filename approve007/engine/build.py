@@ -8,6 +8,8 @@ Approve007 · build — รันบน Mac mini (launchd 06:30 ทุกเช�
   python3 build.py verify             ทดสอบเคสจริงตาม DoD (SO6903141 PPS · SO6904651 SKN)
   python3 build.py check SO6903141 [PPS] [GEM|MGR] เกรดบิลจริงจาก Express (ไม่ใส่สาขา = ค้นทุกสาขา · ซ้ำ = ให้เลือก)
   python3 build.py backtest [วัน=90]  baseline สัดส่วนเกรดรายสาขา/รายเซล (Charter K1/K6)
+  python3 build.py push               เฟส 1: ส่งทุน/Rate 1/บิล 60 วันขึ้น API + ดึงผล < 75% ลง approval_requests.jsonl
+  python3 build.py pull-log           ดึงผล < 75% อย่างเดียว
 
 ไฟล์ที่เซลเปิดได้ (Approve007/*) ห้ามมีทุน/GP — build จะ assert ก่อนเขียนทุกครั้ง
 """
@@ -321,9 +323,8 @@ def html_to_pdf(html_path, pdf_path):
 
 
 # ------------------------------------------------------------------ คำสั่งหลัก
-def cmd_build(L, inspect=False):
-    D = Data(L)
-    gen = today()
+def make_bands(D, gen):
+    """ช่วงราคาทั้ง 3 สาขา (ไม่มีทุน) + รายงาน ผบ. — ใช้ทั้งตอนสร้างไฟล์ใน Drive และตอนส่งขึ้น API"""
     valid_until = gen + datetime.timedelta(days=VALID_DAYS)
     age = D.book.age_days
     stale = None
@@ -336,7 +337,6 @@ def cmd_build(L, inspect=False):
                "rate_sheet": D.rate_sheet[0] if D.rate_sheet else None,
                "policy": {"self_discount_per_m": E.SELF_DISCOUNT_PER_M}, "branches": {}}
     report, missing_all, summary = [], {}, {}
-    tag = be_yymmdd(gen)
     for br in BRANCHES:
         rows, rep, missing = build_branch(D, br)
         report += rep
@@ -345,6 +345,18 @@ def cmd_build(L, inspect=False):
         summary[br] = {"rows": len(rows), "codes": sum(len(r["codes"]) for r in rows),
                        "ask": sum(1 for r in rows if r["status"] == "ask"),
                        "rate1_below_target": len(rep)}
+    assert_no_cost(payload, "pricebands")
+    return payload, report, missing_all, summary
+
+
+def cmd_build(L, inspect=False):
+    D = Data(L)
+    gen = today()
+    payload, report, missing_all, summary = make_bands(D, gen)
+    valid_until = datetime.date.fromisoformat(payload["valid_until"])
+    stale, age = payload["stale"], D.book.age_days
+    tag = be_yymmdd(gen)
+    for br in BRANCHES:
         if inspect:
             continue
         page = render_pdf_html(br, payload["branches"][br], gen, valid_until, stale,
@@ -580,6 +592,113 @@ def cmd_backtest(L, days=90):
     print("เขียน", p)
 
 
+# ------------------------------------------------------------------ เฟส 1: ส่งขึ้น API (Mac mini → Vercel)
+API_BASE = os.environ.get("APPROVE007_API", "https://production.007metals.com/api/approve")
+SO_DAYS = 60
+SO_CHUNK = 1500
+
+
+def api_call(method, action, body=None, query=""):
+    import urllib.request
+    token = os.environ.get("APPROVE007_PUSH_TOKEN") or ""
+    if len(token) < 24:
+        raise SystemExit("❌ ไม่มี APPROVE007_PUSH_TOKEN (≥ 24 ตัว) — ตั้งค่าเดียวกับบน Vercel ใน env ของ launchd")
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(f"{API_BASE}/{action}{query}", data=data, method=method,
+                                 headers={"Content-Type": "application/json", "X-Approve-Token": token})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def build_snapshot(D, gen):
+    """ของที่เซิร์ฟเวอร์ต้องใช้คิดเกรด: ทุน (ไม่มี PIN) · Rate 1 · รายการสินค้าไว้จับคู่ชื่อ · ช่วงราคา (ไม่มีทุน)"""
+    bands, _, _, _ = make_bands(D, gen)
+    rules = {k: D.rules.get(k) for k in ("updated", "prefix", "exact", "exact_any", "fast")}
+    rate1, catalog, as_of = {}, {}, {}
+    for br in BRANCHES:
+        r1, cat = {}, []
+        for code, a in D.sales[br].items():
+            if code.startswith("ZZ"):
+                continue
+            v, _ = D.rate1_of(code, br)
+            if v:
+                r1[code] = v
+            fam = D.family_of(code)
+            cat.append([code, D.desc_of(code, br), fam["label"] if fam else None, D.unit_of(code, br),
+                        round(a["val"])])
+        rate1[br], catalog[br] = r1, cat
+        p = D.L.dbf(br, "OESOIT.DBF")
+        if os.path.exists(p):
+            as_of[br] = datetime.datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="minutes")
+    return {"generated": datetime.datetime.now().isoformat(timespec="seconds"), "rules": rules,
+            "rate1": rate1, "catalog": catalog, "bands": bands, "so_as_of": as_of}
+
+
+def so_rows_recent(L, br, days=SO_DAYS):
+    cut = today() - datetime.timedelta(days=days)
+    cus = {}
+    p = L.dbf(br, "OESO.DBF")
+    if os.path.exists(p):
+        for r in read_dbf(p, {"SONUM", "CUSNAM", "CUSCOD"}):
+            cus[r.get("SONUM")] = (r.get("CUSNAM") or r.get("CUSCOD") or "").strip()
+    by = defaultdict(list)
+    for r in read_dbf(L.dbf(br, "OESOIT.DBF"), {"SONUM", "SODAT", "STKCOD", "STKDES", "ORDQTY", "UNITPR", "TRNVAL", "TFACTOR"}):
+        d = as_date(r.get("SODAT"))
+        so = r.get("SONUM") or ""
+        if d and d >= cut and so.startswith("SO"):
+            by[so].append({"sonum": so, "seq": len(by[so]) + 1, "sodat": d.isoformat(), "stkcod": r.get("STKCOD"),
+                           "stkdes": r.get("STKDES"), "qty": r.get("ORDQTY"), "price": r.get("UNITPR"),
+                           "value": r.get("TRNVAL"), "tfactor": r.get("TFACTOR") or 1, "cusnam": cus.get(so, "")})
+    return cut, by
+
+
+def cmd_push(L):
+    """ทุก 15 นาที (launchd): snapshot + บรรทัดบิล 60 วัน ขึ้น API · แล้วดึงผล < 75% ลง approval_requests.jsonl"""
+    D = Data(L)
+    snap = build_snapshot(D, today())
+    print("snapshot:", api_call("POST", "push", {"kind": "snapshot", "payload": snap}))
+    for br in BRANCHES:
+        if not os.path.exists(L.dbf(br, "OESOIT.DBF")):
+            continue
+        cut, by = so_rows_recent(L, br)
+        chunk, first, sent = [], True, 0
+        for so in sorted(by):                      # ไม่ตัด SO เดียวข้ามชุด (เซิร์ฟเวอร์แทนที่ทีละ SO)
+            chunk += by[so]
+            if len(chunk) >= SO_CHUNK:
+                api_call("POST", "push", {"kind": "so_lines", "branch": br, "since": cut.isoformat(),
+                                          "first": first, "rows": chunk})
+                sent, chunk, first = sent + len(chunk), [], False
+        api_call("POST", "push", {"kind": "so_lines", "branch": br, "since": cut.isoformat(),
+                                  "first": first, "rows": chunk})
+        print(f"{br}: ส่ง {sent + len(chunk)} บรรทัด ({len(by)} SO ตั้งแต่ {cut})")
+    cmd_pull_log(L)
+
+
+def cmd_pull_log(L):
+    """ผลเช็คออนไลน์ที่ < 75% → ต่อท้าย AutoExport/Live/approval_requests.jsonl (รูปแบบเดียวกับ checkso)"""
+    state_p = os.path.join(L.agent_status, "approve007_log_state.json")
+    try:
+        with open(state_p, encoding="utf-8") as f:
+            after = json.load(f).get("after", 0)
+    except (OSError, ValueError):
+        after = 0
+    rows = api_call("GET", "log", query=f"?after={after}").get("rows") or []
+    if rows:
+        os.makedirs(L.live, exist_ok=True)
+        with open(L.approval_log, "a", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps({"ts": r["ts"][:19], "br": r.get("branch"), "so": r.get("sonum") or "",
+                                    "total": r.get("total"), "chance": r.get("chance"), "cov": r.get("coverage"),
+                                    "by": r.get("name") or "sales", "layer": r.get("layer"), "grade": r.get("grade"),
+                                    "blocked": r.get("blocked", False), "src": "approve007"},
+                                   ensure_ascii=False) + "\n")
+        after = rows[-1]["id"]
+        os.makedirs(L.agent_status, exist_ok=True)
+        with open(state_p, "w", encoding="utf-8") as f:
+            json.dump({"after": after}, f)
+    print(f"approval_requests.jsonl: +{len(rows)} แถว")
+
+
 def main(argv):
     L = Layout()
     cmd = argv[1] if len(argv) > 1 else "build"
@@ -593,6 +712,10 @@ def main(argv):
         rest = [a.upper() for a in argv[3:]]
         cmd_check(L, argv[2], next((a for a in rest if a in BRANCHES), None),
                   next((a for a in rest if a in ("SALES", "MGR", "GEM")), "SALES"))
+    elif cmd == "push":
+        cmd_push(L)
+    elif cmd == "pull-log":
+        cmd_pull_log(L)
     elif cmd == "backtest":
         cmd_backtest(L, int(argv[2]) if len(argv) > 2 else 90)
     else:

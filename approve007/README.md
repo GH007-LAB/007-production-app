@@ -34,7 +34,9 @@ Google Drive 007skn0777
 | `engine/config/families.json` | แผนที่ STKCOD ↔ แถวในใบราคา ↔ แถวใบคอยล์ (**ต้องตรวจกับรหัสจริง** ดูข้อ 2 ด้านล่าง) |
 | `engine/config/POLICY_TAGS.json` | ร่างป้ายเงื่อนไข · ทุกป้ายยังเป็น TO-CONFIRM จนกว่า ผบ. จะเคาะ |
 | `app/approve007.html` | หน้าเว็บเซล: 💰 ช่วงราคา (พิมพ์ราคา → สีเปลี่ยนตามชั้น) · ⚡ เช็คไว (พิมพ์รายการจากสมุด) |
-| `tests/` | `make_fixture.py` (All_on_Cloud จำลอง) · `test_engine.py` (21 เทส) · `test_app.mjs` (Chromium) |
+| `engine/quick.py` | เช็คไวฝั่งเซิร์ฟเวอร์: อ่านรายการภาษาหน้างาน → รหัสสินค้า (ไม่ฟันธงถ้ากำกวม) |
+| `server/approve_api.py` · `api/approve/*.py` | API เฟส 1 บน Vercel (ดูหัวข้อเฟส 1) |
+| `tests/` | `make_fixture.py` (All_on_Cloud จำลอง) · `test_engine.py` + `test_api.py` (32 เทส) · `test_app.mjs` (Chromium ทั้งโหมด Drive และออนไลน์) |
 
 ## ติดตั้งบน Mac mini (ทำตามลำดับ)
 
@@ -57,7 +59,7 @@ bash approve007/engine/launchd/install_macmini.sh
   - ผจก. ≥ P(10%)
   - ต่ำกว่านั้นขอ ผบ.
   - ขอบล่างปัดขึ้นเสมอ (บาทเต็ม / 0.05) · ไม่แสดงเส้นทุน
-- **เพิ่มเพื่อความปลอดภัย**: ถ้า Rate 1 ต่ำกว่า P(10%) หรือต่ำกว่าทุน สินค้านั้นจะไม่ขึ้นเขียว "ยืนราคา" แต่ขึ้นว่า "ถามก่อนขาย — รอ ผบ. ตัดสิน" และไปอยู่ในรายงาน ผบ. แทน (ตัวอย่าง: JJL สี 0.35 ใน costbook.js เดิม ทุน 110.2 แต่ Rate 1 = 110)
+- **เพิ่มเพื่อความปลอดภัย**: ถ้า Rate 1 ต่ำกว่า P(10%) หรือต่ำกว่าทุน สินค้านั้นจะไม่ขึ้นเขียว "ยืนราคา" แต่ขึ้นว่า "ถามก่อนขาย — รอ ผบ. ตัดสิน" และไปอยู่ในรายงาน ผบ. แทน (ตัวอย่าง: JJL สี 0.35 ใน costbook.js เดิม ทุนสูงกว่าราคาป้าย)
 - **เกรดบิล**:
   - A ≥35% · B 20–34.9% (หมุนเร็ว ≥15%) · C 10–19.9% · D <10% หรือบิล >300,000 · X มีบรรทัดต่ำกว่าทุน
   - รู้ทุนไม่ถึง 70% ของบิล = ไม่สรุป
@@ -72,8 +74,37 @@ python3 approve007/tests/make_fixture.py /tmp/fx && APPROVE007_ALL_ON_CLOUD="/tm
 node approve007/tests/test_app.mjs "/tmp/fx/My Drive (007skn0777@gmail.com)/All_on_Cloud/Approve007"
 ```
 
+## เฟส 1 — เกรดทั้งบิลออนไลน์ (เช็คจากเลข SO · เช็คไวเกรดทั้งบิล)
+
+```
+Mac mini (build.py push ทุก 15 นาที)                         Vercel = production.007metals.com
+ ทุน costbook_rules · Rate 1 · สินค้า · ช่วงราคา ──snapshot──▶  /api/approve/push   (X-Approve-Token)
+ บรรทัดบิล SO 60 วันพร้อมราคา (OESOIT)        ──so_lines──▶         │
+                                                              Supabase: approve_snapshot · approve_so_line
+ approval_requests.jsonl ◀── ผล < 75% ─── /api/approve/log            (RLS เปิด ไม่มี policy = service role เท่านั้น)
+                                                                    │
+ เซลเปิด production.007metals.com/approve007 (ล็อกอินกลาง) ──▶ /api/approve/check → approve_engine.grade_bill (ไฟล์เดียวกัน)
+```
+
+- `api/approve/{check,bands,push,log}.py` เป็น Vercel Python ที่เรียก `server/approve_api.py` ซึ่ง import `engine/approve_engine.py` ตัวเดียวกับ Mac mini และตัวเฝ้าบิล ทุกชั้นจึงได้เกรดตรงกัน
+- **สิทธิ์** ดูจากทะเบียน `employees` (หลักเดียวกับ `/api/line/enter`) และต้องติ๊กแอป `approve007` ใน `app_access`
+  - is_admin (หรือ `APPROVE007_GEM_IDS`) → โหมด ผบ. เห็น GP เต็ม
+  - "ผู้จัดการสาขา" → เห็นช่วง GP เฉพาะสาขาตัวเอง
+  - นอกนั้น → โหมดเซล ไม่มีทุน/GP แม้แต่ใน network response
+- **เลข SO ซ้ำข้ามสาขา** ไม่เดา · ส่งรายการสาขาให้เลือก
+- **กันไล่ราคา** รายการเดิมจากคนเดิมเกิน 5 ครั้ง/ชม. → หยุดตอบ + log
+- **เช็คไว** จับคู่ชื่อแบบไม่ฟันธง (`engine/quick.py`) ความมั่นใจ < 0.8 หรือกำกวมระหว่างยี่ห้อ = ไม่นับบรรทัดนั้น ถ้ารู้จักไม่ถึง 70% ของบิลจะไม่สรุป
+
+**ขั้นตอนเปิดใช้ (ต้องทำเอง — Claude deploy/รัน SQL ให้ไม่ได้):**
+1. Supabase กลาง: รัน `sql/approve007.sql` (ตรวจชื่อคอลัมน์ตาราง `apps` ก่อน) → ติ๊กสิทธิ์รายคนที่ app.007metals.com/admin/access
+2. Vercel: เพิ่ม env `APPROVE007_PUSH_TOKEN` เป็นสุ่ม ≥ 32 ตัว เช่น `openssl rand -hex 24` (`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` มีอยู่แล้ว) · ถ้าจะจำกัดโหมด ผบ. ให้ตั้ง `APPROVE007_GEM_IDS`
+3. Mac mini: `APPROVE007_PUSH_TOKEN=<ค่าเดียวกัน> bash approve007/engine/launchd/install_macmini.sh` → ติดตั้ง push ทุก 15 นาที · ทดสอบด้วย `build.py push`
+4. เปิด https://production.007metals.com/approve007 ลองเช็ค SO6903141 เทียบกับ `build.py check SO6903141 PPS` ต้องได้เกรดเดียวกัน
+
+**ข้อจำกัด:** บิลที่เพิ่งบันทึกใช้เวลา sync ไฟล์จากสาขาขึ้น AutoExport บวกรอบ push อีกไม่เกิน 15 นาที ถ้าต้องการผลภายใน 3 วินาทีหลังกดบันทึก ให้ใช้ตัวเฝ้าบิลเฟส 2 ที่รันบนเครื่องสาขา
+
 ## ยังไม่ได้ทำ (ตามลำดับเฟส)
 
-- เฟส 1: เกรดทั้งบิลบนเว็บ (ตอนนี้ ⚡ เช็คไว ดูรายบรรทัดตามช่วงราคา) ต้องมี API ฝั่งเซิร์ฟเวอร์ถือทุน เช่น `/api/approve/check` บน Vercel · ต่อปุ่ม "ใช้รายการนี้ทำใบเสนอราคา" เข้า Quote007 · ป้ายเงื่อนไขเมื่อ ผบ. เคาะ
+- เฟส 1 ที่เหลือ: ต่อปุ่ม "ใช้รายการนี้ทำใบเสนอราคา" เข้า Quote007 · ป้ายเงื่อนไขเมื่อ ผบ. เคาะ · หน้า ผจก. อนุมัติเกรด C ด้วยรหัสรายคน (รอ D3)
 - เฟส 2: `watcher.py` ข้าง Express โดยเรียก `approve_engine.grade_bill` ตัวเดียวกัน
 - เฟส 3: รูปผ่าน LINE "007 Ops" ต้องมีขั้นให้เซลยืนยันก่อนเสมอ

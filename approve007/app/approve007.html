@@ -66,6 +66,7 @@
 <div class="tabs">
   <button id="t_bands" class="on" onclick="tab('bands')">💰 ช่วงราคา</button>
   <button id="t_quick" onclick="tab('quick')">⚡ เช็คไว</button>
+  <button id="t_so" onclick="tab('so')">🧾 เช็คบิล SO</button>
 </div>
 <main>
   <section id="p_bands">
@@ -84,13 +85,24 @@
     <p class="mut" style="margin-bottom:6px">พิมพ์รายการที่จดไว้ บรรทัดละรายการ (ไม่ต้องคีย์ Express) — ไม่ใส่ราคา = ระบบบอกราคาต่ำสุดที่ลดเองได้</p>
     <textarea id="lines" placeholder="ลอน 0.35 JJL สี 800 ม. 108&#10;PU 25 ท้องไม้ 120 ม. 105&#10;สกรู 75 มม. 2000 ตัว 2.5"></textarea>
     <div style="display:flex; gap:8px; margin-top:8px"><button class="btn" onclick="quick()">⚡ เช็คเลย</button>
+      <button class="btn ghost" id="btnGrade" hidden onclick="gradeQuick()">📊 เกรดทั้งบิล</button>
       <button class="btn ghost" onclick="document.getElementById('lines').value='';document.getElementById('qout').innerHTML=''">ล้าง</button></div>
     <div id="qout"></div>
+  </section>
+
+  <section id="p_so" hidden>
+    <p class="mut" style="margin-bottom:6px">ใส่เลข SO จาก Express — ระบบคิดเกรดทั้งบิลจากราคาจริงในบิล (ข้อมูลอัปเดตทุก ~15 นาที)</p>
+    <form class="tools" id="soForm">
+      <input id="soNum" placeholder="เช่น SO6903141" autocomplete="off" style="text-transform:uppercase">
+      <select id="soBr" aria-label="สาขาของบิล"><option value="">ทุกสาขา</option><option>BK</option><option>SKN</option><option>PPS</option></select>
+      <button class="btn" type="submit">🧾 เช็คบิล</button>
+    </form>
+    <div id="soOut"></div>
   </section>
 </main>
 
 <script>
-const PB = window.PRICEBANDS || null;
+let PB = window.PRICEBANDS || null;
 const TIER = {stand:'🟢 ยืนราคา ⭐', self:'🟢 ลดได้เอง', mgr:'🟡 ผจก.อนุมัติ', gem:'🔴 ขอ ผบ.', ask:'ถามก่อนลด', fold:'งานพับ (ใช้บรรทัดฐานเดิม)', nomatch:'🟡 ไม่รู้จักสินค้า'};
 const $ = id => document.getElementById(id);
 const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON.parse(v);}catch(e){return d;} },
@@ -98,7 +110,8 @@ const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v===null?
 const fmt = v => v==null ? '–' : (Math.abs(v-Math.round(v))<1e-9 ? v.toLocaleString('th-TH') : v.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2}));
 const stepOf = v => v>=50 ? 1 : 0.05;
 
-function init(){
+async function init(){
+  if(!PB && ONLINE){ PB = await onlineBoot(); if(!PB) return; }
   if(!PB){ $('banner').innerHTML='<div class="banner bad">⛔ ไม่พบไฟล์ pricebands.js — เปิดไฟล์นี้จากโฟลเดอร์ All_on_Cloud/Approve007 เท่านั้น</div>'; return; }
   const brs = Object.keys(PB.branches);
   $('br').innerHTML = brs.map(b=>`<option>${b}</option>`).join('');
@@ -114,7 +127,7 @@ function init(){
 function thDate(iso){ const [y,m,d]=iso.split('-').map(Number); return `${d}/${m}/${y+543}`; }
 function rows(){ return (PB && PB.branches[$('br').value]) || []; }
 function fillCats(){ const cs=[...new Set(rows().map(r=>r.cat))]; $('cat').innerHTML='<option value="">ทุกหมวด</option>'+cs.map(c=>`<option>${c}</option>`).join(''); }
-function tab(t){ ['bands','quick'].forEach(x=>{ $('p_'+x).hidden = x!==t; $('t_'+x).classList.toggle('on', x===t); }); }
+function tab(t){ ['bands','quick','so'].forEach(x=>{ $('p_'+x).hidden = x!==t; $('t_'+x).classList.toggle('on', x===t); }); }
 
 /* ชั้นราคา — ใช้ขอบที่ engine (Python) คำนวณมาแล้วเท่านั้น หน้านี้ไม่คำนวณ GP เอง */
 function classify(price, r){
@@ -235,6 +248,100 @@ function quick(){
      <div class="disc">ผลนี้ตรวจจากรายการที่พิมพ์มา (ดูรายบรรทัด ยังไม่ใช่เกรดทั้งบิล) — ก่อนปริ้นส่งลูกค้า ให้เช็คซ้ำจากบิล Express จริง</div>`;
 }
 function esc(s){ return s.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+/* ================= ออนไลน์ (production.007metals.com/approve007) =================
+   ล็อกอินกลางที่เดียว (cookie SSO ร่วม *.007metals.com แบบเดียวกับแอปผลิต) → เรียก /api/approve/*
+   เกรดทั้งบิลคิดฝั่งเซิร์ฟเวอร์ด้วย engine เดียวกับ Mac mini — หน้านี้ไม่เคยได้รับทุน/GP ในโหมดเซล */
+const ONLINE = /(^|\.)007metals\.com$/.test(location.hostname) || !!window.__A7_API__;
+const API = window.__A7_API__ || '/api/approve';
+const SB_URL = 'https://syvfdbvmwaeyokytckwb.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5dmZkYnZtd2FleW9reXRja3diIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTI3ODEsImV4cCI6MjEwMDc2ODc4MX0.I1RwZX2S1PAsj-d53oba5kxSQu0VShY4CoTMxvNmS8k';
+const SB_COOKIE_DOMAIN = location.hostname.endsWith('007metals.com') ? '.007metals.com' : '';
+const SB_CHUNK = 3180;
+function _b2bin(b){ let s=''; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return s; }
+function _b64urlEnc(str){ const b=new TextEncoder().encode(str); return btoa(_b2bin(b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function _b64urlDec(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const bin=atob(s); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new TextDecoder().decode(u); }
+function _ckRead(name){ const m=document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'=([^;]*)')); return m?m[1]:null; }
+function _ckWrite(name,val){ let c=name+'='+val+'; path=/; max-age=34560000; samesite=lax'; if(location.protocol==='https:') c+='; secure'; if(SB_COOKIE_DOMAIN) c+='; domain='+SB_COOKIE_DOMAIN; document.cookie=c; }
+function _ckDel(name){ let c=name+'=; path=/; max-age=0; samesite=lax'; if(location.protocol==='https:') c+='; secure'; if(SB_COOKIE_DOMAIN) c+='; domain='+SB_COOKIE_DOMAIN; document.cookie=c; }
+const cookieStorage = {
+  getItem(key){ let raw=_ckRead(key); if(raw===null){ let s='',i=0,p; while((p=_ckRead(key+'.'+i))!==null){ s+=p; i++; } raw=s||null; }
+    if(!raw) return null; if(raw.startsWith('base64-')){ try{ return _b64urlDec(raw.slice(7)); }catch(e){ return null; } } return raw; },
+  setItem(key,value){ this.removeItem(key); const enc='base64-'+_b64urlEnc(value);
+    if(enc.length<=SB_CHUNK) _ckWrite(key,enc); else for(let i=0,o=0;o<enc.length;i++,o+=SB_CHUNK) _ckWrite(key+'.'+i, enc.slice(o,o+SB_CHUNK)); },
+  removeItem(key){ _ckDel(key); for(let i=0;i<24;i++){ if(_ckRead(key+'.'+i)!==null) _ckDel(key+'.'+i); else break; } }
+};
+let SB = null, VIEWER = null;
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+async function token(){
+  if(window.__A7_TOKEN__) return window.__A7_TOKEN__;
+  if(!SB){ await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js');
+    SB = window.supabase.createClient(SB_URL, SB_ANON, {auth:{storage:cookieStorage, storageKey:'sb-syvfdbvmwaeyokytckwb-auth-token',
+      persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}}); }
+  const {data:{session}} = await SB.auth.getSession();
+  return session && session.access_token;
+}
+const API_ERR = {'unauthorized':'ยังไม่ได้เข้าสู่ระบบ — เข้าผ่าน app.007metals.com ก่อน', 'no-app-access':'บัญชีนี้ยังไม่ได้รับสิทธิ์ Approve007 — ให้แอดมินติ๊กให้ที่ app.007metals.com/admin/access',
+  'not-linked':'บัญชีนี้ยังไม่ผูกกับทะเบียนพนักงาน — แจ้งแอดมิน', 'no-snapshot':'ระบบยังไม่ได้รับข้อมูลจาก Mac mini — แจ้ง CTO',
+  'branch-required':'เลือกสาขาก่อน', 'empty':'พิมพ์รายการก่อน', 'bad-branch':'สาขาไม่ถูกต้อง'};
+async function api(action, body){
+  const t = await token();
+  if(!t){ location.replace('https://app.007metals.com/'); throw new Error('unauthorized'); }
+  const res = await fetch(API+'/'+action, {method: body ? 'POST' : 'GET', headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},
+    body: body ? JSON.stringify(body) : undefined});
+  let j = null; try{ j = await res.json(); }catch(e){}
+  if(!res.ok) throw new Error((j && j.error) || ('http-'+res.status));
+  return j;
+}
+async function onlineBoot(){
+  try{
+    const b = await api('bands');
+    VIEWER = b.viewer || null;
+    if(VIEWER && VIEWER.branch && !store.get('a7_br', null)) store.set('a7_br', VIEWER.branch);
+    $('btnGrade').hidden = false;
+    return b;
+  }catch(e){
+    $('banner').innerHTML = `<div class="banner bad">⛔ ${API_ERR[e.message]||('ต่อระบบไม่ได้ ('+e.message+')')}</div>`;
+    return null;
+  }
+}
+const GRADE_CLS = {A:'ok', B:'ok', C:'mgr', D:'gem', X:'gem'};
+const HEAD = {green:'🟢 ยังมีที่ว่างต่อรอง', yellow:'🟡 เหลือน้อย — ลูกค้าต่ออีก ให้ลดค่าส่ง/ของแถมก่อน', red:'🔴 ไม่มีที่ว่างแล้ว — ห้ามลดเพิ่ม'};
+function gradeCard(r){
+  if(r.blocked) return `<div class="sum mgr">🟡 ${esc(r.note)}</div>`;
+  if(r.ambiguous) return `<div class="sum mgr">🟡 ${esc(r.note)}</div>` + r.ambiguous.map(a=>
+    `<button class="btn ghost" style="margin:4px 6px 0 0" onclick="$('soBr').value='${a.branch}';checkSO()">${a.branch} · ${a.date?thDate(a.date):'–'} · ${esc(a.customer||'')} · ${a.lines} บรรทัด · ${fmt(a.total)} บาท</button>`).join('');
+  if(r.found===false) return `<div class="sum mgr">🟡 ${esc(r.note)}</div>`;
+  const g = r.grade, cls = g ? GRADE_CLS[g] : 'mgr';
+  let h = `<div class="sum ${cls}">${g?('เกรด '+g+' · '):''}${esc(r.grade_text)}${r.approval_pct!=null?` <small style="display:inline">(โอกาสอนุมัติ ${r.approval_pct}%)</small>`:''}
+    <small>${r.so?esc(r.so)+' · ':''}${esc(r.branch||'')}${r.customer?' · '+esc(r.customer):''} · ยอด ${fmt(r.total)} บาท${r.headroom?' · '+HEAD[r.headroom]:''}</small></div>`;
+  const li = [];
+  if(r.gp_pct!=null) li.push(`<b>GP ${r.gp_pct}%</b> (โหมด ผบ.)`);
+  if(r.gp_band) li.push(`ช่วง GP: <b>${esc(r.gp_band)}</b> (โหมด ผจก.)`);
+  if(r.suggest_price_level) li.push(`ยืนที่ <b>${esc(r.suggest_price_level)}</b>`);
+  if(r.below_cost_codes && r.below_cost_codes.length) li.push(`⛔ ราคาต่ำเกินในรายการ: ${r.below_cost_codes.map(esc).join(', ')}`);
+  (r.reasons||[]).forEach(x=>li.push(esc(x)));
+  if(r.upsell && r.upsell.length) li.push(`ตัวพ่วงแนะนำ: ${r.upsell.map(esc).join(' · ')}`);
+  if(r.costbook_age_days>7) li.push(`⚠️ ข้อมูลทุนอายุ ${r.costbook_age_days} วัน`);
+  if(li.length) h += `<ul style="margin:6px 0 0 18px">${li.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+  if(r.items) h += `<table style="margin-top:10px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th></tr></thead><tbody>${r.items.map(i=>
+    `<tr><td>${esc(i.text)}</td><td>${i.matched?esc(i.label):'<span class="pill nomatch">🟡 ไม่รู้จัก/กำกวม — ไม่นับ</span>'}</td></tr>`).join('')}</tbody></table>`;
+  if(r.script) h += `<div class="script"><b>สคริปต์ตอบลูกค้า:</b> ${esc(r.script)}</div>`;
+  if(r.disclaimer) h += `<div class="disc">${esc(r.disclaimer)}</div>`;
+  return h;
+}
+async function checkSO(){
+  const so = $('soNum').value.trim().toUpperCase(); if(!so) return;
+  $('soOut').innerHTML = '<p class="mut">กำลังเช็ค…</p>';
+  try{ $('soOut').innerHTML = gradeCard(await api('check', {so, branch: $('soBr').value || null})); }
+  catch(e){ $('soOut').innerHTML = `<div class="sum gem">⛔ ${esc(API_ERR[e.message]||e.message)}</div>`; }
+}
+async function gradeQuick(){
+  const text = $('lines').value; if(!text.trim()) return;
+  $('qout').innerHTML = '<p class="mut">กำลังคิดเกรดทั้งบิล…</p>';
+  try{ $('qout').innerHTML = gradeCard(await api('check', {branch: $('br').value, text})); }
+  catch(e){ $('qout').innerHTML = `<div class="sum gem">⛔ ${esc(API_ERR[e.message]||e.message)}</div>`; }
+}
+$('soForm').addEventListener('submit', e=>{ e.preventDefault(); if(!ONLINE){ $('soOut').innerHTML = '<div class="sum mgr">🟡 เช็คบิล SO ต้องเปิดผ่าน production.007metals.com/approve007 (ล็อกอินกลาง) — ไฟล์ใน Drive ใช้ได้แค่ช่วงราคา/เช็คไว</div>'; return; } checkSO(); });
 init();
 </script>
 </body>

@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "api/approve/*.py": {
+      "includeFiles": "approve007/{engine,server}/**",
+      "maxDuration": 15
+    }
+  },
+  "rewrites": [
+    { "source": "/approve007", "destination": "/approve007/app/approve007.html" }
+  ]
+}

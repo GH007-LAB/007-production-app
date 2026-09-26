@@ -26,6 +26,19 @@ launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
 echo "✅ launchd ติดตั้งแล้ว (ทุกวัน 06:30) → $PLIST"
 
+# เฟส 1: ส่งข้อมูลขึ้น API ทุก 15 นาที — ต้องมี token เดียวกับ APPROVE007_PUSH_TOKEN บน Vercel
+if [ -n "${APPROVE007_PUSH_TOKEN:-}" ]; then
+  PPLIST="$HOME/Library/LaunchAgents/com.007metals.approve007.push.plist"
+  sed -e "s|__ENGINE__|$DEST/engine|" -e "s|__AOC__|$AOC|" -e "s|__TOKEN__|$APPROVE007_PUSH_TOKEN|" \
+      "$HERE/launchd/com.007metals.approve007.push.plist" > "$PPLIST"
+  chmod 600 "$PPLIST"                              # token อยู่ในเครื่อง Mac mini เท่านั้น ไม่ลง Drive/GitHub
+  launchctl unload "$PPLIST" 2>/dev/null || true
+  launchctl load "$PPLIST"
+  echo "✅ launchd push ทุก 15 นาที ติดตั้งแล้ว → $PPLIST"
+else
+  echo "ℹ️ ข้ามเฟส 1 (push ขึ้น API) — รันใหม่พร้อม APPROVE007_PUSH_TOKEN=... เมื่อ deploy API แล้ว"
+fi
+
 export APPROVE007_ALL_ON_CLOUD="$AOC"
 python3 "$DEST/engine/build.py" preflight
 python3 "$DEST/engine/build.py" --inspect
