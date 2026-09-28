@@ -30,7 +30,7 @@ class FakeSB:
 
     def __init__(self):
         self.t = {"employees": [], "apps": [{"id": 7, "code": "approve007"}], "app_access": [],
-                  "approve_snapshot": [], "approve_so_line": [], "approve_check_log": []}
+                  "approve_snapshot": [], "approve_so_line": [], "approve_check_log": [], "approve_policy_pick": []}
         self.users = {}
         self.seq = 0
 
@@ -123,7 +123,8 @@ class Api(unittest.TestCase):
         add_person(cls.sb, "tok-mgr", "e2", "ผู้จัดการสาขา", "PPS")
         add_person(cls.sb, "tok-gem", "e3", "ผู้บริหาร", "SKN", admin=True)
         add_person(cls.sb, "tok-noacc", "e4", "พนักงานขาย", "BK", access=False)
-        cls.env = {"SUPABASE_URL": "x", "SUPABASE_SERVICE_ROLE_KEY": "x", "APPROVE007_PUSH_TOKEN": TOKEN}
+        cls.env = {"SUPABASE_URL": "x", "SUPABASE_SERVICE_ROLE_KEY": "x", "APPROVE007_PUSH_TOKEN": TOKEN,
+                   "APPROVE007_POLICY_EDITORS": "e3,e2"}
         sb, env = cls.sb, cls.env
 
         class H(A.vercel_handler("check")):
@@ -231,6 +232,27 @@ class Api(unittest.TestCase):
         self.assertIn("รอบนี้ส่งครบ", r.stdout)
         self.assertFalse(any(x["sonum"].startswith("SO88") for x in self.sb.t["approve_so_line"]))
         self.assertTrue(any(x["sonum"] == "SO6903141" and x["branch"] == "PPS" for x in self.sb.t["approve_so_line"]))
+
+    def test_cashcow_picker_editors_only_and_limits(self):
+        # เซล / คนที่ไม่อยู่ในรายชื่อ = 403 (หน้านี้มี GP)
+        self.assertEqual(self.call("policy", token="tok-sale", method="GET")[1]["error"], "not-policy-editor")
+        st, out = self.call("policy", token="tok-gem", method="GET")
+        self.assertEqual(st, 200, out)
+        cands = out["cashcow"]["candidates"]
+        self.assertTrue(cands and all(set(c["sales"]) == {"BK", "SKN", "PPS"} and all(c["sales"].values()) for c in cands))
+        self.assertFalse(any(c["codes"][0].startswith(("03VP-PU", "ZZ", "07ETC")) for c in cands))
+        keys = [c["key"] for c in cands[:2]]
+        st, out = self.call("policy", {"keys": keys, "note": "ทดสอบ"}, token="tok-gem")
+        self.assertEqual(st, 200, out)
+        self.assertEqual((out["picks"][0]["keys"], out["picks"][0]["name"]), (keys, "คุณe3"))
+        self.assertEqual(self.call("policy", {"keys": ["c:ไม่มีจริง"]}, token="tok-gem")[1]["error"], "unknown-keys")
+        self.assertEqual(self.call("policy", {"keys": [keys[0]] * 2}, token="tok-gem")[1]["error"], "bad-keys")
+        self.assertEqual(self.call("policy", {"keys": ["k%d" % i for i in range(21)]}, token="tok-gem")[1]["error"], "bad-keys")
+        # บันทึกอย่างเดียว: เกรดบิลเดิมไม่เปลี่ยน · ข้อมูล GP ของหน้านี้ไม่หลุดไปเซล
+        st, sale = self.call("check", {"so": "SO6903141", "branch": "PPS"}, token="tok-sale")
+        self.assertEqual(sale["grade"], "X")
+        st, b = self.call("bands", token="tok-sale", method="GET")
+        self.assertNotIn("gp_at_rate1", json.dumps(b) + json.dumps(sale))
 
     def test_push_needs_token(self):
         st, out = self.call("push", {"kind": "snapshot"}, headers={"X-Approve-Token": "wrong" * 8})

@@ -65,3 +65,17 @@ insert into public.apps (code, name_th, url, icon, description, sort, active)
 values ('approve007', 'Approve007 · ขายได้เลยไหม', 'https://approve.007metals.com/',
         'check', 'เช็คเกรดราคาบิลก่อนขาย (P-17)', 10, true)
 on conflict (code) do nothing;
+
+-- 5) 🐄 ประวัติการติ๊ก cash cow (CTO + ปอนด์ ติ๊กที่ approve.007metals.com) — บันทึกอย่างเดียว ยังไม่เปลี่ยนเกรด
+create table if not exists public.approve_policy_pick (
+  id           bigserial primary key,
+  ts           timestamptz not null default now(),
+  tag          text not null,
+  keys         jsonb not null,
+  codes        jsonb not null,
+  employee_id  text,
+  name         text,
+  note         text
+);
+alter table public.approve_policy_pick enable row level security;
+revoke all on public.approve_policy_pick from anon, authenticated;

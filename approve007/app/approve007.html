@@ -67,6 +67,7 @@
   <button id="t_bands" class="on" onclick="tab('bands')">💰 ช่วงราคา</button>
   <button id="t_quick" onclick="tab('quick')">⚡ เช็คไว</button>
   <button id="t_so" onclick="tab('so')">🧾 เช็คบิล SO</button>
+  <button id="t_cow" onclick="tab('cow')" hidden>🐄 ติ๊ก cash cow</button>
 </div>
 <main>
   <section id="p_bands">
@@ -99,6 +100,22 @@
     </form>
     <div id="soOut"></div>
   </section>
+
+  <section id="p_cow" hidden>
+    <p class="mut" style="margin-bottom:6px">🐄 เลือกสินค้า cash cow (ของพื้นฐานที่ทุกร้านมี ขายทั้ง 3 สาขา) ไม่เกิน <b id="cowMax">20</b> กลุ่ม —
+      <b>บันทึกอย่างเดียว ยังไม่เปลี่ยนเกรด</b> · กติกา (เกรด B ถ้าเหลือ ≥ ทุน + ค่าส่ง + GP 8%) เปิดเมื่อ ผบ. เคาะเส้นพื้น ·
+      หน้านี้มี GP — เห็นเฉพาะคนที่ติ๊กได้</p>
+    <div id="cowInfo"></div>
+    <table>
+      <thead><tr><th></th><th>สินค้า</th><th>ขาย 90 วัน BK</th><th>SKN</th><th>PPS</th><th>รวม</th><th>GP ที่ Rate 1</th></tr></thead>
+      <tbody id="cowRows"></tbody>
+    </table>
+    <div class="tools" style="margin-top:8px">
+      <input id="cowNote" placeholder="หมายเหตุ (ไม่บังคับ) เช่น เหตุผลที่เลือก/ตัดออก" maxlength="500">
+      <button class="btn" onclick="saveCow()">💾 บันทึก <span id="cowCount">0</span>/<span id="cowMax2">20</span></button>
+    </div>
+    <div id="cowOut"></div>
+  </section>
 </main>
 
 <script>
@@ -127,7 +144,7 @@ async function init(){
 function thDate(iso){ const [y,m,d]=iso.split('-').map(Number); return `${d}/${m}/${y+543}`; }
 function rows(){ return (PB && PB.branches[$('br').value]) || []; }
 function fillCats(){ const cs=[...new Set(rows().map(r=>r.cat))]; $('cat').innerHTML='<option value="">ทุกหมวด</option>'+cs.map(c=>`<option>${c}</option>`).join(''); }
-function tab(t){ ['bands','quick','so'].forEach(x=>{ $('p_'+x).hidden = x!==t; $('t_'+x).classList.toggle('on', x===t); }); }
+function tab(t){ ['bands','quick','so','cow'].forEach(x=>{ $('p_'+x).hidden = x!==t; $('t_'+x).classList.toggle('on', x===t); }); }
 
 /* ชั้นราคา — ใช้ขอบที่ engine (Python) คำนวณมาแล้วเท่านั้น หน้านี้ไม่คำนวณ GP เอง */
 function classify(price, r){
@@ -298,11 +315,44 @@ async function onlineBoot(){
     VIEWER = b.viewer || null;
     if(VIEWER && VIEWER.branch && !store.get('a7_br', null)) store.set('a7_br', VIEWER.branch);
     $('btnGrade').hidden = false;
+    loadCow();                                   // ไม่ใช่คนติ๊กได้ = 403 เงียบ ๆ แท็บไม่ขึ้น
     return b;
   }catch(e){
     $('banner').innerHTML = `<div class="banner bad">⛔ ${API_ERR[e.message]||('ต่อระบบไม่ได้ ('+e.message+')')}</div>`;
     return null;
   }
+}
+/* ---------- 🐄 ติ๊ก cash cow (CTO + ปอนด์) — บันทึกอย่างเดียว ---------- */
+let COW = null;
+async function loadCow(){
+  try{ COW = await api('policy'); }catch(e){ return; }
+  $('t_cow').hidden = false; renderCow();
+}
+function renderCow(){
+  const cc = COW.cashcow || {}, cands = cc.candidates || [], last = (COW.picks||[])[0];
+  const max = COW.max || 20; $('cowMax').textContent = max; $('cowMax2').textContent = max;
+  const picked = new Set(last ? last.keys : cands.filter(c=>c.suggest).map(c=>c.key));
+  $('cowInfo').innerHTML = `<div class="banner info">${last ? `บันทึกล่าสุด ${esc(last.name||'')} · ${new Date(last.ts).toLocaleString('th-TH')} · ${last.keys.length} กลุ่ม ${last.codes.length} รหัส${last.note?' · '+esc(last.note):''}`
+    : 'ยังไม่เคยบันทึก — ติ๊กไว้ให้ก่อน '+picked.size+' กลุ่ม (ยอดขายสูงสุดที่ไม่มีข้อติด)'} · รายการคำนวณ ${cc.generated ? new Date(cc.generated).toLocaleString('th-TH') : '–'}</div>`;
+  $('cowRows').innerHTML = cands.map(c=>`<tr><td><input type="checkbox" data-k="${esc(c.key)}" ${picked.has(c.key)?'checked':''} onchange="cowCount()"></td>
+    <td>${esc(c.name)}${c.fast?' <span class="pill self">⚡หมุนเร็ว</span>':''}${c.protect?' <span class="pill gem">🛡️ห้ามลด</span>':''}
+      <div class="mut">${esc(c.cat)} · ${c.codes.length} รหัส: ${c.codes.slice(0,3).map(esc).join(' · ')}${c.codes.length>3?' …':''}</div>
+      ${c.warn?`<div class="mut" style="color:var(--bad)">⚠️ ${esc(c.warn)}</div>`:''}</td>
+    <td class="n">${fmt(c.sales.BK)}</td><td class="n">${fmt(c.sales.SKN)}</td><td class="n">${fmt(c.sales.PPS)}</td><td class="n"><b>${fmt(c.total)}</b></td>
+    <td class="n">${c.gp_at_rate1==null?'–':c.gp_at_rate1+'%'}</td></tr>`).join('');
+  cowCount();
+}
+function cowKeys(){ return [...document.querySelectorAll('#cowRows input:checked')].map(x=>x.dataset.k); }
+function cowCount(){
+  const n = cowKeys().length, max = (COW && COW.max) || 20;
+  $('cowCount').textContent = n;
+  document.querySelectorAll('#cowRows input').forEach(x=>{ x.disabled = !x.checked && n >= max; });
+}
+async function saveCow(){
+  $('cowOut').innerHTML = '<p class="mut">กำลังบันทึก…</p>';
+  try{ COW = await api('policy', {keys: cowKeys(), note: $('cowNote').value.trim()}); $('cowNote').value=''; renderCow();
+       $('cowOut').innerHTML = '<div class="sum ok">✅ บันทึกแล้ว — ยังไม่เปลี่ยนเกรดจนกว่า ผบ. เคาะกติกา cash cow</div>'; }
+  catch(e){ $('cowOut').innerHTML = `<div class="sum gem">⛔ บันทึกไม่ได้ (${esc(e.message)})</div>`; }
 }
 const GRADE_CLS = {A:'ok', B:'ok', C:'mgr', D:'gem', X:'gem'};
 const HEAD = {green:'🟢 ยังมีที่ว่างต่อรอง', yellow:'🟡 เหลือน้อย — ลูกค้าต่ออีก ให้ลดค่าส่ง/ของแถมก่อน', red:'🔴 ไม่มีที่ว่างแล้ว — ห้ามลดเพิ่ม'};
