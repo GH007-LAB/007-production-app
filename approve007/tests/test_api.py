@@ -326,5 +326,25 @@ class Quick(unittest.TestCase):
         self.assertEqual(Q.match("สกรู 75 มม. 2000 ตัว 2.5", self.CAT)[0], "04S-75-DOME")
 
 
+    def test_color_only_variants_pick_by_typed_color(self):
+        # สกรูไม่มีกลุ่มราคา · ทุนแต่ละสีไม่เท่ากัน → ไม่ระบุสี = ไม่เดา (บอกให้ระบุสี) · ระบุสีที่ชี้ตัวเดียว = ใช้ตัวนั้น
+        cat = [("04S-75-WA#12", "สกรูแปเหล็ก\xa075\xa0มม.\xa0ขาว", None, "ตว", 50),
+               ("04S-75-RTG#12", "สกรูแปเหล็ก 75 มม. แดงสด", None, "ตว", 40),
+               ("04S-75-RCS#12", "สกรูแปเหล็ก 75 มม.แดงอิฐ", None, "ตว", 30),
+               ("04S-75-ZI#12", "สกรูแปเหล็ก 75 มม. ซิงค์", None, "ตว", 20),
+               ("01A-WA-035-ZC", "แผ่นหลังคา Zacs Cool 0.35 ขาว", "Zacs Cool/Dazzle/Natural 0.35", "ม.", 100),
+               ("01A-WA-035-JJL", "JJL 0.35 ขาว", "JJL สี 0.35", "ม.", 90)]
+        self.assertIsNone(Q.match("สกรู 75 มม. 2000 ตัว 3", cat)[0])
+        self.assertTrue(Q.needs_color("สกรู 75 มม. 2000 ตัว 3", cat))
+        self.assertEqual(Q.match("สกรู 75 มม. ขาว 2000 ตัว 3", cat)[0], "04S-75-WA#12")
+        self.assertEqual(Q.match("สกรู 75 แดงอิฐ 10 ตัว 3", cat)[0], "04S-75-RCS#12")
+        self.assertIsNone(Q.match("สกรู 75 แดง 10 ตัว 3", cat)[0])          # แดงสด/แดงอิฐ → ยังกำกวม
+        self.assertEqual(Q.match("สกรู 75 ซิงค์ 10 ตัว 3", cat)[0], "04S-75-ZI#12")
+        # แผ่นต่างยี่ห้อ ไม่ใช้กติกานี้ — ไม่ระบุยี่ห้อยังห้ามเลือกแทนเซล
+        self.assertIsNone(Q.match("ลอน 0.35 ขาว 100 ม. 120", cat)[0])
+        self.assertFalse(Q.needs_color("ลอน 0.35 ขาว 100 ม. 120", cat))
+        _, view = Q.quick_lines(["สกรู 75 มม. 2000 ตัว 3"], cat)
+        self.assertEqual(view[0]["hint"], "ระบุสี")
+
 if __name__ == "__main__":
     unittest.main()
