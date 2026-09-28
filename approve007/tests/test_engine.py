@@ -234,6 +234,25 @@ class Policy(unittest.TestCase):
                                          rate1_of=lambda c: 625.94, policy={"protect": {"PPS": ["P"]}})["grade"], "D")
 
 
+class MadeToOrder(unittest.TestCase):
+    """รีดตามสั่ง (ลอนรั้ว/ผนัง007/พาแนล/สแน็ปล็อค): ไม่ใช้ทุนสต็อกการ์ด — ใช้เฉพาะทุนต่อเมตรที่ ผบ. ใส่"""
+
+    def test_mto_needs_manual_cost(self):
+        rules = {"updated": TODAY.isoformat(), "prefix": [], "fast": [], "exact_any": {"01WP-WRW-035-TT": 141.6},
+                 "exact": {"SKN": {"01WP-WRW-035-TT": 14.22, "01A-WA-035-ZC": 131.6}}}
+        bk = E.CostBook(rules)
+        self.assertIsNone(bk.cost("01WP-WRW-035-TT", "SKN", 0.17))          # ทุนสต็อกการ์ดเศษ → ไม่ใช้
+        self.assertEqual(bk.cost("01A-WA-035-ZC", "SKN")["cost"], 131.6)    # สินค้าอื่นไม่กระทบ
+        rules["mto"] = {"costs": {"01WP-": 24.08, "01WP-WRW-035-TT": 25.0}}
+        bk = E.CostBook(rules)
+        c = bk.cost("01WP-WRW-035-TT", "SKN", 0.17)
+        self.assertEqual((c["cost"], c["source"]), (25.0, "mto_manual"))   # รหัสตรงก่อน · ไม่คูณ TFACTOR
+        self.assertEqual(bk.cost("01WP-WPARKE-035-TT", "BK", 0.17)["cost"], 24.08)   # prefix
+        # บิลลอนรั้ว SKN ขาย 20 บ./ม. (ต่ำกว่าทุนจริง 24) ต้องไม่ได้ A แล้ว
+        r = E.grade_bill([{"code": "01WP-WPARKE-035-TT", "qty": 100, "price": 20, "tfactor": 0.17}], "SKN", bk)
+        self.assertEqual(r["grade"], "X")
+
+
 class EndToEnd(unittest.TestCase):
     """สร้าง All_on_Cloud จำลอง → preflight → build → verify · ไฟล์ที่เซลเปิดต้องไม่มีทุน"""
 

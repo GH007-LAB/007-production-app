@@ -92,6 +92,7 @@ class Data:
     def __init__(self, L, days=SALES_DAYS):
         self.L = L
         self.rules = E.load_rules(L.rules_file)
+        self.rules["mto"] = load_mto(L)
         self.book = E.CostBook(self.rules)
         fam_cfg = json.load(open(os.path.join(HERE, "config", "families.json"), encoding="utf-8"))
         self.families = fam_cfg["families"]
@@ -173,6 +174,88 @@ class Data:
                 picked.append(c)
             run += a["val"]
         return [c for c in picked if not c.startswith("ZZ")]   # ZZ = คอยล์/โอนข้ามสาขา ไม่ใช่สินค้าขายหน้าร้าน
+
+
+# ------------------------------------------------------------------ ทุนสินค้ารีดตามสั่ง (ผบ. ใส่เอง — อยู่ใน Drive ไม่ใช่ repo)
+E_VAT = 1.07
+MTO_FILE = "approve007_mto_costs.xlsx"     # ชีตแรก: คอลัมน์ "รหัส/prefix" + "ทุนต่อเมตร (ผบ. กรอก)"
+
+
+def load_mto(L):
+    """{prefixes, costs: {รหัส/prefix: ทุนต่อเมตรจริง รวม VAT}} จากไฟล์ที่ ผบ. กรอก
+    ไฟล์อยู่ AutoExport/scripts ใน Drive (ไม่อยู่ใน repo — repo ถูกเสิร์ฟเป็น static) · ไม่มี/อ่านไม่ได้ = ไม่มีทุน (กันไว้)"""
+    out = {"prefixes": list(E.MTO_PREFIXES), "costs": {}}
+    p = os.path.join(L.scripts, MTO_FILE)
+    if not os.path.exists(p):
+        return out
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+        try:
+            hdr = None
+            for r in wb.worksheets[0].iter_rows(values_only=True):
+                if hdr is None:
+                    if r and "รหัส/prefix" in r and "ทุนต่อเมตร (ผบ. กรอก)" in r:
+                        hdr = (r.index("รหัส/prefix"), r.index("ทุนต่อเมตร (ผบ. กรอก)"))
+                    continue
+                k, v = (r[hdr[0]] if hdr[0] < len(r) else None), (r[hdr[1]] if hdr[1] < len(r) else None)
+                if k and isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 \
+                        and str(k).strip().startswith(E.MTO_PREFIXES):
+                    out["costs"][str(k).strip()] = round(float(v), 2)
+        finally:
+            wb.close()
+    except Exception:                            # noqa: BLE001 — ไฟล์ซิงก์ครึ่งไฟล์ = ถือว่าไม่มีทุน (ปลอดภัยกว่าเดา)
+        pass
+    return out
+
+
+def cmd_mto_template(L):
+    """สร้างไฟล์ให้ ผบ. กรอกทุนต่อเมตรสินค้ารีดตามสั่ง + ข้อมูลอ้างอิง · ไฟล์มีแล้ว = เขียนเป็น _ข้อมูลอ้างอิง แทน (ไม่ทับที่ ผบ. กรอก)"""
+    import openpyxl
+    import statistics
+    D = Data(L)
+    cut = today() - datetime.timedelta(days=180)
+    po, tfs, sell = defaultdict(list), defaultdict(list), defaultdict(list)
+    for br in BRANCHES:
+        p = L.dbf(br, "POPRIT.DBF")
+        if os.path.exists(p):
+            for r in read_dbf(p, {"STKCOD", "RCVDAT", "UNITPR"}):
+                c, d, u = (r.get("STKCOD") or "").strip(), as_date(r.get("RCVDAT")), r.get("UNITPR") or 0
+                if c.startswith(E.MTO_PREFIXES) and d and d >= cut and u > 0:
+                    po[c].append((d, u * E_VAT))
+        for r in read_dbf(L.dbf(br, "OESOIT.DBF"), {"STKCOD", "TFACTOR", "UNITPR", "SODAT"}):
+            c = (r.get("STKCOD") or "").strip()
+            d = as_date(r.get("SODAT"))
+            if c.startswith(E.MTO_PREFIXES) and d and d >= cut:
+                tfs[c].append(r.get("TFACTOR") or 1)
+                if r.get("UNITPR"):
+                    sell[c].append(r["UNITPR"])
+    codes = sorted({c for br in BRANCHES for c in D.sales[br] if c.startswith(E.MTO_PREFIXES)})
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "ทุนรีดตามสั่ง"
+    ws.append([f"ทุนต่อเมตรจริง (รวม VAT) สินค้ารีดตามสั่ง — ผบ. กรอกคอลัมน์ D · ใส่ prefix ได้ เช่น 01WP-WRW- = ทุกรหัสที่ขึ้นต้นแบบนี้ · "
+               f"ไม่กรอก = ระบบถือว่าไม่รู้ทุน (ถามก่อนลด) · สร้าง {today():%d/%m/%Y}"])
+    ws.append(["รหัส/prefix", "ชื่อสินค้า", "TFACTOR ที่ขาย", "ทุนต่อเมตร (ผบ. กรอก)", "ใบรับ 5 ใบล่าสุด (มัธยฐาน/ม. รวม VAT)",
+               "ทุนระบบเดิม BK (/ม.)", "SKN (/ม.)", "PPS (/ม.)", "ราคาขายจริง (มัธยฐาน/ม.)", "ยอดขาย 90 วัน (บาท)"])
+    for c in codes:
+        tf = statistics.median(tfs[c]) if tfs[c] else 1
+        ref = sorted(u for _, u in sorted(po[c])[-5:])
+        old = []
+        for br in BRANCHES:
+            ex = (D.book.per_branch.get(br) or {}).get(c)
+            old.append(round(ex * tf, 2) if ex else None)
+        name = next((D.desc_of(c, br) for br in BRANCHES if c in D.stmas[br]), c)
+        ws.append([c, name, tf, None, round(ref[len(ref) // 2], 2) if ref else None, *old,
+                   round(statistics.median(sell[c]), 2) if sell[c] else None,
+                   round(sum(_sold(D, br, c) for br in BRANCHES))])
+    for col, w in zip("ABCDEFGHIJ", (22, 38, 10, 18, 22, 14, 12, 12, 18, 16)):
+        ws.column_dimensions[col].width = w
+    target = os.path.join(L.scripts, MTO_FILE)
+    if os.path.exists(target):
+        target = target.replace(".xlsx", "_ข้อมูลอ้างอิง.xlsx")
+    wb.save(target)
+    print("เขียน", target, "·", len(codes), "รหัส")
 
 
 # ------------------------------------------------------------------ ป้ายเงื่อนไข (POLICY_TAGS.json — ผบ. แก้คนเดียว)
@@ -772,7 +855,7 @@ def api_call(method, action, body=None, query=""):
 def build_snapshot(D, gen):
     """ของที่เซิร์ฟเวอร์ต้องใช้คิดเกรด: ทุน (ไม่มี PIN) · Rate 1 · รายการสินค้าไว้จับคู่ชื่อ · ช่วงราคา (ไม่มีทุน)"""
     bands, _, _, _ = make_bands(D, gen)
-    rules = {k: D.rules.get(k) for k in ("updated", "prefix", "exact", "exact_any", "fast")}
+    rules = {k: D.rules.get(k) for k in ("updated", "prefix", "exact", "exact_any", "fast", "mto")}
     rate1, catalog, as_of = {}, {}, {}
     for br in BRANCHES:
         r1, cat = {}, []
@@ -948,6 +1031,8 @@ def main(argv):
                   next((a for a in rest if a in ("SALES", "MGR", "GEM")), "SALES"))
     elif cmd == "push":
         cmd_push(L, full="--full" in argv[2:])
+    elif cmd == "mto-template":
+        cmd_mto_template(L)
     elif cmd == "pull-log":
         cmd_pull_log(L)
     elif cmd == "backtest":

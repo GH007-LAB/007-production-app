@@ -43,6 +43,7 @@ TIERS = [  # ชั้นราคา (เรียงจากสูงลง�
 
 METER_UNITS = {"ม", "ม.", "เมตร", "m", "M", "MT", "MTR"}
 PU_PREFIX = "03VP-PU"
+MTO_PREFIXES = ("01WP", "01WC", "01P3", "01P5", "01SL")   # รีดตามสั่ง (ลอนรั้ว/ผนัง007/พาแนล/สแน็ปล็อค)
 FOLD_PREFIX = "07ETC"
 
 
@@ -81,10 +82,15 @@ class CostBook:
     ① ทุนเฉลี่ยสต็อกการ์ด Express แยกรายสาขา (exact[br]) — ยกเว้นกลุ่ม 02 ที่หน่วยสต็อกไม่ใช่หน่วยขาย
     ② prefix วัตถุดิบคัดมือ (สินค้าผลิตเอง)
     ③ ใบซื้อล่าสุด POPRIT / ทุนสาขาอื่น (exact_any — fallback)
-    ทุนทั้งหมดเทียบแบบรวม VAT (ยกเว้น ZZC ที่ dealscore เก็บ ex-VAT ตามราคาโอน)"""
+    ทุนทั้งหมดเทียบแบบรวม VAT (ยกเว้น ZZC ที่ dealscore เก็บ ex-VAT ตามราคาโอน)
+    ยกเว้นสินค้ารีดตามสั่ง (MTO_PREFIXES — CTO 28 ก.ย. 69): ทุนสต็อกการ์ดเชื่อไม่ได้ (ยอดคงเหลือเศษ)
+    → ใช้เฉพาะทุนต่อเมตรจริงที่ ผบ. ใส่เอง (rules["mto"]) · ไม่มี = ไม่รู้ทุน (ถามก่อนลด) ห้ามเดา"""
 
     def __init__(self, rules, today=None):
         self.rules = rules
+        mto = rules.get("mto") or {}
+        self.mto_prefixes = tuple(mto.get("prefixes") or MTO_PREFIXES)
+        self.mto_costs = {k: float(v) for k, v in (mto.get("costs") or {}).items() if v}
         self.prefix = rules.get("prefix", [])
         ex = rules.get("exact", {})
         first = next(iter(ex.values()), None) if ex else None
@@ -110,6 +116,14 @@ class CostBook:
         if not code:
             return None
         tf = tfactor or 1.0
+        if code.startswith(self.mto_prefixes):
+            # ทุนต่อเมตรจริง (ไม่คูณ TFACTOR) จากที่ ผบ. ใส่: รหัสตรงก่อน แล้ว prefix ยาวสุด
+            hit = self.mto_costs.get(code)
+            if hit is None:
+                keys = [k for k in self.mto_costs if code.startswith(k)]
+                hit = self.mto_costs[max(keys, key=len)] if keys else None
+            return ({"cost": round(hit, 2), "source": "mto_manual", "rate1_hint": None, "unit_verified": True}
+                    if hit else None)
         pref = self._prefix(code)
         exb = self.per_branch.get(branch) or self.per_branch.get("*") or {}
         group02 = code.startswith("02")
