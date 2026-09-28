@@ -203,8 +203,35 @@ class Policy(unittest.TestCase):
         name = "purch_" + TODAY.strftime("%y%m%d") + "_combined.xlsx"
         wb.save(os.path.join(d, name))
         L = type("L", (), {"drive": tmp})()
-        got, src, age = B.purch_lowstock(L, {"A1_REORDER_01A", "A3_URGENT"})
-        self.assertEqual((got, src, age), ({"PPS": ["01A-WA-035-ZC"], "BK": ["04S-75-WA#12"]}, name, 0))
+        got, src, age, err = B.purch_lowstock(L, {"A1_REORDER_01A", "A3_URGENT"})
+        self.assertEqual((got, src, age, err), ({"PPS": ["01A-WA-035-ZC"], "BK": ["04S-75-WA#12"]}, name, 0, None))
+        # ไฟล์ซิงก์ครึ่งไฟล์ / หัวตารางเปลี่ยน → ไม่ล้ม คืนว่าง + บอกปัญหา
+        with open(os.path.join(d, name), "wb") as f:
+            f.write(b"PK\x03\x04 half synced")
+        got, _, _, err = B.purch_lowstock(L, {"A1_REORDER_01A"})
+        self.assertEqual(got, {})
+        self.assertIn("อ่านไฟล์ไม่ได้", err)
+        wb = openpyxl.Workbook()
+        wb.active.title = "F1_LowStock_All"
+        wb.active.append(["⚠️", "ประเภท", "สาขา", "รหัสสินค้า"])
+        wb.save(os.path.join(d, name))
+        got, _, _, err = B.purch_lowstock(L, {"A1_REORDER_01A"})
+        self.assertEqual(got, {})
+        self.assertIn("หัวตาราง", err)
+
+    def test_protect_without_cost_still_d_and_fractional_rate1(self):
+        bk = book(exact={"A": 70.0})                      # "N" ไม่มีทุน
+        pol = {"protect": {"PPS": ["N"]}}
+        lines = [{"code": "A", "qty": 100, "price": 110}, {"code": "N", "qty": 1, "price": 70}]
+        r1 = {"A": 120, "N": 79}
+        self.assertEqual(E.grade_bill(lines, "PPS", bk, rate1_of=r1.get, policy=pol)["grade"], "D")
+        # Rate 1 มีเศษ: ตารางกับเกรดบิลใช้เส้นเดียวกัน — ขายที่ป้ายพอดี = ยืนราคา ไม่ใช่ขอ ผบ.
+        b = E.price_bands(500.0, 625.94, "ตัว", protect=True)
+        self.assertEqual(E.classify(625.94, b), "stand")
+        self.assertEqual(E.classify(625.93, b), "gem")
+        bk2 = book(exact={"P": 500.0})
+        self.assertNotEqual(E.grade_bill([{"code": "P", "qty": 1, "price": 625.94}], "PPS", bk2,
+                                         rate1_of=lambda c: 625.94, policy={"protect": {"PPS": ["P"]}})["grade"], "D")
 
 
 class EndToEnd(unittest.TestCase):

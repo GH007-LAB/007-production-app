@@ -163,7 +163,8 @@ def price_bands(cost, rate1, unit, fast=False, protect=False, code=""):
     mgr_low = min(mgr_low, self_low)
     if protect and stand is not None:
         # 🛡️ ห้ามลด (CTO 28 ก.ย. 69): ต่ำกว่ายืนราคาเมื่อไหร่ = ขอ ผบ. ทันที — ไม่มีชั้นลดได้เอง/ผจก.
-        mgr_low = stand
+        # เส้นเดียวกับ grade_bill (Rate 1 ดิบ ไม่ปัด) — ไม่งั้น Rate 1 มีเศษ (625.94) ตารางบอกขอ ผบ. แต่เกรดบอก A
+        stand = self_low = mgr_low = round(rate1, 2)
         flags.append("protect")
     return {"status": "ok", "unit": unit, "kind": kind, "fast": bool(fast),
             "stand": stand, "self_low": self_low, "mgr_low": mgr_low,
@@ -227,6 +228,10 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
             cats.add("PU")
         c = book.cost(code, branch, ln.get("tfactor") or 1.0)
         row = {"code": code, "qty": qty, "price": price, "known": bool(c)}
+        if code in guard and value > 0:              # ห้ามลดไม่ต้องรู้ทุน — ดูแค่ต่ำกว่า Rate 1 ไหม
+            r1g = (rate1_of(code) if rate1_of else None) or (c.get("rate1_hint") if c else None)
+            if r1g and price < r1g:
+                protect_hit.append(code)
         if c and value > 0:
             known_rev += value
             cost_total += qty * c["cost"]
@@ -242,8 +247,6 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
             at_rate1_cost += qty * c["cost"]
             if r1 and price < r1:
                 row["below_rate1"] = True
-                if code in guard:
-                    protect_hit.append(code)
             row["cost"] = c["cost"]
         detail.append(row)
     total = total_override if total_override is not None else rev
@@ -264,6 +267,8 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
     if coverage < MIN_COVERAGE:
         grade = None
         reasons.append("ระบบรู้ทุนไม่ถึง 70% ของบิล — ยังสรุปไม่ได้ ส่งเลข SO ให้ผจก./แชทช่วยเช็ค")
+        if protect_hit:
+            reasons.append("🛡️ มีสินค้าห้ามลดราคาต่ำกว่าป้าย: " + ", ".join(dict.fromkeys(protect_hit)) + " — ต้องขอ ผบ.")
     elif below or gpp < 0:
         grade = "X"
         reasons.append("มีรายการราคาต่ำกว่าทุน — ต้องปรับราคาขึ้นก่อน ห้ามขาย")

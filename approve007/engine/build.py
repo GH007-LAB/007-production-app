@@ -181,32 +181,44 @@ PURCH_MAX_AGE_DAYS = 3        # รายงาน Purch เก่ากว่�
 
 
 def purch_lowstock(L, alerts):
-    """{สาขา: [รหัส]} จาก F1_LowStock_All ของรายงาน Purch ล่าสุด · คืน (dict, ชื่อไฟล์, อายุวัน) หรือ ({}, None, None)"""
+    """{สาขา: [รหัส]} จาก F1_LowStock_All ของรายงาน Purch ล่าสุด → (dict, ชื่อไฟล์, อายุวัน, ปัญหา|None)
+    ไฟล์เสีย/กำลังซิงก์/หัวตารางเปลี่ยน = คืนว่าง + บอกปัญหา (ห้ามทำ build ล้มทั้งรอบ)"""
     d = os.path.join(L.drive, *PURCH_DIR)
     try:
         files = sorted(f for f in os.listdir(d) if re.fullmatch(r"purch_\d{6}_combined\.xlsx", f))
     except OSError:
-        return {}, None, None
+        return {}, None, None, "ไม่พบโฟลเดอร์รายงาน Purch"
     if not files:
-        return {}, None, None
+        return {}, None, None, "ไม่พบรายงาน Purch"
     name = files[-1]
-    ymd = datetime.datetime.strptime(name[6:12], "%y%m%d").date()
-    age = (today() - ymd).days
-    import openpyxl
-    wb = openpyxl.load_workbook(os.path.join(d, name), read_only=True, data_only=True)
-    if "F1_LowStock_All" not in wb.sheetnames:
-        return {}, name, age
-    out = defaultdict(set)
-    hdr = None
-    for r in wb["F1_LowStock_All"].iter_rows(values_only=True):
-        if hdr is None:
-            if r and "Alert" in r and "รหัส" in r:
-                hdr = {k: i for i, k in enumerate(r) if k}
-            continue
-        br, code, alert = r[hdr["สาขา"]], r[hdr["รหัส"]], r[hdr["Alert"]]
-        if br in BRANCHES and code and alert in alerts:
-            out[br].add(str(code).strip())
-    return {br: sorted(v) for br, v in out.items()}, name, age
+    try:
+        age = (today() - datetime.datetime.strptime(name[6:12], "%y%m%d").date()).days
+    except ValueError:
+        return {}, name, None, "ชื่อไฟล์ไม่มีวันที่ที่อ่านได้"
+    if age < 0:
+        return {}, name, age, "วันที่ในชื่อไฟล์อยู่ในอนาคต"
+    out, hdr = defaultdict(set), None
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(os.path.join(d, name), read_only=True, data_only=True)
+        try:
+            if "F1_LowStock_All" not in wb.sheetnames:
+                return {}, name, age, "ไม่มีชีต F1_LowStock_All"
+            for r in wb["F1_LowStock_All"].iter_rows(values_only=True):
+                if hdr is None:
+                    if r and {"Alert", "รหัส", "สาขา"} <= set(r):
+                        hdr = {k: i for i, k in enumerate(r) if k}
+                    continue
+                br, code, alert = (r[hdr[k]] if hdr[k] < len(r) else None for k in ("สาขา", "รหัส", "Alert"))
+                if br in BRANCHES and code and alert in alerts:
+                    out[br].add(str(code).strip())
+        finally:
+            wb.close()
+    except Exception as e:                       # noqa: BLE001 — BadZipFile ตอน Drive ซิงก์ครึ่งไฟล์ ฯลฯ
+        return {}, name, age, f"อ่านไฟล์ไม่ได้ ({type(e).__name__})"
+    if hdr is None:
+        return {}, name, age, "หาหัวตาราง (สาขา/รหัส/Alert) ไม่เจอ — Purch เปลี่ยนรูปแบบ?"
+    return {br: sorted(v) for br, v in out.items()}, name, age, None
 
 
 def load_policy(L):
@@ -224,9 +236,9 @@ def load_policy(L):
         for br in BRANCHES:
             codes[br] |= set((pr.get("codes_by_branch") or {}).get(br) or []) | set(pr.get("codes") or [])
         if pr.get("auto_from_purch_lowstock"):
-            auto, src, age = purch_lowstock(L, set(pr.get("purch_alerts") or []))
-            if src is None:
-                notes.append("🛡️ ห้ามลด: ไม่พบรายงาน Purch — ใช้เฉพาะรหัสที่ ผบ. ระบุ")
+            auto, src, age, err = purch_lowstock(L, set(pr.get("purch_alerts") or []))
+            if err:
+                notes.append(f"⚠️ 🛡️ ห้ามลด: {src or ''} {err} — ใช้เฉพาะรหัสที่ ผบ. ระบุ")
             elif age > PURCH_MAX_AGE_DAYS:
                 notes.append(f"🛡️ ห้ามลด: รายงาน Purch {src} เก่า {age} วัน — ไม่ใช้รายการอัตโนมัติ")
             else:
@@ -238,10 +250,16 @@ def load_policy(L):
 
 
 # ------------------------------------------------------------------ สร้างช่วงราคา
+def _sold(D, br, code):
+    return (D.sales[br].get(code) or {}).get("val", 0)
+
+
 def build_branch(D, br):
     rows, report, missing = {}, [], []
     guard = E.protect_codes(D.policy, br)
-    for code in D.pick_codes(br):
+    picked = D.pick_codes(br)
+    extra = [c for c in sorted(guard - set(picked)) if c in D.stmas[br] and not c.startswith("ZZ")]
+    for code in picked + extra:                    # รหัสห้ามลดที่ไม่ติดยอดขาย ก็ต้องขึ้นตารางพร้อมป้าย
         c = D.book.cost(code, br)
         rate1, r1src = D.rate1_of(code, br)
         unit = D.unit_of(code, br) or ("ม." if code.startswith(("01", "03")) else "")
@@ -250,7 +268,7 @@ def build_branch(D, br):
         b = E.price_bands(usable["cost"] if usable else None, rate1, unit,
                           fast=D.book.is_fast(code), protect=code in guard, code=code)
         if b["status"] == "ask" and not usable:
-            missing.append((code, D.desc_of(code, br), round(D.sales[br][code]["val"])))
+            missing.append((code, D.desc_of(code, br), round(_sold(D, br, code))))
         name = fam["label"] if fam else D.desc_of(code, br)
         key = (fam["key"] if fam else "c:" + code, b.get("status"), b.get("stand"), b.get("self_low"),
                b.get("mgr_low"), b.get("self_empty"), b.get("protect", False))
@@ -262,7 +280,7 @@ def build_branch(D, br):
                                     "fast": b.get("fast", False), "protect": b.get("protect", False),
                                     "rate1_src": r1src})
         row["codes"].append(code)
-        row["sales90"] += round(D.sales[br][code]["val"])
+        row["sales90"] += round(_sold(D, br, code))
         if usable and rate1 and "rate1_below_target" in b.get("flags", []):
             need = E.ceil_to(E.p_at(usable["cost"], E.GP_SELF), 1.0)
             coil = fam["_coil_m"] if fam else None
@@ -272,7 +290,7 @@ def build_branch(D, br):
                            "coil_cost": coil, "drift_pct": round(drift, 1) if drift is not None else None,
                            "need_rate1_for_20": need, "pile": "ก" if (drift is not None and drift > 5) else "ข",
                            "below_floor": "rate1_below_floor" in b["flags"],
-                           "sales90": round(D.sales[br][code]["val"])})
+                           "sales90": round(_sold(D, br, code))})
     out = sorted(rows.values(), key=lambda r: (_cat_order(r["cat"]), -r["sales90"]))
     for r in out:
         if len(r["codes"]) > 1 and r["name"] == D.desc_of(r["codes"][0], br):
@@ -702,12 +720,15 @@ def build_snapshot(D, gen):
     rate1, catalog, as_of = {}, {}, {}
     for br in BRANCHES:
         r1, cat = {}, []
-        for code, a in D.sales[br].items():
+        for code in set(D.sales[br]) | E.protect_codes(D.policy, br):   # ขาดสต็อก = อาจไม่มียอดขาย แต่ต้องมี Rate 1
             if code.startswith("ZZ"):
                 continue
             v, _ = D.rate1_of(code, br)
             if v:
                 r1[code] = v
+        for code, a in D.sales[br].items():
+            if code.startswith("ZZ"):
+                continue
             fam = D.family_of(code)
             cat.append([code, D.desc_of(code, br), fam["label"] if fam else None, D.unit_of(code, br),
                         round(a["val"])])
