@@ -903,7 +903,7 @@ function orderProduce(so, isRe){
     delete REOK[branch+"|"+so];
   });
 }
-function searchGo(){ const el=document.getElementById("q-so"); q = el?el.value:""; render(); }
+function searchGo(){ const el=document.getElementById("q-old"); q = el?el.value:""; render(); }
 async function fetchOldSO(){
   const v=q.trim().toUpperCase(); if(!v) return;
   try{
@@ -969,7 +969,7 @@ function soType(v){
   clearTimeout(SOQT);
   SOQT=setTimeout(()=>{ SOQ=(v||"").trim(); render(); }, 220);
 }
-function soClear(){ clearTimeout(SOQT); SOQ=""; const i=document.getElementById("q-so"); if(i) i.value=""; render(); }
+function soClear(){ clearTimeout(SOQT); SOQ=""; const i=document.querySelector("#sobar #q-so"); if(i) i.value=""; render(); }
 /* ใบนี้ตรงคำค้นไหม — ดูทั้งเลข SO และชื่อลูกค้า (ชื่ออยู่คนละที่ ต้องดึงจาก findSO) */
 function soHit(t){
   const q=SOQ.trim().toUpperCase(); if(!q) return true;
@@ -983,17 +983,20 @@ function soHit(t){
 function soBarSync(ph){
   const box=document.getElementById("sobar");
   if(!ph){ box.innerHTML=""; return; }
-  let i=document.getElementById("q-so");
+  // มองเฉพาะใน #sobar — หน้าฝั่งขายมีช่องค้นหาใบเก่าของตัวเอง (id q-old) ถ้าใช้ getElementById
+  // ทั่วหน้าจะไปเจอช่องนั้นแทน แล้ว q-so-x ไม่มี → TypeError กลาง render() → main ไม่ถูกวาดใหม่
+  // (CTO 28 ก.ย. 69: กดแท็บบอร์ดเครื่องแล้วหน้าค้างฝั่งขาย เพราะ render ตายตรงนี้ก่อนถึงวิว)
+  let i=box.querySelector("#q-so");
   if(!i){
     box.innerHTML=`<div class="urgbox"><input id="q-so" type="search" inputmode="search" autocomplete="off" autocapitalize="characters" enterkeyhint="search"
       oninput="soType(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();soType(this.value)}">
       <button id="q-so-x" class="btn grey" onclick="soClear()">✕ ล้าง</button></div>`;
-    i=document.getElementById("q-so"); i.value=SOQ;
+    i=box.querySelector("#q-so"); i.value=SOQ;
   }
   i.placeholder=ph;
   // ไม่แตะ i.value ขณะผู้ใช้ยังพิมพ์อยู่ (SOQ ตามหลัง 220ms) — เซ็ตเฉพาะตอนต่างกันและช่องไม่ได้โฟกัส
   if(document.activeElement!==i && i.value!==SOQ) i.value=SOQ;
-  document.getElementById("q-so-x").style.display = SOQ ? "" : "none";
+  const x=box.querySelector("#q-so-x"); if(x) x.style.display = SOQ ? "" : "none";
 }
 function liveTk(so){ return TK.filter(t=>t.branch===branch && t.so===so && alive(t)); }
 function xsoAsk(so){
@@ -1571,7 +1574,7 @@ function vOrder(){
   el.innerHTML = `<div class="page">
   <div class="hint">🛒 <b>ฝั่งขาย (หน้าร้าน)</b> — เซลส์คือผู้อนุมัติใบผลิต: ติ๊กรายการ → กดสั่ง → <b>เข้าฝั่งผลิตทันที</b> · โชว์ SO <b>3 วันล่าสุด</b>${nOld>0?` (ใบเก่าอีก ${nOld} ใบ — ใช้ช่องค้นหา)`:""} · งานออนไลน์ (รหัสลูกค้าขึ้นต้น O เช่น Shopee/TikTok) แยกอยู่แท็บ 🛍 · รายการที่สั่งแล้วถูกล็อค — สั่งซ้ำต้องให้หัวหน้าขาย/ผจก. ใส่ PIN อนุมัติ · 💰=ตัดบิลแล้ว · 🏢=งานระหว่างสาขา</div>
   ${gapBanner()}
-  <div class="urgbox"><input id="q-so" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-so').value='';render()">✕</button>`:""}</div>
+  <div class="urgbox"><input id="q-old" value="${esc(q)}" placeholder="🔍 ค้นหาใบเก่า — เลข SO / ชื่อลูกค้า (ย้อนหลัง 45 วัน)" onkeydown="if(event.key==='Enter')searchGo()"><button class="btn grey" onclick="searchGo()">ค้นหา</button>${q?`<button class="btn grey" onclick="q='';document.getElementById('q-old').value='';render()">✕</button>`:""}</div>
   <div class="urgbox"><input id="urg-so" placeholder="⚡ SO ด่วน — พิมพ์เลข SO ที่เพิ่งคีย์ (ไม่ต้องรอ sync 2 นาที)"><button class="btn amber" onclick="urgentGo()">⚡ สั่งด่วน</button></div>` +
   (cs.length? cs.map(c=>soCardHtml(c, approvers)).join("") : qq
     ? `<div class="empty">— ไม่พบ "${esc(q)}" ในรายการที่โหลดไว้ —<br><br><button class="btn blue" onclick="fetchOldSO()">📥 ดึง SO ${esc(qq)} จากฐานข้อมูล (ย้อนหลัง 45 วัน)</button></div>`
