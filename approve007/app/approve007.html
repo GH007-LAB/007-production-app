@@ -324,7 +324,7 @@ function gradeCard(r){
   if(r.costbook_age_days>7) li.push(`⚠️ ข้อมูลทุนอายุ ${r.costbook_age_days} วัน`);
   if(li.length) h += `<ul style="margin:6px 0 0 18px">${li.map(x=>`<li>${x}</li>`).join('')}</ul>`;
   if(r.items) h += `<table style="margin-top:10px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th></tr></thead><tbody>${r.items.map(i=>
-    `<tr><td>${esc(i.text)}</td><td>${i.matched?esc(i.label):'<span class="pill nomatch">🟡 ไม่รู้จัก/กำกวม — ไม่นับ</span>'}</td></tr>`).join('')}</tbody></table>`;
+    `<tr><td>${esc(i.text)}</td><td>${i.matched?esc(i.label):(i.hint==='ระบุสี'?'<span class="pill nomatch">🟡 แต่ละสีทุนไม่เท่ากัน — พิมพ์สีด้วย (เช่น ขาว / ซิงค์ / น้ำเงิน)</span>':'<span class="pill nomatch">🟡 ไม่รู้จัก/กำกวม — ไม่นับ</span>')}</td></tr>`).join('')}</tbody></table>`;
   if(r.items && r.grade && r.grade !== 'X' && ONLINE) h += `<div style="margin-top:10px"><button class="btn" onclick="toQuote()">📝 ใช้รายการนี้ทำใบเสนอราคา</button>
     <small class="mut" style="display:block;margin-top:4px">เปิด Quote007 พร้อมรายการ/ราคาที่พิมพ์ · แผ่นลงเป็นเมตรรวม 1 แถว — แบ่งแผ่นจริงก่อนส่งลูกค้า${NEEDS_APV[r.grade]?' · '+NEEDS_APV[r.grade]:''}</small></div>`;
   if(r.script) h += `<div class="script"><b>สคริปต์ตอบลูกค้า:</b> ${esc(r.script)}</div>`;

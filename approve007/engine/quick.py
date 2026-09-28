@@ -60,13 +60,12 @@ def _numstr(v):
     return "" if v is None else (str(int(v)) if float(v).is_integer() else str(v))
 
 
-def match(line, catalog):
-    """คืน (code, label, confidence) ของรหัสที่ใกล้ที่สุด หรือ (None, None, conf) ถ้าไม่ถึงเกณฑ์
-    สินค้าต่างกลุ่มได้คะแนนเท่ากัน = กำกวม → ไม่ฟันธง (ไม่เลือกตามยอดขาย)"""
+def _rank(line, catalog):
+    """ให้คะแนนทุกรหัส → (qw, scored) · scored เรียงมาก→น้อย: (conf, -extra, sales, code, label|desc, fam_label, desc)"""
     p = parse_line(line) or {}
     qw, qthk, qnum = tokens(line, {_numstr(p.get("qty")), _numstr(p.get("price"))})
     if not qw:
-        return None, None, 0.0
+        return qw, []
     scored = []
     for code, desc, label, unit, sales in catalog:
         cw, cthk, cnum = tokens(f"{label or ''} {desc or ''}")
@@ -87,16 +86,62 @@ def match(line, catalog):
             hit += 1 if (qnum & cnum) else 0
         # คำในชื่อสินค้าที่ลูกค้าไม่ได้พูดถึงเลย (เช่น zacs/cool) = เสียคะแนนเล็กน้อย ให้ตัวที่ตรงกว่าชนะ
         extra = len({w for w in cw if w in BRANDS} - qw)
-        scored.append((hit / need if need else 0.0, -extra, sales or 0, code, label or desc))
-    if not scored:
-        return None, None, 0.0
+        scored.append((hit / need if need else 0.0, -extra, sales or 0, code, label or desc, label, desc or ""))
     scored.sort(reverse=True)
-    conf, extra, _, code, label = scored[0]
+    return qw, scored
+
+
+def _color_words(line):
+    """คำสีที่เซลพิมพ์ทั้งคำ (เช่น "แดงอิฐ" ไม่ใช่แค่ "แดง") — ไม่นับคำว่า "สี" เฉย ๆ"""
+    return [w for w in re.split(r"[\s,/()]+", (line or "").replace("\xa0", " ")) if re.search(COLORS, w) and w != "สี"]
+
+
+def _tied(qw, scored):
+    conf, extra, _, code, label = scored[0][:5]
     named_brand = bool(qw & BRANDS)   # ไม่ระบุยี่ห้อเลย = ห้ามใช้ตัวตัดสินเสมอ เลือกยี่ห้อแทนเซลไม่ได้
     rivals = [x for x in scored[1:] if x[0] == conf and x[4] != label and (x[1] == extra or not named_brand)]
+    return conf, rivals
+
+
+def _color_only_variants(group):
+    """ต่างกันแค่สี: ไม่มีกลุ่มราคา (สกรู/อุปกรณ์ — ทุนแต่ละสีไม่เท่ากัน) และรหัสต่างกันแค่ช่องเดียว
+    เช่น 04S-75-WA#12 / 04S-75-ZI#12 (ดูจากรหัส ไม่ใช่ชื่อ — ชื่อใน Express เว้นวรรคไม่สม่ำเสมอ)"""
+    if len(group) < 2 or any(x[5] for x in group):
+        return False
+    parts = [x[3].split("-") for x in group]
+    if len({len(p) for p in parts}) != 1:
+        return False
+    diff = [i for i in range(len(parts[0])) if len({p[i] for p in parts}) > 1]
+    return len(diff) == 1
+
+
+def match(line, catalog):
+    """คืน (code, label, confidence) ของรหัสที่ใกล้ที่สุด หรือ (None, None, conf) ถ้าไม่ถึงเกณฑ์
+    สินค้าต่างกลุ่มได้คะแนนเท่ากัน = กำกวม → ไม่ฟันธง (ไม่เลือกตามยอดขาย)
+    ยกเว้นรหัสที่ต่างกันแค่สี (สกรู ฯลฯ): ใช้สีที่เซลพิมพ์ตัดสิน ถ้าตรงตัวเดียว"""
+    qw, scored = _rank(line, catalog)
+    if not scored:
+        return None, None, 0.0
+    conf, rivals = _tied(qw, scored)
+    code, label = scored[0][3], scored[0][4]
     if conf >= MIN_CONFIDENCE and not rivals:
         return code, label, round(conf, 2)
+    group = [scored[0]] + rivals
+    cols = _color_words(line)
+    if conf >= MIN_CONFIDENCE and cols and _color_only_variants(group):
+        pick = [x for x in group if all(c in x[6] for c in cols)]
+        if len(pick) == 1:
+            return pick[0][3], pick[0][4], round(conf, 2)
     return None, None, round(conf, 2)
+
+
+def needs_color(line, catalog):
+    """จับคู่ไม่ได้เพราะรหัสต่างกันแค่สี (ทุนไม่เท่ากัน) และเซลยังไม่ได้ระบุสีที่ชี้ตัวเดียว → บอกให้ระบุสี"""
+    qw, scored = _rank(line, catalog)
+    if not scored:
+        return False
+    conf, rivals = _tied(qw, scored)
+    return bool(rivals) and conf >= MIN_CONFIDENCE and _color_only_variants([scored[0]] + rivals)
 
 
 def item_name(text):
@@ -125,7 +170,8 @@ def quick_lines(text_lines, catalog, price_of_unknown=None):
         desc, cat_unit = info.get(code, (None, None))
         view.append({"text": p["text"], "code": code, "label": label, "confidence": conf,
                      "qty": p["qty"], "unit": p["unit"], "price": p["price"], "matched": bool(code),
-                     "desc": desc, "cat_unit": cat_unit, "name": item_name(p["text"])})
+                     "desc": desc, "cat_unit": cat_unit, "name": item_name(p["text"]),
+                     "hint": "ระบุสี" if not code and needs_color(p["text"], catalog) else None})
         qty = p["qty"] or 1
         if code and p["price"] is not None:
             lines.append({"code": code, "qty": qty, "price": p["price"]})
