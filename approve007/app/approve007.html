@@ -325,6 +325,8 @@ function gradeCard(r){
   if(li.length) h += `<ul style="margin:6px 0 0 18px">${li.map(x=>`<li>${x}</li>`).join('')}</ul>`;
   if(r.items) h += `<table style="margin-top:10px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th></tr></thead><tbody>${r.items.map(i=>
     `<tr><td>${esc(i.text)}</td><td>${i.matched?esc(i.label):'<span class="pill nomatch">🟡 ไม่รู้จัก/กำกวม — ไม่นับ</span>'}</td></tr>`).join('')}</tbody></table>`;
+  if(r.items && r.grade && r.grade !== 'X' && ONLINE) h += `<div style="margin-top:10px"><button class="btn" onclick="toQuote()">📝 ใช้รายการนี้ทำใบเสนอราคา</button>
+    <small class="mut" style="display:block;margin-top:4px">เปิด Quote007 พร้อมรายการ/ราคาที่พิมพ์ · แผ่นลงเป็นเมตรรวม 1 แถว — แบ่งแผ่นจริงก่อนส่งลูกค้า${NEEDS_APV[r.grade]?' · '+NEEDS_APV[r.grade]:''}</small></div>`;
   if(r.script) h += `<div class="script"><b>สคริปต์ตอบลูกค้า:</b> ${esc(r.script)}</div>`;
   if(r.disclaimer) h += `<div class="disc">${esc(r.disclaimer)}</div>`;
   return h;
@@ -335,10 +337,34 @@ async function checkSO(){
   try{ $('soOut').innerHTML = gradeCard(await api('check', {so, branch: $('soBr').value || null})); }
   catch(e){ $('soOut').innerHTML = `<div class="sum gem">⛔ ${esc(API_ERR[e.message]||e.message)}</div>`; }
 }
+/* ---------- ต่อ Quote007: ส่งเฉพาะชื่อ/จำนวน/หน่วย/ราคาที่เซลพิมพ์ (ไม่มีทุน/GP) ผ่าน #hash — ไม่ขึ้น log เซิร์ฟเวอร์ ---------- */
+const QUOTE_URL = 'https://quote.007metals.com/quotes/new';
+const NEEDS_APV = {C:'ต้องให้ ผจก.สาขาอนุมัติก่อนยืนยันกับลูกค้า', D:'ต้องขอ ผบ. อนุมัติก่อนยืนยันกับลูกค้า'};
+const METER_UNITS = ['ม.','ม','เมตร','มร'];
+let LAST_QUICK = null;
+function quotePayload(r){
+  const items = [], frees = [];
+  for(const i of r.items){
+    if(i.price == null) continue;                              // ไม่มีราคา = ไม่ได้คิดเกรด ไม่ส่งต่อ
+    const name = (i.matched && i.desc) ? i.desc : i.text;
+    const unit = i.unit || i.cat_unit || '';
+    const qty = i.qty || 0;
+    if(METER_UNITS.includes(unit)) items.push({n:name, l:qty, s:1, pr:i.price, code:i.code||null});
+    else if(unit === 'แผ่น') items.push({n:name, l:0, s:qty, pr:i.price, code:i.code||null});
+    else frees.push({n:name, q:qty || 1, u:unit || 'หน่วย', pr:i.price, code:i.code||null});
+  }
+  return {v:1, src:'approve007', branch:r.branch, grade:r.grade, grade_text:r.grade_text,
+          approval:NEEDS_APV[r.grade]||'', unmatched:r.items.filter(i=>!i.matched).length, items, frees};
+}
+function toQuote(){
+  if(!LAST_QUICK) return;
+  window.open(QUOTE_URL + '#a7=' + _b64urlEnc(JSON.stringify(quotePayload(LAST_QUICK))), '_blank', 'noopener');
+}
 async function gradeQuick(){
   const text = $('lines').value; if(!text.trim()) return;
   $('qout').innerHTML = '<p class="mut">กำลังคิดเกรดทั้งบิล…</p>';
-  try{ $('qout').innerHTML = gradeCard(await api('check', {branch: $('br').value, text})); }
+  LAST_QUICK = null;
+  try{ const r = await api('check', {branch: $('br').value, text}); LAST_QUICK = r; $('qout').innerHTML = gradeCard(r); }
   catch(e){ $('qout').innerHTML = `<div class="sum gem">⛔ ${esc(API_ERR[e.message]||e.message)}</div>`; }
 }
 $('soForm').addEventListener('submit', e=>{ e.preventDefault(); if(!ONLINE){ $('soOut').innerHTML = '<div class="sum mgr">🟡 เช็คบิล SO ต้องเปิดผ่าน approve.007metals.com (ล็อกอินกลาง) — ไฟล์ใน Drive ใช้ได้แค่ช่วงราคา/เช็คไว</div>'; return; } checkSO(); });

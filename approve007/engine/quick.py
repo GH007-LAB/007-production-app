@@ -102,13 +102,16 @@ def match(line, catalog):
 def quick_lines(text_lines, catalog, price_of_unknown=None):
     """แปลงข้อความหลายบรรทัด → ([lines สำหรับ grade_bill], [รายงานต่อบรรทัดให้เซลเห็น])"""
     lines, view = [], []
+    info = {c[0]: (c[1], c[3]) for c in catalog}   # code → (ชื่อสินค้า, หน่วยใน Express) ใช้ต่อใบเสนอราคา (ไม่มีทุน)
     for raw in text_lines:
         p = parse_line(raw)
         if not p:
             continue
         code, label, conf = match(p["text"], catalog)
+        desc, cat_unit = info.get(code, (None, None))
         view.append({"text": p["text"], "code": code, "label": label, "confidence": conf,
-                     "qty": p["qty"], "price": p["price"], "matched": bool(code)})
+                     "qty": p["qty"], "unit": p["unit"], "price": p["price"], "matched": bool(code),
+                     "desc": desc, "cat_unit": cat_unit})
         qty = p["qty"] or 1
         if code and p["price"] is not None:
             lines.append({"code": code, "qty": qty, "price": p["price"]})
