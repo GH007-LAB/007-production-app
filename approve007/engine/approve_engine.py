@@ -288,7 +288,7 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
         "tags_hit": tags,
         "script": _script(grade, "PU" in cats, headroom),
         "reasons": reasons,
-        "below_cost_codes": below,           # รหัสเท่านั้น — ไม่มีตัวเลขทุน
+        "below_cost_codes": list(dict.fromkeys(below)),  # รหัสเท่านั้น ไม่ซ้ำ (บิลหนึ่งมีรหัสเดิมหลายบรรทัด) — ไม่มีตัวเลขทุน
         "costbook_age_days": age,
         "coverage_pct": round(coverage),
         "branch": branch,
