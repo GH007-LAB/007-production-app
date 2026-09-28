@@ -187,6 +187,9 @@ function paint(el){
 const SYN = [[/ท้องไม้|ลายไม้|วอลนัท|ไม้/g,' ลายไม้ '],[/ฟอยล์|ฟอยด์/g,' ฟอยล์ '],[/ซิ้ง|ซิงก์|ซิงค์|zinc/gi,' ซิงค์ '],
   [/สแน็ปล็อค|สแนปล็อค|snaplock|สแนป/gi,' snaplock '],[/คูล|cool/gi,' cool '],[/แซ็คส์|แซค|zacs/gi,' zacs '],
   [/จิงโจ้|jjl/gi,' jjl '],[/ms|dmn|ไดมอนด์|diamond|total|นำเข้า/gi,' นำเข้า '],[/pu|พียู/gi,' pu '],[/สกรู/g,' สกรู ']];
+/* รุ่นลอนต้องตรงกันทั้งสองฝั่ง (ไม่ระบุ = แผ่นหลังคาปกติ) — ตรวจจากข้อความดิบ แยกจากการให้คะแนนคำ */
+const PROFILE_RE = [/รั้ว/,/ผนัง/,/พาแนล/,/ฝ้า/,/เวนิส/,/สเปน/,/กันสาด/,/สแน็ปล็อค|สแนปล็อค|snaplock|สแนป/i];
+const profKey = s => PROFILE_RE.map(re=>re.test(s)?1:0).join('');
 const COLORS = /ขาว|แดง|น้ำเงิน|ฟ้า|เขียว|เทา|ครีม|ดำ|ส้ม|น้ำตาล|สี/;
 const UNIT_RE = /(ม\.|ม|เมตร|แผ่น|ตัว|เส้น|ท่อน|ม้วน|ชิ้น|ถุง)(?![ก-๙a-z])/;
 function tokens(s){
@@ -212,6 +215,7 @@ function matchRow(line){
     const b = tokens(r.name+' '+r.cat);
     if(a.thk && b.thk && a.thk!==b.thk) return;
     if(a.pu !== b.pu) return;
+    if(profKey(line) !== profKey(r.name+' '+r.cat)) return;   // รั้ว ≠ แผ่นหลังคา (เคยจับ "รั้ว 0.30 JJL" เป็น JJL สี 0.30)
     let s = a.thk && b.thk ? 2 : 0;
     a.words.forEach(w=>{ if(b.words.has(w)) s+= (w==='สี'||w==='ซิงค์') ? 1.5 : 1; });
     if(a.words.has('สี') && b.words.has('ซิงค์')) s-=2;
@@ -229,17 +233,35 @@ function chaseGuard(key){   // กันไล่ราคา: รายกา�
   const now=Date.now(), log=store.get('a7_chase',{}); const arr=(log[key]||[]).filter(t=>now-t<3600e3); arr.push(now);
   log[key]=arr; store.set('a7_chase',log); return arr.length>5;
 }
-function quick(){
+/* ออนไลน์: จับคู่ชื่อด้วย engine ฝั่งเซิร์ฟเวอร์ (ตัวเดียวกับเกรดทั้งบิล — กำกวม = ไม่ฟันธง) แล้วหาชั้นราคาจากตาราง
+   ตัวจับคู่ในหน้านี้ (matchRow) ใช้เฉพาะไฟล์ออฟไลน์ใน Drive — เคยเดาผิดรุ่น/ขนาด (รั้ว→JJL สี · สกรู 75→48) */
+async function quick(){
   const lines = $('lines').value.split('\n').map(parseLine).filter(Boolean);
   if(!lines.length){ $('qout').innerHTML=''; return; }
+  let found = null;
+  if(ONLINE){
+    $('qout').innerHTML = '<p class="mut">กำลังเช็ค…</p>';
+    try{
+      const r = await api('check', {branch: $('br').value, text: $('lines').value});
+      if(r.blocked){ $('qout').innerHTML = `<div class="sum mgr">🟡 ${esc(r.note)}</div>`; return; }
+      const items = r.items || [];
+      found = lines.map((l,i)=>{ const it = items[i]; if(!it || !it.code) return {row:null, hint: it && it.hint};
+        return {row: rows().find(x=>x.codes.includes(it.code)) || {status:'ask', name: it.label || it.code}, hint:null}; });
+    }catch(e){ $('qout').innerHTML = `<div class="sum gem">⛔ ${esc(API_ERR[e.message]||e.message)}</div>`; return; }
+  }
+  quickRender(lines, found);
+}
+function quickRender(lines, found){
   let html='<table style="margin-top:12px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th><th>ผล</th></tr></thead><tbody>';
   let tot=0, known=0, worst=0, blocked=false; const rank={stand:0,self:0,mgr:1,gem:2};
-  lines.forEach(l=>{
-    const r = matchRow(l.text); const val = (l.qty||1)*(l.price||0); tot+=val;
+  lines.forEach((l,i)=>{
+    const f = found ? found[i] : null;
+    const r = found ? f.row : matchRow(l.text); const val = (l.qty||1)*(l.price||0); tot+=val;
     let res, extra='';
-    if(!r){ res='nomatch'; extra='พิมพ์ชื่อ/ความหนาให้ชัดขึ้น หรือถามก่อนลด'; }
+    if(!r){ res='nomatch'; extra = f && f.hint==='ระบุสี' ? 'แต่ละสีทุนไม่เท่ากัน — พิมพ์สีด้วย (เช่น ขาว / ซิงค์ / น้ำเงิน)'
+                                   : 'พิมพ์ชื่อ/รุ่น/ความหนา/ยี่ห้อให้ชัดขึ้น หรือถามก่อนลด'; }
     else if(r.status!=='ok'){ res=r.status; known+=val; }
-    else if(chaseGuard(r.name+'|'+$('br').value)){ blocked=true; res='ask'; extra='เช็ครายการนี้ซ้ำหลายครั้งแล้ว — ส่งเข้าแชทให้ผจก./ผบ. ช่วยดู'; }
+    else if(!found && chaseGuard(r.name+'|'+$('br').value)){ blocked=true; res='ask'; extra='เช็ครายการนี้ซ้ำหลายครั้งแล้ว — ส่งเข้าแชทให้ผจก./ผบ. ช่วยดู'; }
     else if(l.price==null){ res='self'; known+=val;
       extra = r.stand==null ? `ราคาต่ำสุดที่ขายได้เลย: <b>${fmt(r.self_low)}</b>/${r.unit}` :
         r.self_empty ? `ยืนราคา <b>${fmt(r.stand)}</b>/${r.unit} (รายการนี้ลดเองไม่ได้)` :
