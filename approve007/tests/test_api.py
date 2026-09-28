@@ -273,6 +273,14 @@ class Api(unittest.TestCase):
         self.assertEqual(out["grade"], "X")                              # ตรงกับบิลจริง SO6903141 PPS
         self.assertTrue(all(i["matched"] for i in out["items"]))
         self.assertIn("disclaimer", out)
+        # ข้อมูลที่ปุ่ม "ทำใบเสนอราคา" ส่งต่อ Quote007: ชื่อ/หน่วย/จำนวน/ราคาที่พิมพ์ — ไม่มีทุน
+        sc = next(i for i in out["items"] if i["code"] == "04S-75-DOME")
+        self.assertEqual((sc["desc"], sc["unit"], sc["cat_unit"], sc["qty"], sc["price"]),
+                         ("สกรูปลายสว่าน 75 มม.", "ตัว", "ตัว", 2000.0, 2.5))
+        self.assertEqual(next(i for i in out["items"] if i["code"].startswith("01A"))["unit"], "ม.")
+        blob = json.dumps(out["items"], ensure_ascii=False)
+        for k in ('"cost"', '"gp', "1.93", "131.6", "72.8"):
+            self.assertNotIn(k, blob)
         st, out = self.call("check", {"branch": "PPS", "text": "ของแปลก 10 ชิ้น 99\nลอน 0.35 ขาว 100 ม. 120"}, token="tok-sale")
         self.assertIsNone(out["grade"])                                  # จับคู่ไม่ได้/กำกวม → ไม่สรุป
 
