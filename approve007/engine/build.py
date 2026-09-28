@@ -210,7 +210,8 @@ def load_mto(L):
 
 
 def cmd_mto_template(L):
-    """สร้างไฟล์ให้ ผบ. กรอกทุนต่อเมตรสินค้ารีดตามสั่ง + ข้อมูลอ้างอิง · ไฟล์มีแล้ว = เขียนเป็น _ข้อมูลอ้างอิง แทน (ไม่ทับที่ ผบ. กรอก)"""
+    """ไฟล์ให้ ผบ. กรอกทุนต่อเมตรสินค้ารีดตามสั่ง + ข้อมูลอ้างอิง — ทุกรหัสในทะเบียนสินค้า Express (STMAS) 3 สาขา
+    ไฟล์มีแล้ว = ต่อท้ายเฉพาะรหัสที่ยังไม่มี (ไม่แตะแถวเดิม/คอลัมน์ที่ ผบ. กรอก)"""
     import openpyxl
     import statistics
     D = Data(L)
@@ -230,15 +231,9 @@ def cmd_mto_template(L):
                 tfs[c].append(r.get("TFACTOR") or 1)
                 if r.get("UNITPR"):
                     sell[c].append(r["UNITPR"])
-    codes = sorted({c for br in BRANCHES for c in D.sales[br] if c.startswith(E.MTO_PREFIXES)})
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "ทุนรีดตามสั่ง"
-    ws.append([f"ทุนต่อเมตรจริง (รวม VAT) สินค้ารีดตามสั่ง — ผบ. กรอกคอลัมน์ D · ใส่ prefix ได้ เช่น 01WP-WRW- = ทุกรหัสที่ขึ้นต้นแบบนี้ · "
-               f"ไม่กรอก = ระบบถือว่าไม่รู้ทุน (ถามก่อนลด) · สร้าง {today():%d/%m/%Y}"])
-    ws.append(["รหัส/prefix", "ชื่อสินค้า", "TFACTOR ที่ขาย", "ทุนต่อเมตร (ผบ. กรอก)", "ใบรับ 5 ใบล่าสุด (มัธยฐาน/ม. รวม VAT)",
-               "ทุนระบบเดิม BK (/ม.)", "SKN (/ม.)", "PPS (/ม.)", "ราคาขายจริง (มัธยฐาน/ม.)", "ยอดขาย 90 วัน (บาท)"])
-    for c in codes:
+    codes = sorted({c for br in BRANCHES for c in D.stmas[br] if c.startswith(E.MTO_PREFIXES)})
+
+    def row(c):
         tf = statistics.median(tfs[c]) if tfs[c] else 1
         ref = sorted(u for _, u in sorted(po[c])[-5:])
         old = []
@@ -246,14 +241,35 @@ def cmd_mto_template(L):
             ex = (D.book.per_branch.get(br) or {}).get(c)
             old.append(round(ex * tf, 2) if ex else None)
         name = next((D.desc_of(c, br) for br in BRANCHES if c in D.stmas[br]), c)
-        ws.append([c, name, tf, None, round(ref[len(ref) // 2], 2) if ref else None, *old,
-                   round(statistics.median(sell[c]), 2) if sell[c] else None,
-                   round(sum(_sold(D, br, c) for br in BRANCHES))])
-    for col, w in zip("ABCDEFGHIJ", (22, 38, 10, 18, 22, 14, 12, 12, 18, 16)):
-        ws.column_dimensions[col].width = w
+        sold = round(sum(_sold(D, br, c) for br in BRANCHES))
+        return [c, name, tf if tfs[c] else None, None, round(ref[len(ref) // 2], 2) if ref else None, *old,
+                round(statistics.median(sell[c]), 2) if sell[c] else None, sold, None if sold else "ไม่มีขาย 90 วัน"]
+
+    hdr = ["รหัส/prefix", "ชื่อสินค้า", "TFACTOR ที่ขาย", "ทุนต่อเมตร (ผบ. กรอก)", "ใบรับ 5 ใบล่าสุด (มัธยฐาน/ม. รวม VAT)",
+           "ทุนระบบเดิม BK (/ม.)", "SKN (/ม.)", "PPS (/ม.)", "ราคาขายจริง (มัธยฐาน/ม.)", "ยอดขาย 90 วัน (บาท)", "หมายเหตุ"]
     target = os.path.join(L.scripts, MTO_FILE)
     if os.path.exists(target):
-        target = target.replace(".xlsx", "_ข้อมูลอ้างอิง.xlsx")
+        wb = openpyxl.load_workbook(target)
+        ws = wb.worksheets[0]
+        have = {str(r[0].value).strip() for r in ws.iter_rows(min_row=3) if r[0].value}
+        if ws.cell(row=2, column=11).value is None:
+            ws.cell(row=2, column=11, value="หมายเหตุ")
+        add = [c for c in codes if c not in have]
+        for c in add:
+            ws.append(row(c))
+        wb.save(target)
+        print("ต่อท้าย", target, "·", len(add), "รหัสใหม่ · มีอยู่แล้ว", len(have))
+        return
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "ทุนรีดตามสั่ง"
+    ws.append([f"ทุนต่อเมตรจริง (รวม VAT) สินค้ารีดตามสั่ง — ผบ. กรอกคอลัมน์ D · ใส่ prefix ได้ เช่น 01WP-WRW- = ทุกรหัสที่ขึ้นต้นแบบนี้ · "
+               f"ไม่กรอก = ระบบถือว่าไม่รู้ทุน (ถามก่อนลด) · สร้าง {today():%d/%m/%Y}"])
+    ws.append(hdr)
+    for c in codes:
+        ws.append(row(c))
+    for col, w in zip("ABCDEFGHIJK", (22, 38, 10, 18, 22, 14, 12, 12, 18, 16, 16)):
+        ws.column_dimensions[col].width = w
     wb.save(target)
     print("เขียน", target, "·", len(codes), "รหัส")
 
