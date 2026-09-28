@@ -184,7 +184,8 @@ def check(sb, who, body, env, now=None):
         b, ls = next(iter(by.items()))
         lines = [{"code": x["stkcod"], "qty": x["qty"], "price": x["price"], "value": x.get("value"),
                   "tfactor": x.get("tfactor") or 1} for x in ls]
-        res = E.grade_bill(lines, b, book, role=effective_role(who, b), rate1_of=rate1_fn(snap, b), layer="B")
+        res = E.grade_bill(lines, b, book, role=effective_role(who, b), rate1_of=rate1_fn(snap, b), layer="B",
+                            policy=snap.get("policy"))
         res.update(so=so, customer=ls[0].get("cusnam") or "", data_as_of=snap.get("so_as_of", {}).get(b))
         log_check(sb, who, res, key="so:" + b + ":" + so, so=so)
         return res
@@ -199,7 +200,8 @@ def check(sb, who, body, env, now=None):
     if chased(sb, who, key, now):
         log_check(sb, who, {"branch": br, "layer": "A", "grade": None, "approval_pct": None, "total": 0}, key=key, blocked=True)
         return {"blocked": True, "note": "เช็ครายการนี้ซ้ำหลายครั้งในชั่วโมงนี้แล้ว — ส่งเข้าแชทให้ ผจก./ผบ. ช่วยดู"}
-    res = E.grade_bill(lines, br, book, role=effective_role(who, br), rate1_of=rate1_fn(snap, br), layer="A")
+    res = E.grade_bill(lines, br, book, role=effective_role(who, br), rate1_of=rate1_fn(snap, br), layer="A",
+                        policy=snap.get("policy"))
     res["items"] = view
     log_check(sb, who, res, key=key)
     return res

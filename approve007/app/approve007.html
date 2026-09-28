@@ -154,7 +154,7 @@ function renderBands(){
     if(qs.some(w=>!hay.includes(w))) return;   // ทุกคำต้องเจอ ไม่สนลำดับ
     if(r.cat!==last){ last=r.cat; html+=`<tr class="cat"><td colspan="7">${r.cat}</td></tr>`; }
     const inp = r.status==='ok' ? `<input class="price" inputmode="decimal" data-i="${i}" oninput="paint(this)" placeholder="ราคา">` : '';
-    html += `<tr><td>${r.name}${r.fast?' <span class="pill self">⚡หมุนเร็ว</span>':''}<div class="mut">${r.codes.slice(0,3).join(' · ')}${r.codes.length>3?' …':''}</div></td>
+    html += `<tr><td>${r.name}${r.fast?' <span class="pill self">⚡หมุนเร็ว</span>':''}${r.protect?' <span class="pill gem">🛡️ห้ามลด — ต่ำกว่าป้ายขอ ผบ.</span>':''}<div class="mut">${r.codes.slice(0,3).join(' · ')}${r.codes.length>3?' …':''}</div></td>
       <td class="n">${r.unit}</td>${cells(r)}<td class="n">${inp}<div class="mut" id="lbl${i}"></div></td></tr>`;
   });
   $('rows').innerHTML = html || '<tr><td colspan="7" class="mut">ไม่พบสินค้า — ถามก่อนลด</td></tr>';
