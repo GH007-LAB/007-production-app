@@ -619,10 +619,16 @@ function resolveMachine(br, type, customer, des, isOnline){
     return L||R||type;
   }
   if(type==="ครอบจั่ว"||type==="ครอบข้าง"){
-    const m = list.find(x=>x.startsWith(type));
+    // เครื่องครอบที่รับงานชนิดนี้ได้: ชื่อขึ้นต้นด้วยชนิด (ครอบข้าง 457 / ครอบจั่ว 457 / ครอบข้าง 304)
+    // หรือเครื่องครอบรวมตามหน้ากว้าง "ครอบ 304" (CTO 28 ก.ย. 69: SKN มีเครื่องครอบ 304 เพิ่ม ทำทั้งข้าง/จั่ว)
+    const cands = list.filter(x=>x.startsWith(type) || /^ครอบ \d{3}$/.test(x));
     const fold = list.includes("พับครอบ") ? "พับครอบ" : null;
-    if(!m) return fold||type;
-    const mw = (m.match(/(\d{3})/)||[])[1];                 // หน้ารีดของเครื่องสาขานี้: 457 หรือ 304
+    if(!cands.length) return fold||type;
+    // สาขามีเครื่องหลายหน้ากว้าง → เลือกตัวที่หน้ากว้างตรงกับสินค้า (des มี 304/457) ก่อน
+    // ไม่งั้นเครื่อง 457 ที่อยู่หน้ารายการจะดักครอบ 304 ทุกใบแล้วเด้งไปพับครอบ (เห็นบนบอร์ด 28 ก.ย.)
+    const dw = ((des||"").match(/\b(457|304)\b/)||[])[1];
+    const m = (dw && cands.find(x=>x.includes(dw))) || cands.find(x=>x.startsWith(type)) || cands[0];
+    const mw = (m.match(/(\d{3})/)||[])[1];                 // หน้ารีดของเครื่องที่เลือก: 457 หรือ 304
     if(mw && fold && foldCapNeeded(des, mw)) return fold;
     return m;
   }
