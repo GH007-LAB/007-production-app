@@ -171,6 +171,27 @@ class Api(unittest.TestCase):
         self.assertNotIn("pins", json.dumps(self.sb.t["approve_snapshot"][0]["payload"]["rules"]))
         self.assertTrue(any(r["sonum"] == "SO6903141" and r["branch"] == "PPS" for r in self.sb.t["approve_so_line"]))
 
+    def test_push_second_run_sends_only_changes(self):
+        n = len(self.sb.t["approve_so_line"])
+        again = subprocess.run([sys.executable, os.path.join(ROOT, "engine", "build.py"), "push"], env=self.penv,
+                               capture_output=True, text=True, timeout=120)
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("snapshot: ไม่เปลี่ยน", again.stdout)
+        self.assertIn("PPS: ส่ง 0 บรรทัด (0 SO เปลี่ยน · ลบ 0", again.stdout)
+        self.assertNotIn("รอบนี้ส่งครบ", again.stdout)
+        self.assertEqual(len(self.sb.t["approve_so_line"]), n)
+        self.assertEqual(len(self.sb.t["approve_snapshot"]), 1)
+
+    def test_push_delete_sos_removes_only_that_branch(self):
+        self.sb.t["approve_so_line"] += [{"branch": "BK", "sonum": "SO9999999", "seq": 1, "sodat": "2099-01-01"},
+                                         {"branch": "SKN", "sonum": "SO9999999", "seq": 1, "sodat": "2099-01-01"}]
+        st, out = self.call("push", {"kind": "so_lines", "branch": "BK", "since": "2000-01-01", "rows": [],
+                                     "delete_sos": ["SO9999999"]}, headers={"X-Approve-Token": TOKEN})
+        self.assertEqual((st, out["deleted_sos"]), (200, 1))
+        left = [r["branch"] for r in self.sb.t["approve_so_line"] if r["sonum"] == "SO9999999"]
+        self.assertEqual(left, ["SKN"])
+        self.sb.t["approve_so_line"] = [r for r in self.sb.t["approve_so_line"] if r["sonum"] != "SO9999999"]
+
     def test_push_needs_token(self):
         st, out = self.call("push", {"kind": "snapshot"}, headers={"X-Approve-Token": "wrong" * 8})
         self.assertEqual((st, out["error"]), (401, "unauthorized"))
@@ -192,7 +213,7 @@ class Api(unittest.TestCase):
     def test_sales_response_has_no_cost(self):
         st, out = self.call("check", {"so": "SO6903141", "branch": "PPS"}, token="tok-sale")
         blob = json.dumps(out, ensure_ascii=False)
-        for k in ('"gp_pct"', '"cost"', '"gp_band"', '"lines"', "131.6", "2.78", "72.8"):
+        for k in ('"gp_pct"', '"cost"', '"gp_band"', '"lines"', "131.6", "1.93", "72.8"):
             self.assertNotIn(k, blob)
         self.assertEqual(out["viewer"]["role"], "SALES")
 

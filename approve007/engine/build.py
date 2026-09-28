@@ -599,15 +599,31 @@ SO_CHUNK = 1500
 
 
 def api_call(method, action, body=None, query=""):
+    """เรียก API พร้อมลองใหม่ 4 ครั้ง (5/15/30 วิ) เมื่อ timeout · เน็ตหลุด · 5xx — 4xx ไม่ลองซ้ำ"""
+    import socket
+    import time
+    import urllib.error
     import urllib.request
     token = os.environ.get("APPROVE007_PUSH_TOKEN") or ""
     if len(token) < 24:
         raise SystemExit("❌ ไม่มี APPROVE007_PUSH_TOKEN (≥ 24 ตัว) — ตั้งค่าเดียวกับบน Vercel ใน env ของ launchd")
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(f"{API_BASE}/{action}{query}", data=data, method=method,
-                                 headers={"Content-Type": "application/json", "X-Approve-Token": token})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.loads(r.read() or b"{}")
+    for wait in (5, 15, 30, None):
+        req = urllib.request.Request(f"{API_BASE}/{action}{query}", data=data, method=method,
+                                     headers={"Content-Type": "application/json", "X-Approve-Token": token})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or wait is None:
+                raise
+            err = f"HTTP {e.code}"
+        except (urllib.error.URLError, socket.timeout, ConnectionError) as e:
+            if wait is None:
+                raise
+            err = type(e).__name__
+        print(f"  ⚠️ {action}: {err} — ลองใหม่ใน {wait} วิ", file=sys.stderr)
+        time.sleep(wait)
 
 
 def build_snapshot(D, gen):
@@ -652,25 +668,84 @@ def so_rows_recent(L, br, days=SO_DAYS):
     return cut, by
 
 
-def cmd_push(L):
-    """ทุก 15 นาที (launchd): snapshot + บรรทัดบิล 60 วัน ขึ้น API · แล้วดึงผล < 75% ลง approval_requests.jsonl"""
+PUSH_FULL_EVERY_H = 24         # ส่งครบทุก SO อย่างน้อยวันละครั้ง กันสถานะในเครื่องกับบนเซิร์ฟเวอร์เพี้ยนกัน
+
+
+def _digest(obj):
+    import hashlib
+    return hashlib.sha1(json.dumps(obj, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def cmd_push(L, full=False):
+    """ทุก 15 นาที (launchd): ส่งเฉพาะที่เปลี่ยน — snapshot เมื่อเนื้อหาเปลี่ยน · SO ที่บรรทัดเปลี่ยน/ใหม่ · SO ที่หายจาก Express
+    สถานะอยู่ที่ agent_status/approve007_push_state.json (บันทึกหลังส่งสำเร็จทีละชุด ล้มกลางทางรอบหน้าส่งต่อเอง)
+    แล้วดึงผล < 75% ลง approval_requests.jsonl"""
+    state_p = os.path.join(L.agent_status, "approve007_push_state.json")
+    try:
+        with open(state_p, encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = {}
+    state.setdefault("so", {})
+    now = datetime.datetime.now()
+    try:
+        last_full = datetime.datetime.fromisoformat(state.get("full_at") or "")
+    except ValueError:
+        last_full = None
+    full = full or not last_full or now - last_full > datetime.timedelta(hours=PUSH_FULL_EVERY_H)
+
+    def save():
+        os.makedirs(L.agent_status, exist_ok=True)
+        tmp = state_p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        os.replace(tmp, state_p)
+
     D = Data(L)
     snap = build_snapshot(D, today())
-    print("snapshot:", api_call("POST", "push", {"kind": "snapshot", "payload": snap}))
+    sh = _digest({k: v for k, v in snap.items() if k != "generated"})
+    if full or sh != state.get("snap"):
+        print("snapshot:", api_call("POST", "push", {"kind": "snapshot", "payload": snap}))
+        state["snap"] = sh
+        save()
+    else:
+        print("snapshot: ไม่เปลี่ยน — ไม่ส่ง")
     for br in BRANCHES:
         if not os.path.exists(L.dbf(br, "OESOIT.DBF")):
             continue
         cut, by = so_rows_recent(L, br)
-        chunk, first, sent = [], True, 0
-        for so in sorted(by):                      # ไม่ตัด SO เดียวข้ามชุด (เซิร์ฟเวอร์แทนที่ทีละ SO)
-            chunk += by[so]
-            if len(chunk) >= SO_CHUNK:
-                api_call("POST", "push", {"kind": "so_lines", "branch": br, "since": cut.isoformat(),
-                                          "first": first, "rows": chunk})
-                sent, chunk, first = sent + len(chunk), [], False
-        api_call("POST", "push", {"kind": "so_lines", "branch": br, "since": cut.isoformat(),
-                                  "first": first, "rows": chunk})
-        print(f"{br}: ส่ง {sent + len(chunk)} บรรทัด ({len(by)} SO ตั้งแต่ {cut})")
+        prev = state["so"].setdefault(br, {})
+        cur = {so: _digest(rows) for so, rows in by.items()}
+        changed = [so for so in sorted(by) if full or prev.get(so) != cur[so]]
+        gone = sorted(so for so in prev if so not in cur)   # ลบใน Express หรือเลยช่วง 60 วัน
+        batches, chunk = [], []
+        for so in changed:                         # ไม่ตัด SO เดียวข้ามชุด (เซิร์ฟเวอร์แทนที่ทีละ SO)
+            chunk.append(so)
+            if sum(len(by[x]) for x in chunk) >= SO_CHUNK:
+                batches.append(chunk)
+                chunk = []
+        batches.append(chunk)                      # ชุดสุดท้าย (อาจว่าง) ยังต้องส่ง: ตัดบิลเก่ากว่าช่วง + ลบ SO ที่หาย
+        sent = 0
+        for i, sos in enumerate(batches):
+            rows = [r for so in sos for r in by[so]]
+            body = {"kind": "so_lines", "branch": br, "since": cut.isoformat(), "first": i == 0, "rows": rows}
+            if i == 0 and gone:
+                body["delete_sos"] = gone
+            if not rows and not body.get("delete_sos") and not (full and body["first"]):
+                continue                           # ไม่มีอะไรเปลี่ยน — ไม่เรียก API เลย (ประหยัดโควตา Vercel)
+            api_call("POST", "push", body)
+            for so in sos:
+                prev[so] = cur[so]
+            if i == 0:
+                for so in gone:
+                    prev.pop(so, None)
+            sent += len(rows)
+            save()
+        print(f"{br}: ส่ง {sent} บรรทัด ({len(changed)} SO เปลี่ยน · ลบ {len(gone)} · มีทั้งหมด {len(by)} SO ตั้งแต่ {cut})")
+    if full:
+        state["full_at"] = now.isoformat(timespec="seconds")
+        save()
+        print("รอบนี้ส่งครบทุก SO (รอบเต็มวันละครั้ง)")
     cmd_pull_log(L)
 
 
@@ -713,7 +788,7 @@ def main(argv):
         cmd_check(L, argv[2], next((a for a in rest if a in BRANCHES), None),
                   next((a for a in rest if a in ("SALES", "MGR", "GEM")), "SALES"))
     elif cmd == "push":
-        cmd_push(L)
+        cmd_push(L, full="--full" in argv[2:])
     elif cmd == "pull-log":
         cmd_pull_log(L)
     elif cmd == "backtest":
