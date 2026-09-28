@@ -85,7 +85,7 @@
   <section id="p_quick" hidden>
     <p class="mut" style="margin-bottom:6px">พิมพ์รายการที่จดไว้ บรรทัดละรายการ (ไม่ต้องคีย์ Express) — ไม่ใส่ราคา = ระบบบอกราคาต่ำสุดที่ลดเองได้</p>
     <textarea id="lines" placeholder="ลอน 0.35 JJL สี 800 ม. 108&#10;ลอนรั้ว 0.35 Total ไม้แดง 100 ม. ราคา 60&#10;PU 25 ท้องไม้ 120 ม. 105&#10;สกรู 75 ขาว 2000 ตัว 2.5"></textarea>
-    <p class="mut" style="margin-top:4px">พิมพ์ให้ครบ: <b>รุ่นลอน</b> (ไม่ใส่ = แผ่นหลังคา · รั้ว/ผนัง/พาแนล/สแนปล็อค/ครอบ) + <b>ความหนา</b> + <b>ยี่ห้อ</b> (JJL/Zacs/นำเข้า/ตรง) + <b>สี</b> · ราคา: "ราคา 90" / "90 บาท" / "@90"</p>
+    <p class="mut" style="margin-top:4px">พิมพ์ให้ครบ: <b>รุ่นลอน</b> (ไม่ใส่ = แผ่นหลังคา · รั้ว/ผนัง/พาแนล/สแนปล็อค/ครอบ) + <b>ความหนา</b> + <b>ยี่ห้อ</b> (JJL/Zacs/นำเข้า/ตรง) + <b>สี</b> · ราคา <b>ต่อหน่วย</b> (ต่อ ม./ตัว/เส้น ไม่ใช่ราคารวม): "ราคา 90" / "90 บาท" / "@90"</p>
     <div style="display:flex; gap:8px; margin-top:8px"><button class="btn" onclick="quick()">⚡ เช็คเลย</button>
       <button class="btn ghost" id="btnGrade" hidden onclick="gradeQuick()">📊 เกรดทั้งบิล</button>
       <button class="btn ghost" onclick="document.getElementById('lines').value='';document.getElementById('qout').innerHTML=''">ล้าง</button></div>
@@ -256,6 +256,12 @@ async function quick(){
   }
   quickRender(lines, found);
 }
+/* สิ่งที่ระบบอ่านได้จากบรรทัด: จำนวน × ราคาต่อหน่วย = ยอด (ราคาที่พิมพ์ = ราคาต่อหน่วยเสมอ ไม่ใช่ราคารวม) */
+function readAs(l, r){
+  if(l.price==null) return '';
+  const u = esc(l.unit || (r && r.unit) || 'หน่วย');
+  return `<div class="mut">${l.qty!=null ? `${fmt(l.qty)} ${u} × ` : ''}<b>${fmt(l.price)} บ./${u}</b>${l.qty!=null ? ` = ${fmt(Math.round(l.qty*l.price*100)/100)} บ.` : ''}</div>`;
+}
 function quickRender(lines, found){
   let html='<table style="margin-top:12px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th><th>ผล</th></tr></thead><tbody>';
   let tot=0, known=0, worst=0, blocked=false, asks=0; const rank={stand:0,self:0,mgr:1,gem:2};
@@ -272,9 +278,11 @@ function quickRender(lines, found){
       extra = r.stand==null ? `ราคาต่ำสุดที่ขายได้เลย: <b>${fmt(r.self_low)}</b>/${r.unit}` :
         r.self_empty ? `ยืนราคา <b>${fmt(r.stand)}</b>/${r.unit} (รายการนี้ลดเองไม่ได้)` :
         `ยืน <b>${fmt(r.stand)}</b> · ลดเองได้ถึง <b>${fmt(r.self_low)}</b>/${r.unit}`; }
+    else if(r.stand && l.price > r.stand * 3){ res='ask'; known+=val; asks++;   // พิมพ์ราคารวมแทนราคาต่อหน่วย?
+      extra = `ราคานี้สูงกว่าราคาป้าย (${fmt(r.stand)}/${esc(r.unit)}) เกิน 3 เท่า — เป็นราคารวมหรือเปล่า? ใส่ราคาต่อ ${esc(l.unit||r.unit)}`; }
     else { res=classify(l.price, r); known+=val; worst=Math.max(worst, rank[res]||0);
       if(res==='mgr'||res==='gem') extra = r.self_empty ? `ขยับเป็น ${fmt(r.stand)} = ขายได้เลย` : `ขยับเป็น ${fmt(r.self_low)} = ขายได้เลย`; }
-    html += `<tr><td>${esc(l.text)}</td><td>${r?esc(r.name):'<span class="mut">—</span>'}</td>
+    html += `<tr><td>${esc(l.text)}</td><td>${r?esc(r.name):'<span class="mut">—</span>'}${readAs(l, r)}</td>
       <td><span class="pill ${res}">${TIER[res]}</span>${extra?`<div class="mut">${extra}</div>`:''}</td></tr>`;
   });
   html+='</tbody></table>';
@@ -405,7 +413,7 @@ function gradeCard(r){
   if(r.costbook_age_days>7) li.push(`⚠️ ข้อมูลทุนอายุ ${r.costbook_age_days} วัน`);
   if(li.length) h += `<ul style="margin:6px 0 0 18px">${li.map(x=>`<li>${x}</li>`).join('')}</ul>`;
   if(r.items) h += `<table style="margin-top:10px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th></tr></thead><tbody>${r.items.map(i=>
-    `<tr><td>${esc(i.text)}</td><td>${i.matched?esc(i.label):(i.hint==='ระบุสี'?'<span class="pill nomatch">🟡 แต่ละสีทุนไม่เท่ากัน — พิมพ์สีด้วย (เช่น ขาว / ซิงค์ / น้ำเงิน)</span>':'<span class="pill nomatch">🟡 ไม่รู้จัก/กำกวม — ไม่นับ</span>')}</td></tr>`).join('')}</tbody></table>`;
+    `<tr><td>${esc(i.text)}${i.price!=null?`<div class="mut">${i.qty!=null?`${fmt(i.qty)} ${esc(i.unit||'')} × `:''}<b>${fmt(i.price)} บ./${esc(i.unit||'หน่วย')}</b>${i.qty!=null?` = ${fmt(Math.round(i.qty*i.price*100)/100)} บ.`:''}</div>`:''}</td><td>${i.matched?esc(i.label):(i.hint==='ราคารวม?'?'<span class="pill nomatch">🟡 ราคาสูงกว่าป้ายเกิน 3 เท่า — ใส่ราคาต่อหน่วย</span>':i.hint==='ระบุสี'?'<span class="pill nomatch">🟡 แต่ละสีทุนไม่เท่ากัน — พิมพ์สีด้วย (เช่น ขาว / ซิงค์ / น้ำเงิน)</span>':'<span class="pill nomatch">🟡 ไม่รู้จัก/กำกวม — ไม่นับ</span>')}</td></tr>`).join('')}</tbody></table>`;
   if(r.items && r.grade && r.grade !== 'X' && ONLINE) h += `<div style="margin-top:10px"><button class="btn" onclick="toQuote()">📝 ใช้รายการนี้ทำใบเสนอราคา</button>
     <small class="mut" style="display:block;margin-top:4px">เปิด Quote007 พร้อมรายการ/ราคาที่พิมพ์ · แผ่นลงเป็นเมตรรวม 1 แถว — แบ่งแผ่นจริงก่อนส่งลูกค้า${NEEDS_APV[r.grade]?' · '+NEEDS_APV[r.grade]:''}</small></div>`;
   if(r.script) h += `<div class="script"><b>สคริปต์ตอบลูกค้า:</b> ${esc(r.script)}</div>`;
