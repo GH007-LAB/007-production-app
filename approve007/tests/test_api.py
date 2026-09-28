@@ -312,6 +312,14 @@ class Api(unittest.TestCase):
         st, out = self.call("check", {"branch": "PPS", "text": "ของแปลก 10 ชิ้น 99\nลอน 0.35 ขาว 100 ม. 120"}, token="tok-sale")
         self.assertIsNone(out["grade"])                                  # จับคู่ไม่ได้/กำกวม → ไม่สรุป
 
+    def test_total_price_typed_is_not_graded(self):
+        # เซลพิมพ์ราคารวมแทนราคาต่อหน่วย (Rate 1 × 3 ขึ้นไป) → ไม่นับบรรทัดนั้น ไม่ให้เกรด A หลอก
+        st, out = self.call("check", {"branch": "PPS", "text": "ลอน 0.35 zacs cool ขาว 800 ม. 100000"}, token="tok-sale")
+        self.assertEqual(st, 200, out)
+        self.assertIsNone(out["grade"])
+        self.assertEqual(out["items"][0]["hint"], "ราคารวม?")
+        self.assertTrue(any("ราคาต่อหน่วย" in r for r in out["reasons"]))
+
     def test_chase_guard_and_log_pull(self):
         body = {"branch": "BK", "text": "PU 25 ท้องไม้ 100 ม. 110"}
         results = [self.call("check", dict(body, text=f"PU 25 ท้องไม้ 100 ม. {p}"), token="tok-sale")[1]

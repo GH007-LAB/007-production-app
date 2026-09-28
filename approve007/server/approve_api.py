@@ -196,6 +196,18 @@ def check(sb, who, body, env, now=None):
     if not raw:
         raise ApiError(400, "empty")
     lines, view = Q.quick_lines(raw, (snap.get("catalog") or {}).get(br) or [])
+    # ราคาที่พิมพ์ = ราคาต่อหน่วย · สูงกว่า Rate 1 เกิน 3 เท่า = น่าจะพิมพ์ราคารวม → ไม่นับ (กันเกรด A หลอก)
+    r1 = rate1_fn(snap, br)
+    suspect = []
+    for ln in lines:
+        v = r1(ln["code"]) if ln["code"] != "?" else None
+        if v and ln["price"] > v * 3:
+            suspect.append(ln["code"])
+            ln["code"] = "?"
+    for it in view:
+        if it.get("code") in suspect and it.get("price") is not None:
+            it["hint"] = "ราคารวม?"
+            it["matched"] = False                  # ไม่นับเข้าเกรด — หน้าเว็บขึ้นป้ายให้แก้ราคา
     key = "quick:" + br + ":" + hashlib.sha1("|".join(sorted(v["code"] or v["text"] for v in view)).encode()).hexdigest()[:16]
     if chased(sb, who, key, now):
         log_check(sb, who, {"branch": br, "layer": "A", "grade": None, "approval_pct": None, "total": 0}, key=key, blocked=True)
@@ -203,6 +215,8 @@ def check(sb, who, body, env, now=None):
     res = E.grade_bill(lines, br, book, role=effective_role(who, br), rate1_of=rate1_fn(snap, br), layer="A",
                         policy=snap.get("policy"))
     res["items"] = view
+    if suspect:
+        res["reasons"] = res.get("reasons", []) + ["ราคาบางบรรทัดสูงกว่าราคาป้ายเกิน 3 เท่า — ถ้าเป็นราคารวม ให้ใส่ราคาต่อหน่วยแทน (ไม่นับบรรทัดนั้น)"]
     log_check(sb, who, res, key=key)
     return res
 
