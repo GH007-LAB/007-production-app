@@ -203,13 +203,15 @@ function parseLine(line){
   const s = line.replace(/,/g,'').trim(); if(!s) return null;
   const nums = [...s.matchAll(/(\d+(?:\.\d+)?)\s*([ก-๙a-zA-Z.]*)/g)].map(m=>({v:parseFloat(m[1]), u:m[2], raw:m[0], idx:m.index}));
   let qty=null, unit='', price=null;
-  const q = nums.find(n=>UNIT_RE.test(n.u) && !/^0\.\d\d$/.test(String(n.v)));
-  if(q){ qty=q.v; unit=q.u.match(UNIT_RE)[1]; }
+  // หน่วยต้องเป็นทั้งคำ (เหมือน engine) — เดิม "0.30 เทาเข้ม" ถูกอ่านเป็น 0.3 ม. เพราะ "เข้ม" ลงท้ายด้วย ม
+  const UNIT_FULL = /^(ม\.|ม|เมตร|แผ่น|ตัว|เส้น|ท่อน|ม้วน|ชิ้น|ถุง)$/;
+  const q = nums.find(n=>UNIT_FULL.test(n.u) && !/^0\.\d\d$/.test(n.raw.trim().split(/\s/)[0]));
+  if(q){ qty=q.v; unit=q.u; }
   const tail = nums.filter(n=>n!==q && !/^0\.\d\d$/.test(n.raw.trim()) && !/มม|mm|k$/i.test(n.u));
   const last = tail[tail.length-1];
   const tagged = s.match(/(?:ราคา|@|ละ)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)/);   // "ราคา 90" / "@90" / "90 บาท"
   if(tagged) price = parseFloat(tagged[1] || tagged[2]);
-  else if(last && last.idx > (q?q.idx:-1) && !UNIT_RE.test(last.u)) price = last.v;
+  else if(last && last.idx > (q?q.idx:-1) && !UNIT_FULL.test(last.u)) price = last.v;
   return {text:s, qty, unit, price};
 }
 function matchRow(line){
