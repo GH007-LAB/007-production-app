@@ -257,6 +257,18 @@ def push(sb, body):
         rows = body.get("rows") or []
         if body.get("first"):                              # ตัดบิลที่เก่ากว่าช่วงที่เก็บ
             sb.delete("approve_so_line", f"branch=eq.{br}&sodat=lt.{since}")
+        gone = [str(x) for x in (body.get("delete_sos") or [])]
+        if body.get("keep_sos") is not None:              # รอบเต็ม: SO บนเซิร์ฟเวอร์ที่ไม่อยู่ในรายชื่อนี้ = ค้าง → ลบ
+            keep, have, off = {str(x) for x in body["keep_sos"]}, set(), 0
+            while True:                                    # PostgREST ตัด 1000 แถว/คำขอ ต้องแบ่งหน้า
+                page = sb.select("approve_so_line", f"select=sonum&branch=eq.{br}&order=sonum,seq&limit=1000&offset={off}")
+                have |= {str(r["sonum"]) for r in page}
+                if len(page) < 1000:
+                    break
+                off += 1000
+            gone = sorted(set(gone) | (have - keep))
+        for i in range(0, len(gone), 200):                 # SO ที่ถูกลบใน Express (Mac mini ส่งเฉพาะที่เปลี่ยน)
+            sb.delete("approve_so_line", f"branch=eq.{br}&sonum=in.(" + ",".join(q(x) for x in gone[i:i + 200]) + ")")
         if rows:
             # แทนที่ทีละ SO (ลบของเก่าเฉพาะ SO ในชุดนี้ แล้วใส่ใหม่) — บรรทัดที่ถูกลบใน Express ไม่ค้าง
             # และไม่มีช่วงที่ทั้งสาขาว่าง
@@ -264,7 +276,7 @@ def push(sb, body):
             sb.delete("approve_so_line", f"branch=eq.{br}&sonum=in.(" + ",".join(q(x) for x in sos) + ")")
             keep = ("sonum", "seq", "sodat", "stkcod", "stkdes", "qty", "price", "value", "tfactor", "cusnam")
             sb.insert("approve_so_line", [dict({k: r.get(k) for k in keep}, branch=br) for r in rows])
-        return {"ok": True, "kind": kind, "rows": len(rows)}
+        return {"ok": True, "kind": kind, "rows": len(rows), "deleted_sos": len(gone)}
     raise ApiError(400, "bad-kind")
 
 
