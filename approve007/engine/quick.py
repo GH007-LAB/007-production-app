@@ -99,6 +99,20 @@ def match(line, catalog):
     return None, None, round(conf, 2)
 
 
+def item_name(text):
+    """ชื่อสินค้าตามที่เซลพิมพ์ (ตัดจำนวน/หน่วย/ราคาท้ายบรรทัด) — ใช้ลงใบเสนอราคา
+    ห้ามใช้ชื่อรหัสที่จับคู่ได้: จับคู่ระดับกลุ่มราคา (ทุกสีราคาเดียว) รหัสตัวแทนอาจคนละสีกับที่ลูกค้าสั่ง"""
+    s = (text or "").strip()
+    toks = [m for m in re.finditer(r"(\d+(?:\.\d+)?)\s*([ก-๙a-zA-Z.]*)", s) if not THK_RE.fullmatch(m.group(1))]
+    q = next((m for m in toks if UNIT_RE.match(m.group(2) or "")), None)
+    if q:
+        cut = q.start()
+    else:
+        bare = [m for m in toks if not m.group(2)]
+        cut = bare[-1].start() if bare else len(s)
+    return s[:cut].strip(" -,:") or s
+
+
 def quick_lines(text_lines, catalog, price_of_unknown=None):
     """แปลงข้อความหลายบรรทัด → ([lines สำหรับ grade_bill], [รายงานต่อบรรทัดให้เซลเห็น])"""
     lines, view = [], []
@@ -111,7 +125,7 @@ def quick_lines(text_lines, catalog, price_of_unknown=None):
         desc, cat_unit = info.get(code, (None, None))
         view.append({"text": p["text"], "code": code, "label": label, "confidence": conf,
                      "qty": p["qty"], "unit": p["unit"], "price": p["price"], "matched": bool(code),
-                     "desc": desc, "cat_unit": cat_unit})
+                     "desc": desc, "cat_unit": cat_unit, "name": item_name(p["text"])})
         qty = p["qty"] or 1
         if code and p["price"] is not None:
             lines.append({"code": code, "qty": qty, "price": p["price"]})

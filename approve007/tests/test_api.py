@@ -277,7 +277,9 @@ class Api(unittest.TestCase):
         sc = next(i for i in out["items"] if i["code"] == "04S-75-DOME")
         self.assertEqual((sc["desc"], sc["unit"], sc["cat_unit"], sc["qty"], sc["price"]),
                          ("สกรูปลายสว่าน 75 มม.", "ตัว", "ตัว", 2000.0, 2.5))
-        self.assertEqual(next(i for i in out["items"] if i["code"].startswith("01A"))["unit"], "ม.")
+        zc = next(i for i in out["items"] if i["code"].startswith("01A"))
+        self.assertEqual((zc["unit"], zc["name"]), ("ม.", "ลอน 0.35 zacs cool ขาว"))   # ชื่อตามที่พิมพ์ ไม่ใช่รหัสตัวแทนกลุ่ม
+        self.assertEqual(sc["name"], "สกรู 75 มม.")
         blob = json.dumps(out["items"], ensure_ascii=False)
         for k in ('"cost"', '"gp', "1.93", "131.6", "72.8"):
             self.assertNotIn(k, blob)
