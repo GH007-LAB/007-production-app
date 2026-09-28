@@ -258,14 +258,15 @@ async function quick(){
 }
 function quickRender(lines, found){
   let html='<table style="margin-top:12px"><thead><tr><th>รายการที่พิมพ์</th><th>ระบบเข้าใจว่า</th><th>ผล</th></tr></thead><tbody>';
-  let tot=0, known=0, worst=0, blocked=false; const rank={stand:0,self:0,mgr:1,gem:2};
+  let tot=0, known=0, worst=0, blocked=false, asks=0; const rank={stand:0,self:0,mgr:1,gem:2};
   lines.forEach((l,i)=>{
     const f = found ? found[i] : null;
     const r = found ? f.row : matchRow(l.text); const val = (l.qty||1)*(l.price||0); tot+=val;
     let res, extra='';
     if(!r){ res='nomatch'; extra = f && f.hint==='ระบุสี' ? 'แต่ละสีทุนไม่เท่ากัน — พิมพ์สีด้วย (เช่น ขาว / ซิงค์ / น้ำเงิน)'
                                    : 'พิมพ์ชื่อ/รุ่น/ความหนา/ยี่ห้อให้ชัดขึ้น หรือถามก่อนลด'; }
-    else if(r.status!=='ok'){ res=r.status; known+=val; }
+    else if(r.status!=='ok'){ res=r.status; known+=val; if(l.price!=null) asks++;   // ไม่มีช่วงราคา = ตัดสินเองไม่ได้
+      extra = r.note || 'รายการนี้ไม่อยู่ในตารางช่วงราคา'; }
     else if(!found && chaseGuard(r.name+'|'+$('br').value)){ blocked=true; res='ask'; extra='เช็ครายการนี้ซ้ำหลายครั้งแล้ว — ส่งเข้าแชทให้ผจก./ผบ. ช่วยดู'; }
     else if(l.price==null){ res='self'; known+=val;
       extra = r.stand==null ? `ราคาต่ำสุดที่ขายได้เลย: <b>${fmt(r.self_low)}</b>/${r.unit}` :
@@ -282,6 +283,7 @@ function quickRender(lines, found){
   if(document.body.dataset.expired) sum = `<div class="sum gem">⛔ ตารางหมดอายุ — ใช้ Rate 1 + ลดเองได้ ≤ 5 บ./ม. ตามประกาศเดิม</div>`;
   else if(blocked) sum = `<div class="sum mgr">🟡 ส่งเข้าแชทให้ผจก./ผบ. ช่วยดู</div>`;
   else if(priced && tot>0 && known/tot<0.7) sum = `<div class="sum mgr">🟡 ยังสรุปไม่ได้ — ระบบรู้จักสินค้าไม่ถึง 70% ของมูลค่า<small>แก้ชื่อสินค้าให้ชัด หรือส่งรายการให้ผจก.ช่วยเช็ค</small></div>`;
+  else if(priced && asks) sum = `<div class="sum mgr">🟡 ถามก่อนลด — มี ${asks} รายการที่ระบบยังไม่มีช่วงราคา<small>ห้ามยืนยันราคารายการนี้กับลูกค้าเอง · ส่งรายการให้ ผจก./ผบ. ช่วยเช็ค</small></div>`;
   else if(!priced) sum = `<div class="sum ok">ราคาที่ให้ได้อยู่ในตารางด้านบน<small>ยืนราคาก่อนเสมอ — ลูกค้าต่อค่อยลดทีละขั้น</small></div>`;
   else sum = [ `<div class="sum ok">🟢 ขายได้เลย ✅<small>ทุกบรรทัดอยู่ในชั้นที่เซลตัดสินเองได้</small></div>`,
                `<div class="sum mgr">🟡 ต้องให้ ผจก.อนุมัติ<small>ขยับราคาบรรทัดสีเหลืองขึ้นตามที่แนะนำ = ขายได้เลย</small></div>`,
