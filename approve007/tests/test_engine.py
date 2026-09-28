@@ -113,6 +113,13 @@ class Grade(unittest.TestCase):
         r = self.g([("S", 10, 2.5), ("A", 100, 200), ("S", 20, 2.5), ("A", 10, 60), ("S", 5, 2.5)])
         self.assertEqual(r["below_cost_codes"], ["S", "A"])
 
+    def test_item_name_strips_qty_unit_price(self):
+        import quick as Q
+        self.assertEqual(Q.item_name("ลอน 0.35 zacs cool ขาว 800 ม. 125"), "ลอน 0.35 zacs cool ขาว")
+        self.assertEqual(Q.item_name("PU 25mm 35k 100 ม. 134"), "PU 25mm 35k")
+        self.assertEqual(Q.item_name("ลอน 0.30 jjl แดง 12 แผ่น 95"), "ลอน 0.30 jjl แดง")
+        self.assertEqual(Q.item_name("ครอบพิเศษ"), "ครอบพิเศษ")
+
     def test_fast_mover_15_19_is_b(self):
         self.assertEqual(self.g([("S", 1000, 3.30)])["grade"], "B")     # 15.8% หมุนเร็ว
 

@@ -346,7 +346,7 @@ function quotePayload(r){
   const items = [], frees = [];
   for(const i of r.items){
     if(i.price == null) continue;                              // ไม่มีราคา = ไม่ได้คิดเกรด ไม่ส่งต่อ
-    const name = (i.matched && i.desc) ? i.desc : i.text;
+    const name = i.name || i.text;                             // ชื่อตามที่พิมพ์ (รหัสที่จับคู่อาจคนละสี — จับคู่ระดับกลุ่มราคา)
     const unit = i.unit || i.cat_unit || '';
     const qty = i.qty || 0;
     if(METER_UNITS.includes(unit)) items.push({n:name, l:qty, s:1, pr:i.price, code:i.code||null});
