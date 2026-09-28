@@ -223,6 +223,40 @@ def log_check(sb, who, res, key, so=None, blocked=False):
                                      "blocked": blocked}])
 
 
+# ------------------------------------------------------------------ 🐄 ติ๊ก cash cow (ผบ./แอดมินที่ CTO กำหนด เท่านั้น)
+POLICY_EDITORS_DEFAULT = "66,7"      # CTO 28 ก.ย. 69: CTO (66) + ปอนด์ (7) · เปลี่ยนได้ด้วย env APPROVE007_POLICY_EDITORS
+CASHCOW_MAX = 20
+
+
+def policy_editor(who, env):
+    ids = {x.strip() for x in (env.get("APPROVE007_POLICY_EDITORS") or POLICY_EDITORS_DEFAULT).split(",") if x.strip()}
+    if str(who["id"]) not in ids:
+        raise ApiError(403, "not-policy-editor")
+
+
+def policy(sb, who, method, body, env):
+    """GET = รายการเสนอ + ที่ติ๊กล่าสุด · POST {keys: [...], note} = บันทึก (บันทึกอย่างเดียว ยังไม่เปลี่ยนเกรด)
+    มี GP ที่ Rate 1 — ส่งเฉพาะคนที่ติ๊กได้ ห้ามถึงเซล"""
+    policy_editor(who, env)
+    snap = load_snapshot(sb)
+    cc = snap.get("cashcow") or {}
+    cands = {c["key"]: c for c in cc.get("candidates") or []}
+    if method == "POST":
+        keys = body.get("keys") if isinstance(body, dict) else None
+        if (not isinstance(keys, list) or not keys or len(keys) > CASHCOW_MAX
+                or not all(isinstance(k, str) for k in keys) or len(set(keys)) != len(keys)):
+            raise ApiError(400, "bad-keys")          # ว่าง = ไม่รับ (กันทับรายการเดิมด้วยรายการว่าง)
+        unknown = [k for k in keys if k not in cands]
+        if unknown:
+            raise ApiError(400, "unknown-keys")
+        codes = sorted({c for k in keys for c in cands[k]["codes"]})
+        note = str(body.get("note") or "")[:500]
+        sb.insert("approve_policy_pick", [{"tag": "cash_cow", "keys": keys, "codes": codes,
+                                           "employee_id": str(who["id"]), "name": who["name"], "note": note}])
+    picks = sb.select("approve_policy_pick", "select=id,ts,keys,codes,name,note&tag=eq.cash_cow&order=id.desc&limit=5")
+    return {"cashcow": cc, "generated": snap.get("generated"), "picks": picks, "max": CASHCOW_MAX}
+
+
 def bands(sb):
     b = load_snapshot(sb).get("bands")
     if not b:
@@ -317,6 +351,8 @@ def handle(action, method, headers, body_bytes, query, env=None, sb=None):
             out = check(sb, who, body, env)
             out["viewer"] = {"name": who["name"], "role": who["role"], "branch": who["branch"]}
             return 200, out
+        if action == "policy" and method in ("GET", "POST"):
+            return 200, policy(sb, who, method, body, env)
         if action == "bands" and method == "GET":
             return 200, dict(bands(sb), viewer={"name": who["name"], "branch": who["branch"]})
         raise ApiError(405, "method-not-allowed")

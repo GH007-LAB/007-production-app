@@ -249,6 +249,62 @@ def load_policy(L):
     return policy, notes
 
 
+# ------------------------------------------------------------------ 🐄 รายการเสนอ cash cow (ให้ ผบ. ติ๊ก ≤ 20)
+CASHCOW_SHOW = 40             # แสดงให้เลือก
+CASHCOW_SUGGEST = 20          # ติ๊กไว้ให้ก่อน (เพดานรอบแรกตาม Charter)
+
+
+def cashcow_candidates(D):
+    """สินค้าพื้นฐานที่ขายทั้ง 3 สาขา เรียงยอดขาย 90 วัน · มี GP ที่ Rate 1 (ส่งเฉพาะ ผบ./แอดมินที่ติ๊กได้ — ห้ามถึงเซล)
+    ไม่รวม คอยล์/โอน (ZZ) · งานพับ · PU (ป้ายตัวทำกำไร ห้ามลดนำ)"""
+    groups = {}
+    for br in BRANCHES:
+        guard = E.protect_codes(D.policy, br)
+        for code, a in D.sales[br].items():
+            if code.startswith(("ZZ", E.FOLD_PREFIX, E.PU_PREFIX)) or not a["val"]:
+                continue
+            fam = D.family_of(code)
+            key = fam["key"] if fam else "c:" + code
+            g = groups.setdefault(key, {"key": key, "name": fam["label"] if fam else D.desc_of(code, br),
+                                        "cat": fam["category"] if fam else _cat(code), "codes": set(),
+                                        "sales": {b: 0 for b in BRANCHES}, "bills": 0, "fast": False,
+                                        "protect": False, "_rev": 0.0, "_cost": 0.0, "_val": 0.0, "_val_cov": 0.0})
+            g["codes"].add(code)
+            g["sales"][br] += round(a["val"])
+            g["bills"] += len(a["bills"])
+            g["fast"] |= D.book.is_fast(code)
+            g["protect"] |= code in guard
+            c = D.book.cost(code, br)
+            r1, _ = D.rate1_of(code, br)
+            g["_val"] += a["val"]
+            if c and c["unit_verified"] and r1 and a["qty"]:
+                g["_rev"] += r1 * a["qty"]
+                g["_cost"] += c["cost"] * a["qty"]
+                g["_val_cov"] += a["val"]
+    out = []
+    for g in groups.values():
+        if not all(g["sales"].values()):            # ต้องขายทุกสาขา = ของพื้นฐานที่ทุกร้านมี
+            continue
+        g["total"] = sum(g["sales"].values())
+        g["gp_at_rate1"] = round((g["_rev"] - g["_cost"]) / g["_rev"] * 100, 1) if g["_rev"] else None
+        g["gp_cov_pct"] = round(g["_val_cov"] / g["_val"] * 100) if g["_val"] else 0
+        g["codes"] = sorted(g["codes"])
+        for k in ("_rev", "_cost", "_val", "_val_cov"):
+            del g[k]
+        out.append(g)
+    out.sort(key=lambda g: -g["total"])
+    out = out[:CASHCOW_SHOW]
+    n = 0
+    for g in out:
+        g["warn"] = ("มีรหัสห้ามลด (ของเหลือน้อย) ในกลุ่ม — ขัดกับ cash cow" if g["protect"] else
+                     "GP ที่ Rate 1 ติดลบ — ตรวจทุน/ราคาป้ายก่อน" if (g["gp_at_rate1"] is not None and g["gp_at_rate1"] < 0) else
+                     "ยังไม่มีทุนครบ — คิด GP ไม่ได้" if g["gp_at_rate1"] is None else
+                     f"GP คิดจากรหัสที่มีทุน+ราคาป้ายแค่ {g['gp_cov_pct']}% ของยอดขายกลุ่ม" if g["gp_cov_pct"] < 80 else None)
+        g["suggest"] = not g["warn"] and n < CASHCOW_SUGGEST     # ติ๊กไว้ให้ก่อนเฉพาะตัวที่ไม่มีข้อติด
+        n += g["suggest"]
+    return {"days": SALES_DAYS, "max": CASHCOW_SUGGEST, "candidates": out}   # ไม่ใส่เวลา (digest ของ snapshot ต้องนิ่ง)
+
+
 # ------------------------------------------------------------------ สร้างช่วงราคา
 def _sold(D, br, code):
     return (D.sales[br].get(code) or {}).get("val", 0)
@@ -737,7 +793,8 @@ def build_snapshot(D, gen):
         if os.path.exists(p):
             as_of[br] = datetime.datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="minutes")
     return {"generated": datetime.datetime.now().isoformat(timespec="seconds"), "rules": rules,
-            "rate1": rate1, "catalog": catalog, "bands": bands, "so_as_of": as_of, "policy": D.policy}
+            "rate1": rate1, "catalog": catalog, "bands": bands, "so_as_of": as_of, "policy": D.policy,
+            "cashcow": cashcow_candidates(D)}
 
 
 def so_rows_recent(L, br, days=SO_DAYS):
