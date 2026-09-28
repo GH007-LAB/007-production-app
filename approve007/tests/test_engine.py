@@ -109,6 +109,10 @@ class Grade(unittest.TestCase):
         self.assertEqual((r["grade"], r["approval_pct"]), ("X", 0))
         self.assertEqual(r["below_cost_codes"], ["S"])
 
+    def test_below_cost_codes_unique_in_line_order(self):
+        r = self.g([("S", 10, 2.5), ("A", 100, 200), ("S", 20, 2.5), ("A", 10, 60), ("S", 5, 2.5)])
+        self.assertEqual(r["below_cost_codes"], ["S", "A"])
+
     def test_fast_mover_15_19_is_b(self):
         self.assertEqual(self.g([("S", 1000, 3.30)])["grade"], "B")     # 15.8% หมุนเร็ว
 
