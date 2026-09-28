@@ -84,7 +84,8 @@
 
   <section id="p_quick" hidden>
     <p class="mut" style="margin-bottom:6px">พิมพ์รายการที่จดไว้ บรรทัดละรายการ (ไม่ต้องคีย์ Express) — ไม่ใส่ราคา = ระบบบอกราคาต่ำสุดที่ลดเองได้</p>
-    <textarea id="lines" placeholder="ลอน 0.35 JJL สี 800 ม. 108&#10;PU 25 ท้องไม้ 120 ม. 105&#10;สกรู 75 มม. 2000 ตัว 2.5"></textarea>
+    <textarea id="lines" placeholder="ลอน 0.35 JJL สี 800 ม. 108&#10;ลอนรั้ว 0.35 Total ไม้แดง 100 ม. ราคา 60&#10;PU 25 ท้องไม้ 120 ม. 105&#10;สกรู 75 ขาว 2000 ตัว 2.5"></textarea>
+    <p class="mut" style="margin-top:4px">พิมพ์ให้ครบ: <b>รุ่นลอน</b> (ไม่ใส่ = แผ่นหลังคา · รั้ว/ผนัง/พาแนล/สแนปล็อค/ครอบ) + <b>ความหนา</b> + <b>ยี่ห้อ</b> (JJL/Zacs/นำเข้า/ตรง) + <b>สี</b> · ราคา: "ราคา 90" / "90 บาท" / "@90"</p>
     <div style="display:flex; gap:8px; margin-top:8px"><button class="btn" onclick="quick()">⚡ เช็คเลย</button>
       <button class="btn ghost" id="btnGrade" hidden onclick="gradeQuick()">📊 เกรดทั้งบิล</button>
       <button class="btn ghost" onclick="document.getElementById('lines').value='';document.getElementById('qout').innerHTML=''">ล้าง</button></div>
@@ -206,7 +207,9 @@ function parseLine(line){
   if(q){ qty=q.v; unit=q.u.match(UNIT_RE)[1]; }
   const tail = nums.filter(n=>n!==q && !/^0\.\d\d$/.test(n.raw.trim()) && !/มม|mm|k$/i.test(n.u));
   const last = tail[tail.length-1];
-  if(last && last.idx > (q?q.idx:-1) && !UNIT_RE.test(last.u)) price = last.v;
+  const tagged = s.match(/(?:ราคา|@|ละ)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)/);   // "ราคา 90" / "@90" / "90 บาท"
+  if(tagged) price = parseFloat(tagged[1] || tagged[2]);
+  else if(last && last.idx > (q?q.idx:-1) && !UNIT_RE.test(last.u)) price = last.v;
   return {text:s, qty, unit, price};
 }
 function matchRow(line){

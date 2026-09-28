@@ -18,14 +18,18 @@ SYN = [
 ]
 # รุ่นลอน — ต้องตรงกันทั้งสองฝั่ง (ไม่ระบุ = แผ่นหลังคาปกติ) · ตรวจจากข้อความดิบ แยกจากการให้คะแนนคำ
 PROFILE_RE = {"รั้ว": r"รั้ว", "ผนัง": r"ผนัง", "พาแนล": r"พาแนล", "ฝ้า": r"ฝ้า", "เวนิส": r"เวนิส",
-              "สเปน": r"สเปน", "กันสาด": r"กันสาด", "snaplock": r"สแน็ปล็อค|สแนปล็อค|snaplock|สแนป"}
+              "สเปน": r"สเปน", "กันสาด": r"กันสาด", "snaplock": r"สแน็ปล็อค|สแนปล็อค|snaplock|สแนป",
+              # อุปกรณ์ — ไม่พิมพ์ถึง = ไม่จับคู่ (เคยให้ "JJL 0.30 เทาเข้ม" กำกวมกับครอบข้าง/ครอบจั่วสีเดียวกัน)
+              "ครอบ": r"ครอบ", "ราง": r"รางน้ำ|ราง", "บานเกล็ด": r"บานเกล็ด", "ปลอกเสา": r"ปลอกเสา",
+              "เชิงชาย": r"เชิงชาย", "แผ่นใส": r"แผ่นใส"}
 
 
 def profiles(s):
     t = (s or "").lower()
     return {k for k, rx in PROFILE_RE.items() if re.search(rx, t)}
 COLORS = r"ขาว|แดง|น้ำเงิน|ฟ้า|เขียว|เทา|ครีม|ดำ|ส้ม|น้ำตาล|สี"
-FLUFF = {"แผ่น", "ลอน", "เมทัลชีท", "หลังคา", "เมตร", "ม.", "ม", "มม.", "มม", "ตัว", "เส้น", "ท่อน", "k"}
+FLUFF = {"แผ่น", "ลอน", "เมทัลชีท", "หลังคา", "เมตร", "ม.", "ม", "มม.", "มม", "ตัว", "เส้น", "ท่อน", "k",
+         "ราคา", "บาท", "บ.", "ละ", "ต่อ"}
 UNIT_RE = re.compile(r"^(ม\.|ม|เมตร|แผ่น|ตัว|เส้น|ท่อน|ม้วน|ชิ้น|ถุง)$")
 THK_RE = re.compile(r"0\.\d\d")
 BRANDS = {"zacs", "cool", "jjl", "นำเข้า", "snaplock", "colorbond", "supergalum", "liger", "rooftech", "zincalume"}
@@ -56,7 +60,10 @@ def parse_line(line):
     q = next((t for t in toks if UNIT_RE.match(t[1])), None)
     bare = [t for t in toks if t is not q and not t[1]]
     price = None
-    if q:
+    tagged = re.search(r"(?:ราคา|@|ละ)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)", s)
+    if tagged:                                   # "ราคา 90" / "@90" / "90 บาท" = ราคาชัด ๆ
+        price = float(tagged.group(1) or tagged.group(2))
+    elif q:
         after = [t for t in bare if t[2] > q[2]]
         price = float(after[-1][0]) if after else None
     elif len(bare) >= 2:
@@ -159,12 +166,16 @@ def item_name(text):
     s = (text or "").strip()
     toks = [m for m in re.finditer(r"(\d+(?:\.\d+)?)\s*([ก-๙a-zA-Z.]*)", s) if not THK_RE.fullmatch(m.group(1))]
     q = next((m for m in toks if UNIT_RE.match(m.group(2) or "")), None)
+    tagged = re.search(r"(?:ราคา|@|ละ)\s*\d|\d+(?:\.\d+)?\s*(?:บาท|บ\.)", s)
     if q:
         cut = q.start()
+    elif tagged:
+        cut = tagged.start()
     else:
         bare = [m for m in toks if not m.group(2)]
         cut = bare[-1].start() if bare else len(s)
-    return s[:cut].strip(" -,:") or s
+    name = re.sub(r"\s*(?:ราคา|@|ละ)\s*$", "", s[:cut].strip(" -,:"))
+    return name.strip(" -,:") or s
 
 
 def quick_lines(text_lines, catalog, price_of_unknown=None):

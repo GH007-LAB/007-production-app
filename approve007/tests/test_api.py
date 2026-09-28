@@ -352,6 +352,17 @@ class Quick(unittest.TestCase):
         self.assertEqual(Q.match("สกรู 75 มม. 2000 ตัว 2.5", self.CAT)[0], "04S-75-DOME")
 
 
+    def test_price_words_and_accessory_guard(self):
+        self.assertEqual(Q.parse_line("JJL สี 0.30 ราคา 90")["price"], 90.0)
+        self.assertEqual(Q.parse_line("jjl 0.30 แดง 90 บาท")["price"], 90.0)
+        self.assertEqual(Q.parse_line("Zacs 0.35 @150")["price"], 150.0)
+        self.assertEqual(Q.item_name("jjl 0.30 แดง 90 บาท"), "jjl 0.30 แดง")
+        cat = [("01A-GRST-030-JJL", "ตรง เทาเข้ม 0.30JJL", "JJL สี 0.30", "ม.", 100),
+               ("02KK4-GRST-030-JJL", "ครอบข้าง 457 เทาเข้ม 0.30", None, "เส้น", 20)]
+        self.assertEqual(Q.match("JJL สี 0.30 ราคา 90", cat)[0], "01A-GRST-030-JJL")      # "ราคา" ไม่นับเป็นชื่อสินค้า
+        self.assertEqual(Q.match("JJL 0.30 เทาเข้ม 100 ม. 90", cat)[0], "01A-GRST-030-JJL")  # ไม่พิมพ์ครอบ = ไม่ใช่ครอบ
+        self.assertEqual(Q.match("ครอบข้าง 457 เทาเข้ม 0.30 10 เส้น 150", cat)[0], "02KK4-GRST-030-JJL")
+
     def test_profile_must_match(self):
         cat = [("01A-GRST-030-JJL", "ตรง เทาเข้ม 0.30JJL", "JJL สี 0.30", "ม.", 100),
                ("01WP-GRST-030-JJL", "ลอนรั้ว เทาเข้ม 0.30JJL", None, "ม.", 50),
