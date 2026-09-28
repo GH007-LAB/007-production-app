@@ -238,12 +238,14 @@ def policy(sb, who, method, body, env):
     """GET = รายการเสนอ + ที่ติ๊กล่าสุด · POST {keys: [...], note} = บันทึก (บันทึกอย่างเดียว ยังไม่เปลี่ยนเกรด)
     มี GP ที่ Rate 1 — ส่งเฉพาะคนที่ติ๊กได้ ห้ามถึงเซล"""
     policy_editor(who, env)
-    cc = load_snapshot(sb).get("cashcow") or {}
+    snap = load_snapshot(sb)
+    cc = snap.get("cashcow") or {}
     cands = {c["key"]: c for c in cc.get("candidates") or []}
     if method == "POST":
-        keys = body.get("keys")
-        if not isinstance(keys, list) or len(keys) > CASHCOW_MAX or len(set(map(str, keys))) != len(keys):
-            raise ApiError(400, "bad-keys")
+        keys = body.get("keys") if isinstance(body, dict) else None
+        if (not isinstance(keys, list) or not keys or len(keys) > CASHCOW_MAX
+                or not all(isinstance(k, str) for k in keys) or len(set(keys)) != len(keys)):
+            raise ApiError(400, "bad-keys")          # ว่าง = ไม่รับ (กันทับรายการเดิมด้วยรายการว่าง)
         unknown = [k for k in keys if k not in cands]
         if unknown:
             raise ApiError(400, "unknown-keys")
@@ -252,7 +254,7 @@ def policy(sb, who, method, body, env):
         sb.insert("approve_policy_pick", [{"tag": "cash_cow", "keys": keys, "codes": codes,
                                            "employee_id": str(who["id"]), "name": who["name"], "note": note}])
     picks = sb.select("approve_policy_pick", "select=id,ts,keys,codes,name,note&tag=eq.cash_cow&order=id.desc&limit=5")
-    return {"cashcow": cc, "picks": picks, "max": CASHCOW_MAX}
+    return {"cashcow": cc, "generated": snap.get("generated"), "picks": picks, "max": CASHCOW_MAX}
 
 
 def bands(sb):

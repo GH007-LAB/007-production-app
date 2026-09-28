@@ -248,6 +248,10 @@ class Api(unittest.TestCase):
         self.assertEqual(self.call("policy", {"keys": ["c:ไม่มีจริง"]}, token="tok-gem")[1]["error"], "unknown-keys")
         self.assertEqual(self.call("policy", {"keys": [keys[0]] * 2}, token="tok-gem")[1]["error"], "bad-keys")
         self.assertEqual(self.call("policy", {"keys": ["k%d" % i for i in range(21)]}, token="tok-gem")[1]["error"], "bad-keys")
+        for bad in ([], [["a"]], [{"x": 1}]):
+            self.assertEqual(self.call("policy", {"keys": bad}, token="tok-gem"), (400, {"error": "bad-keys"}))
+        self.assertTrue(all("gp_cov_pct" in c for c in cands))
+        self.assertNotIn("generated", out["cashcow"])                  # digest snapshot ต้องนิ่ง
         # บันทึกอย่างเดียว: เกรดบิลเดิมไม่เปลี่ยน · ข้อมูล GP ของหน้านี้ไม่หลุดไปเซล
         st, sale = self.call("check", {"so": "SO6903141", "branch": "PPS"}, token="tok-sale")
         self.assertEqual(sale["grade"], "X")

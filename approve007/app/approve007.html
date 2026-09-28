@@ -112,7 +112,7 @@
     </table>
     <div class="tools" style="margin-top:8px">
       <input id="cowNote" placeholder="หมายเหตุ (ไม่บังคับ) เช่น เหตุผลที่เลือก/ตัดออก" maxlength="500">
-      <button class="btn" onclick="saveCow()">💾 บันทึก <span id="cowCount">0</span>/<span id="cowMax2">20</span></button>
+      <button class="btn" id="cowSave" onclick="saveCow()">💾 บันทึก <span id="cowCount">0</span>/<span id="cowMax2">20</span></button>
     </div>
     <div id="cowOut"></div>
   </section>
@@ -333,7 +333,8 @@ function renderCow(){
   const max = COW.max || 20; $('cowMax').textContent = max; $('cowMax2').textContent = max;
   const picked = new Set(last ? last.keys : cands.filter(c=>c.suggest).map(c=>c.key));
   $('cowInfo').innerHTML = `<div class="banner info">${last ? `บันทึกล่าสุด ${esc(last.name||'')} · ${new Date(last.ts).toLocaleString('th-TH')} · ${last.keys.length} กลุ่ม ${last.codes.length} รหัส${last.note?' · '+esc(last.note):''}`
-    : 'ยังไม่เคยบันทึก — ติ๊กไว้ให้ก่อน '+picked.size+' กลุ่ม (ยอดขายสูงสุดที่ไม่มีข้อติด)'} · รายการคำนวณ ${cc.generated ? new Date(cc.generated).toLocaleString('th-TH') : '–'}</div>`;
+    : 'ยังไม่เคยบันทึก — ติ๊กไว้ให้ก่อน '+picked.size+' กลุ่ม (ยอดขายสูงสุดที่ไม่มีข้อติด)'} · รายการคำนวณ ${COW.generated ? new Date(COW.generated).toLocaleString('th-TH') : '–'}</div>`;
+  $('cowSave').disabled = !cands.length;
   $('cowRows').innerHTML = cands.map(c=>`<tr><td><input type="checkbox" data-k="${esc(c.key)}" ${picked.has(c.key)?'checked':''} onchange="cowCount()"></td>
     <td>${esc(c.name)}${c.fast?' <span class="pill self">⚡หมุนเร็ว</span>':''}${c.protect?' <span class="pill gem">🛡️ห้ามลด</span>':''}
       <div class="mut">${esc(c.cat)} · ${c.codes.length} รหัส: ${c.codes.slice(0,3).map(esc).join(' · ')}${c.codes.length>3?' …':''}</div>
@@ -349,6 +350,7 @@ function cowCount(){
   document.querySelectorAll('#cowRows input').forEach(x=>{ x.disabled = !x.checked && n >= max; });
 }
 async function saveCow(){
+  if(!cowKeys().length){ $('cowOut').innerHTML = '<div class="sum mgr">🟡 เลือกอย่างน้อย 1 กลุ่มก่อนบันทึก</div>'; return; }
   $('cowOut').innerHTML = '<p class="mut">กำลังบันทึก…</p>';
   try{ COW = await api('policy', {keys: cowKeys(), note: $('cowNote').value.trim()}); $('cowNote').value=''; renderCow();
        $('cowOut').innerHTML = '<div class="sum ok">✅ บันทึกแล้ว — ยังไม่เปลี่ยนเกรดจนกว่า ผบ. เคาะกติกา cash cow</div>'; }
