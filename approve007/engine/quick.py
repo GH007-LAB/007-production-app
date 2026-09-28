@@ -16,6 +16,14 @@ SYN = [
     (r"(?<![a-z])(ms|dmn|dm)(?![a-z])|ไดมอนด์|diamond|total|นำเข้า", " นำเข้า "),
     (r"(?<![a-z])pu(?![a-z])|พียู", " pu "), (r"สกรู", " สกรู "), (r"ครอบ", " ครอบ "),
 ]
+# รุ่นลอน — ต้องตรงกันทั้งสองฝั่ง (ไม่ระบุ = แผ่นหลังคาปกติ) · ตรวจจากข้อความดิบ แยกจากการให้คะแนนคำ
+PROFILE_RE = {"รั้ว": r"รั้ว", "ผนัง": r"ผนัง", "พาแนล": r"พาแนล", "ฝ้า": r"ฝ้า", "เวนิส": r"เวนิส",
+              "สเปน": r"สเปน", "กันสาด": r"กันสาด", "snaplock": r"สแน็ปล็อค|สแนปล็อค|snaplock|สแนป"}
+
+
+def profiles(s):
+    t = (s or "").lower()
+    return {k for k, rx in PROFILE_RE.items() if re.search(rx, t)}
 COLORS = r"ขาว|แดง|น้ำเงิน|ฟ้า|เขียว|เทา|ครีม|ดำ|ส้ม|น้ำตาล|สี"
 FLUFF = {"แผ่น", "ลอน", "เมทัลชีท", "หลังคา", "เมตร", "ม.", "ม", "มม.", "มม", "ตัว", "เส้น", "ท่อน", "k"}
 UNIT_RE = re.compile(r"^(ม\.|ม|เมตร|แผ่น|ตัว|เส้น|ท่อน|ม้วน|ชิ้น|ถุง)$")
@@ -66,6 +74,7 @@ def _rank(line, catalog):
     qw, qthk, qnum = tokens(line, {_numstr(p.get("qty")), _numstr(p.get("price"))})
     if not qw:
         return qw, []
+    qprof = profiles(line)
     scored = []
     for code, desc, label, unit, sales in catalog:
         cw, cthk, cnum = tokens(f"{label or ''} {desc or ''}")
@@ -75,7 +84,7 @@ def _rank(line, catalog):
             continue
         if ("สี" in qw and "ซิงค์" in cw and "สี" not in cw) or ("ซิงค์" in qw and "สี" in cw and "ซิงค์" not in cw):
             continue
-        if ("snaplock" in cw) and ("snaplock" not in qw):
+        if qprof != profiles(f"{label or ''} {desc or ''}"):   # รั้ว ≠ แผ่นหลังคา · ไม่ระบุรุ่น = ไม่จับคู่รุ่นพิเศษ
             continue
         hit, need = len(qw & cw), len(qw)
         if qthk:                                   # ความหนาตรงกันนับเป็นคำสำคัญ 1 คำ

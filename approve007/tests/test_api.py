@@ -352,6 +352,15 @@ class Quick(unittest.TestCase):
         self.assertEqual(Q.match("สกรู 75 มม. 2000 ตัว 2.5", self.CAT)[0], "04S-75-DOME")
 
 
+    def test_profile_must_match(self):
+        cat = [("01A-GRST-030-JJL", "ตรง เทาเข้ม 0.30JJL", "JJL สี 0.30", "ม.", 100),
+               ("01WP-GRST-030-JJL", "ลอนรั้ว เทาเข้ม 0.30JJL", None, "ม.", 50),
+               ("01WC-WRW-035-TT", "ผนัง007 ไม้แดง 0.35 Total", None, "ม.", 40)]
+        self.assertIsNone(Q.match("รั้ว 0.30 JJL ราคา 20 บาท", cat[:1])[0])          # มีแต่แผ่นหลังคา = ไม่ฟันธง
+        self.assertEqual(Q.match("ลอนรั้ว 0.30 jjl เทา 10 ม. 60", cat)[0], "01WP-GRST-030-JJL")
+        self.assertEqual(Q.match("ลอน 0.30 jjl เทา 10 ม. 108", cat)[0], "01A-GRST-030-JJL")   # ไม่ระบุรุ่น = แผ่นหลังคา
+        self.assertIsNone(Q.match("ลอนรั้ว ไม้แดง 0.35 10 ม. 55", cat[2:])[0])     # ผนัง ≠ ลอนรั้ว
+
     def test_color_only_variants_pick_by_typed_color(self):
         # สกรูไม่มีกลุ่มราคา · ทุนแต่ละสีไม่เท่ากัน → ไม่ระบุสี = ไม่เดา (บอกให้ระบุสี) · ระบุสีที่ชี้ตัวเดียว = ใช้ตัวนั้น
         cat = [("04S-75-WA#12", "สกรูแปเหล็ก\xa075\xa0มม.\xa0ขาว", None, "ตว", 50),
