@@ -152,6 +152,88 @@ class Grade(unittest.TestCase):
         self.assertLess(self.g([("A", 10, 94)], role="GEM", card_unpaid=True, freight=50)["gp_pct"], base)
 
 
+class Policy(unittest.TestCase):
+    """🛡️ ห้ามลด (CTO 28 ก.ย. 69): ต่ำกว่ายืนราคา = ขอ ผบ. ทุกครั้ง · ป้าย TO-CONFIRM ไม่ถูกใช้"""
+
+    def test_protect_bands_no_self_no_mgr(self):
+        b = E.price_bands(70.0, 100.0, "ม.", protect=True)
+        self.assertTrue(b["protect"] and b["self_empty"])
+        self.assertEqual((b["self_low"], b["mgr_low"]), (b["stand"], b["stand"]))
+        self.assertEqual(E.classify(100, b), "stand")
+        self.assertEqual(E.classify(99, b), "gem")                          # ลด 1 บาทก็ต้องขอ ผบ.
+        n = E.price_bands(70.0, 100.0, "ม.")
+        self.assertFalse(n["protect"])
+        self.assertEqual(E.classify(99, n), "self")
+
+    def test_protect_line_below_rate1_makes_bill_d(self):
+        bk = book(exact={"A": 70.0})
+        lines = [{"code": "A", "qty": 10, "price": 110}]
+        pol = {"protect": {"PPS": ["A"]}}
+        self.assertEqual(E.grade_bill(lines, "PPS", bk, rate1_of=lambda c: 120, policy=pol)["grade"], "D")
+        r = E.grade_bill(lines, "PPS", bk, rate1_of=lambda c: 120, policy=pol)
+        self.assertIn("protect", r["tags_hit"])
+        self.assertTrue(any("ห้ามลด" in x for x in r["reasons"]))
+        # ยืนราคาป้าย = ไม่โดน · สาขาอื่น = ไม่โดน · ไม่มี policy = เกรดเดิม
+        self.assertEqual(E.grade_bill([{"code": "A", "qty": 10, "price": 120}], "PPS", bk,
+                                      rate1_of=lambda c: 120, policy=pol)["grade"], "A")
+        self.assertEqual(E.grade_bill(lines, "PPS", bk, rate1_of=lambda c: 120,
+                                      policy={"protect": {"BK": ["A"]}})["grade"], "A")
+        self.assertEqual(E.grade_bill(lines, "PPS", bk, rate1_of=lambda c: 120)["grade"], "A")
+
+    def test_only_confirmed_tags_are_active(self):
+        tags = {"version": "x", "cash_cow": {"status": "TO-CONFIRM", "codes": ["A"]},
+                "protect": {"status": "active-from-purch"}, "profit_maker": {"status": "confirmed"}}
+        self.assertEqual(sorted(E.policy_active(tags)), ["profit_maker", "protect"])
+
+    def test_purch_lowstock_reader(self):
+        import openpyxl
+        import tempfile
+        import build as B
+        tmp = tempfile.mkdtemp()
+        d = os.path.join(tmp, *B.PURCH_DIR)
+        os.makedirs(d)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "F1_LowStock_All"
+        ws.append(["หัวรายงาน"])
+        ws.append(["⚠️", "Alert", "Prefix", "หมวด", "สาขา", "รหัส", "ชื่อสินค้า"])
+        ws.append(["🔴", "A1_REORDER_01A", "01A", "01A", "PPS", "01A-WA-035-ZC", "x"])
+        ws.append(["🚨", "A3_URGENT", "04", "04", "BK", "04S-75-WA#12", "x"])
+        ws.append(["🟡", "A2_LOW_SUPPLY", "01WC", "01WC", "PPS", "01WC-X", "ออนไลน์"])
+        name = "purch_" + TODAY.strftime("%y%m%d") + "_combined.xlsx"
+        wb.save(os.path.join(d, name))
+        L = type("L", (), {"drive": tmp})()
+        got, src, age, err = B.purch_lowstock(L, {"A1_REORDER_01A", "A3_URGENT"})
+        self.assertEqual((got, src, age, err), ({"PPS": ["01A-WA-035-ZC"], "BK": ["04S-75-WA#12"]}, name, 0, None))
+        # ไฟล์ซิงก์ครึ่งไฟล์ / หัวตารางเปลี่ยน → ไม่ล้ม คืนว่าง + บอกปัญหา
+        with open(os.path.join(d, name), "wb") as f:
+            f.write(b"PK\x03\x04 half synced")
+        got, _, _, err = B.purch_lowstock(L, {"A1_REORDER_01A"})
+        self.assertEqual(got, {})
+        self.assertIn("อ่านไฟล์ไม่ได้", err)
+        wb = openpyxl.Workbook()
+        wb.active.title = "F1_LowStock_All"
+        wb.active.append(["⚠️", "ประเภท", "สาขา", "รหัสสินค้า"])
+        wb.save(os.path.join(d, name))
+        got, _, _, err = B.purch_lowstock(L, {"A1_REORDER_01A"})
+        self.assertEqual(got, {})
+        self.assertIn("หัวตาราง", err)
+
+    def test_protect_without_cost_still_d_and_fractional_rate1(self):
+        bk = book(exact={"A": 70.0})                      # "N" ไม่มีทุน
+        pol = {"protect": {"PPS": ["N"]}}
+        lines = [{"code": "A", "qty": 100, "price": 110}, {"code": "N", "qty": 1, "price": 70}]
+        r1 = {"A": 120, "N": 79}
+        self.assertEqual(E.grade_bill(lines, "PPS", bk, rate1_of=r1.get, policy=pol)["grade"], "D")
+        # Rate 1 มีเศษ: ตารางกับเกรดบิลใช้เส้นเดียวกัน — ขายที่ป้ายพอดี = ยืนราคา ไม่ใช่ขอ ผบ.
+        b = E.price_bands(500.0, 625.94, "ตัว", protect=True)
+        self.assertEqual(E.classify(625.94, b), "stand")
+        self.assertEqual(E.classify(625.93, b), "gem")
+        bk2 = book(exact={"P": 500.0})
+        self.assertNotEqual(E.grade_bill([{"code": "P", "qty": 1, "price": 625.94}], "PPS", bk2,
+                                         rate1_of=lambda c: 625.94, policy={"protect": {"PPS": ["P"]}})["grade"], "D")
+
+
 class EndToEnd(unittest.TestCase):
     """สร้าง All_on_Cloud จำลอง → preflight → build → verify · ไฟล์ที่เซลเปิดต้องไม่มีทุน"""
 

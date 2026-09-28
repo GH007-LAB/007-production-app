@@ -109,6 +109,7 @@ class Data:
             f["_coil_m"] = round(coil["per_m"] + self.coil_adder, 2) if coil else None
         self.stmas = {br: self._stmas(br) for br in BRANCHES}
         self.sales = {br: self._sales(br, days) for br in BRANCHES}
+        self.policy, self.policy_notes = load_policy(L)
 
     def _stmas(self, br):
         p = self.L.dbf(br, "STMAS.DBF")
@@ -174,30 +175,112 @@ class Data:
         return [c for c in picked if not c.startswith("ZZ")]   # ZZ = คอยล์/โอนข้ามสาขา ไม่ใช่สินค้าขายหน้าร้าน
 
 
+# ------------------------------------------------------------------ ป้ายเงื่อนไข (POLICY_TAGS.json — ผบ. แก้คนเดียว)
+PURCH_DIR = ("Purchase Order (PO)", "รายงานสถานะสต็อค")
+PURCH_MAX_AGE_DAYS = 3        # รายงาน Purch เก่ากว่านี้ = ไม่ใช้ป้ายห้ามลด (กันล็อกของที่เติมแล้ว)
+
+
+def purch_lowstock(L, alerts):
+    """{สาขา: [รหัส]} จาก F1_LowStock_All ของรายงาน Purch ล่าสุด → (dict, ชื่อไฟล์, อายุวัน, ปัญหา|None)
+    ไฟล์เสีย/กำลังซิงก์/หัวตารางเปลี่ยน = คืนว่าง + บอกปัญหา (ห้ามทำ build ล้มทั้งรอบ)"""
+    d = os.path.join(L.drive, *PURCH_DIR)
+    try:
+        files = sorted(f for f in os.listdir(d) if re.fullmatch(r"purch_\d{6}_combined\.xlsx", f))
+    except OSError:
+        return {}, None, None, "ไม่พบโฟลเดอร์รายงาน Purch"
+    if not files:
+        return {}, None, None, "ไม่พบรายงาน Purch"
+    name = files[-1]
+    try:
+        age = (today() - datetime.datetime.strptime(name[6:12], "%y%m%d").date()).days
+    except ValueError:
+        return {}, name, None, "ชื่อไฟล์ไม่มีวันที่ที่อ่านได้"
+    if age < 0:
+        return {}, name, age, "วันที่ในชื่อไฟล์อยู่ในอนาคต"
+    out, hdr = defaultdict(set), None
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(os.path.join(d, name), read_only=True, data_only=True)
+        try:
+            if "F1_LowStock_All" not in wb.sheetnames:
+                return {}, name, age, "ไม่มีชีต F1_LowStock_All"
+            for r in wb["F1_LowStock_All"].iter_rows(values_only=True):
+                if hdr is None:
+                    if r and {"Alert", "รหัส", "สาขา"} <= set(r):
+                        hdr = {k: i for i, k in enumerate(r) if k}
+                    continue
+                br, code, alert = (r[hdr[k]] if hdr[k] < len(r) else None for k in ("สาขา", "รหัส", "Alert"))
+                if br in BRANCHES and code and alert in alerts:
+                    out[br].add(str(code).strip())
+        finally:
+            wb.close()
+    except Exception as e:                       # noqa: BLE001 — BadZipFile ตอน Drive ซิงก์ครึ่งไฟล์ ฯลฯ
+        return {}, name, age, f"อ่านไฟล์ไม่ได้ ({type(e).__name__})"
+    if hdr is None:
+        return {}, name, age, "หาหัวตาราง (สาขา/รหัส/Alert) ไม่เจอ — Purch เปลี่ยนรูปแบบ?"
+    return {br: sorted(v) for br, v in out.items()}, name, age, None
+
+
+def load_policy(L):
+    """ป้ายที่ใช้ได้จริง → (policy สำหรับ engine/snapshot, บันทึกที่มา) · ป้าย TO-CONFIRM ไม่ถูกใช้"""
+    try:
+        with open(os.path.join(HERE, "config", "POLICY_TAGS.json"), encoding="utf-8") as f:
+            tags = json.load(f)
+    except (OSError, ValueError):
+        return {}, ["อ่าน POLICY_TAGS.json ไม่ได้ — ไม่ใช้ป้ายใด ๆ"]
+    active = E.policy_active(tags)
+    policy, notes = {"version": tags.get("version")}, []
+    pr = active.get("protect")
+    if pr:
+        codes = {br: set() for br in BRANCHES}
+        for br in BRANCHES:
+            codes[br] |= set((pr.get("codes_by_branch") or {}).get(br) or []) | set(pr.get("codes") or [])
+        if pr.get("auto_from_purch_lowstock"):
+            auto, src, age, err = purch_lowstock(L, set(pr.get("purch_alerts") or []))
+            if err:
+                notes.append(f"⚠️ 🛡️ ห้ามลด: {src or ''} {err} — ใช้เฉพาะรหัสที่ ผบ. ระบุ")
+            elif age > PURCH_MAX_AGE_DAYS:
+                notes.append(f"🛡️ ห้ามลด: รายงาน Purch {src} เก่า {age} วัน — ไม่ใช้รายการอัตโนมัติ")
+            else:
+                for br, v in auto.items():
+                    codes[br] |= set(v)
+                notes.append(f"🛡️ ห้ามลด: จาก {src} · " + " · ".join(f"{br} {len(codes[br])}" for br in BRANCHES))
+        policy["protect"] = {br: sorted(v) for br, v in codes.items() if v}
+    return policy, notes
+
+
 # ------------------------------------------------------------------ สร้างช่วงราคา
+def _sold(D, br, code):
+    return (D.sales[br].get(code) or {}).get("val", 0)
+
+
 def build_branch(D, br):
     rows, report, missing = {}, [], []
-    for code in D.pick_codes(br):
+    guard = E.protect_codes(D.policy, br)
+    picked = D.pick_codes(br)
+    extra = [c for c in sorted(guard - set(picked)) if c in D.stmas[br] and not c.startswith("ZZ")]
+    for code in picked + extra:                    # รหัสห้ามลดที่ไม่ติดยอดขาย ก็ต้องขึ้นตารางพร้อมป้าย
         c = D.book.cost(code, br)
         rate1, r1src = D.rate1_of(code, br)
         unit = D.unit_of(code, br) or ("ม." if code.startswith(("01", "03")) else "")
         fam = D.family_of(code)
         usable = c if (c and c["unit_verified"]) else None
         b = E.price_bands(usable["cost"] if usable else None, rate1, unit,
-                          fast=D.book.is_fast(code), code=code)
+                          fast=D.book.is_fast(code), protect=code in guard, code=code)
         if b["status"] == "ask" and not usable:
-            missing.append((code, D.desc_of(code, br), round(D.sales[br][code]["val"])))
+            missing.append((code, D.desc_of(code, br), round(_sold(D, br, code))))
         name = fam["label"] if fam else D.desc_of(code, br)
         key = (fam["key"] if fam else "c:" + code, b.get("status"), b.get("stand"), b.get("self_low"),
-               b.get("mgr_low"), b.get("self_empty"))
+               b.get("mgr_low"), b.get("self_empty"), b.get("protect", False))
         row = rows.setdefault(key, {"name": name, "cat": fam["category"] if fam else _cat(code),
                                     "unit": unit or "หน่วย", "codes": [], "sales90": 0,
                                     "status": b["status"], "note": b.get("note"),
                                     "stand": b.get("stand"), "self_low": b.get("self_low"),
                                     "mgr_low": b.get("mgr_low"), "self_empty": b.get("self_empty"),
-                                    "fast": b.get("fast", False), "rate1_src": r1src})
+                                    "fast": b.get("fast", False), "protect": b.get("protect", False),
+                                    "rate1_src": r1src})
         row["codes"].append(code)
-        row["sales90"] += round(D.sales[br][code]["val"])
+        row["sales90"] += round(_sold(D, br, code))
         if usable and rate1 and "rate1_below_target" in b.get("flags", []):
             need = E.ceil_to(E.p_at(usable["cost"], E.GP_SELF), 1.0)
             coil = fam["_coil_m"] if fam else None
@@ -207,7 +290,7 @@ def build_branch(D, br):
                            "coil_cost": coil, "drift_pct": round(drift, 1) if drift is not None else None,
                            "need_rate1_for_20": need, "pile": "ก" if (drift is not None and drift > 5) else "ข",
                            "below_floor": "rate1_below_floor" in b["flags"],
-                           "sales90": round(D.sales[br][code]["val"])})
+                           "sales90": round(_sold(D, br, code))})
     out = sorted(rows.values(), key=lambda r: (_cat_order(r["cat"]), -r["sales90"]))
     for r in out:
         if len(r["codes"]) > 1 and r["name"] == D.desc_of(r["codes"][0], br):
@@ -228,8 +311,9 @@ def _cat_order(c):
 
 
 def public_rows(rows):
-    keep = ("name", "cat", "unit", "codes", "status", "note", "stand", "self_low", "mgr_low", "self_empty", "fast")
-    return [{k: r[k] for k in keep} for r in rows]
+    keep = ("name", "cat", "unit", "codes", "status", "note", "stand", "self_low", "mgr_low", "self_empty", "fast",
+            "protect")
+    return [{k: r.get(k, False) if k == "protect" else r[k] for k in keep} for r in rows]
 
 
 # ------------------------------------------------------------------ ตาราง PDF (HTML → Chrome headless)
@@ -273,6 +357,8 @@ def render_pdf_html(br, rows, gen, valid_until, stale_reason, sheet_date):
             cat = r["cat"]
             body.append(f'<tr class="cat"><td colspan="6">{html.escape(cat)}</td></tr>')
         fast = ' <span class="fast">⚡หมุนเร็ว</span>' if r.get("fast") else ""
+        if r.get("protect"):
+            fast += ' <span class="fast" style="color:#b3261e">🛡️ห้ามลด — ต่ำกว่าป้ายขอ ผบ.</span>'
         body.append(f'<tr><td>{html.escape(r["name"])}{fast}</td><td class="u">{html.escape(r["unit"])}</td>'
                     f'{band_cells(r)}</tr>')
     banner = (f'<div class="expired">⛔ หมดอายุ ห้ามใช้ — {html.escape(stale_reason)}</div>' if stale_reason else "")
@@ -521,7 +607,7 @@ def cmd_check(L, sonum, br=None, role="SALES"):
         return {"ambiguous": [b for b, _ in hits]}
     b, lines = hits[0]
     D = Data(L, days=1)
-    res = E.grade_bill(lines, b, D.book, role=role, rate1_of=lambda c: D.rate1_of(c, b)[0])
+    res = E.grade_bill(lines, b, D.book, role=role, rate1_of=lambda c: D.rate1_of(c, b)[0], policy=D.policy)
     print(json.dumps(res, ensure_ascii=False, indent=1))
     return res
 
@@ -634,12 +720,15 @@ def build_snapshot(D, gen):
     rate1, catalog, as_of = {}, {}, {}
     for br in BRANCHES:
         r1, cat = {}, []
-        for code, a in D.sales[br].items():
+        for code in set(D.sales[br]) | E.protect_codes(D.policy, br):   # ขาดสต็อก = อาจไม่มียอดขาย แต่ต้องมี Rate 1
             if code.startswith("ZZ"):
                 continue
             v, _ = D.rate1_of(code, br)
             if v:
                 r1[code] = v
+        for code, a in D.sales[br].items():
+            if code.startswith("ZZ"):
+                continue
             fam = D.family_of(code)
             cat.append([code, D.desc_of(code, br), fam["label"] if fam else None, D.unit_of(code, br),
                         round(a["val"])])
@@ -648,7 +737,7 @@ def build_snapshot(D, gen):
         if os.path.exists(p):
             as_of[br] = datetime.datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="minutes")
     return {"generated": datetime.datetime.now().isoformat(timespec="seconds"), "rules": rules,
-            "rate1": rate1, "catalog": catalog, "bands": bands, "so_as_of": as_of}
+            "rate1": rate1, "catalog": catalog, "bands": bands, "so_as_of": as_of, "policy": D.policy}
 
 
 def so_rows_recent(L, br, days=SO_DAYS):

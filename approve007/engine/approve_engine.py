@@ -160,12 +160,27 @@ def price_bands(cost, rate1, unit, fast=False, protect=False, code=""):
     self_empty = stand is not None and (protect or self_low >= stand)
     if self_empty:
         self_low = stand
-    if protect:
-        flags.append("protect")
     mgr_low = min(mgr_low, self_low)
+    if protect and stand is not None:
+        # 🛡️ ห้ามลด (CTO 28 ก.ย. 69): ต่ำกว่ายืนราคาเมื่อไหร่ = ขอ ผบ. ทันที — ไม่มีชั้นลดได้เอง/ผจก.
+        # เส้นเดียวกับ grade_bill (Rate 1 ดิบ ไม่ปัด) — ไม่งั้น Rate 1 มีเศษ (625.94) ตารางบอกขอ ผบ. แต่เกรดบอก A
+        stand = self_low = mgr_low = round(rate1, 2)
+        flags.append("protect")
     return {"status": "ok", "unit": unit, "kind": kind, "fast": bool(fast),
             "stand": stand, "self_low": self_low, "mgr_low": mgr_low,
-            "self_empty": bool(self_empty), "flags": flags}
+            "self_empty": bool(self_empty), "protect": "protect" in flags, "flags": flags}
+
+
+def policy_active(tags):
+    """ป้ายจาก POLICY_TAGS.json ที่ใช้ตัดสินได้จริง: status = confirmed หรือ active-from-purch เท่านั้น
+    ป้าย TO-CONFIRM (ผบ. ยังไม่เคาะ) ไม่ถูกใช้ — ห้ามเปิดเอง"""
+    return {k: v for k, v in (tags or {}).items()
+            if isinstance(v, dict) and v.get("status") in ("confirmed", "active-from-purch")}
+
+
+def protect_codes(policy, branch):
+    """รหัส 🛡️ ห้ามลด ของสาขา (policy = snapshot["policy"] ที่ Mac mini เตรียม: {"protect": {"BK": [...]}})"""
+    return set(((policy or {}).get("protect") or {}).get(branch) or [])
 
 
 def classify(price, bands):
@@ -200,6 +215,8 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
     rev = known_rev = cost_total = fast_rev = 0.0
     at_rate1_rev = at_rate1_cost = 0.0
     below, detail, cats = [], [], set()
+    guard = protect_codes(policy, branch)
+    protect_hit = []
     for ln in lines:
         code = (ln.get("code") or "").strip()
         qty = float(ln.get("qty") or 0)
@@ -211,6 +228,10 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
             cats.add("PU")
         c = book.cost(code, branch, ln.get("tfactor") or 1.0)
         row = {"code": code, "qty": qty, "price": price, "known": bool(c)}
+        if code in guard and value > 0:              # ห้ามลดไม่ต้องรู้ทุน — ดูแค่ต่ำกว่า Rate 1 ไหม
+            r1g = (rate1_of(code) if rate1_of else None) or (c.get("rate1_hint") if c else None)
+            if r1g and price < r1g:
+                protect_hit.append(code)
         if c and value > 0:
             known_rev += value
             cost_total += qty * c["cost"]
@@ -240,10 +261,14 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
         reasons.append("บิลนี้ส่วนใหญ่เป็นสินค้าหมุนเร็ว — ใช้เกณฑ์ผ่อน (ตามกติกา v1.1)")
     if "PU" in cats:
         tags.append("profit_maker")
+    if protect_hit:
+        tags.append("protect")
 
     if coverage < MIN_COVERAGE:
         grade = None
         reasons.append("ระบบรู้ทุนไม่ถึง 70% ของบิล — ยังสรุปไม่ได้ ส่งเลข SO ให้ผจก./แชทช่วยเช็ค")
+        if protect_hit:
+            reasons.append("🛡️ มีสินค้าห้ามลดราคาต่ำกว่าป้าย: " + ", ".join(dict.fromkeys(protect_hit)) + " — ต้องขอ ผบ.")
     elif below or gpp < 0:
         grade = "X"
         reasons.append("มีรายการราคาต่ำกว่าทุน — ต้องปรับราคาขึ้นก่อน ห้ามขาย")
@@ -255,6 +280,10 @@ def grade_bill(lines, branch, book, role="SALES", total_override=None, freight=0
         if age > FRESH_DAYS and grade in ("A", "B"):
             grade = "C"
             reasons.append(f"ข้อมูลทุนเก่า {age} วัน — ระบบลดเกรดสูงสุดเป็น C จนกว่าจะอัปเดต")
+        if protect_hit and grade in ("A", "B", "C"):
+            grade = "D"
+            reasons.append("🛡️ มีสินค้าห้ามลด (ของเหลือน้อย) ราคาต่ำกว่าป้าย: " + ", ".join(dict.fromkeys(protect_hit))
+                           + " — ลดต้องขอ ผบ. ทุกครั้ง · สู้ด้วยมาตรฐาน/ของพร้อมส่งแทนการลด")
 
     floor_b = 15 if fast else 20
     if grade is None:
