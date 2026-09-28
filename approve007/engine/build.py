@@ -274,6 +274,86 @@ def cmd_mto_template(L):
     print("เขียน", target, "·", len(codes), "รหัส")
 
 
+def cmd_missing_report(L):
+    """ไฟล์ "ข้อมูลที่ต้องเติม" ให้ ผบ./จัดซื้อ: รายการในตารางช่วงราคาที่ยังคิดช่วงไม่ได้ แยกตามสิ่งที่ขาด เรียงยอดขาย
+    มีทุน → เขียนลงโฟลเดอร์โปรเจกต์ (L.private) เท่านั้น ห้ามลงโฟลเดอร์แอปที่เซลเปิด"""
+    import openpyxl
+    from openpyxl.styles import Font
+    D = Data(L)
+    no_cost, no_r1, low_r1, mto = [], [], [], defaultdict(int)
+    for br in BRANCHES:
+        guard = E.protect_codes(D.policy, br)
+        for code in D.pick_codes(br):
+            c = D.book.cost(code, br)
+            rate1, r1src = D.rate1_of(code, br)
+            unit = D.unit_of(code, br) or ""
+            usable = c if (c and c["unit_verified"]) else None
+            b = E.price_bands(usable["cost"] if usable else None, rate1, unit or "ม.",
+                              fast=D.book.is_fast(code), protect=code in guard, code=code)
+            a = D.sales[br].get(code) or {"val": 0, "qty": 0}
+            avg = round(a["val"] / a["qty"], 2) if a["qty"] else None
+            base = [br, code, D.desc_of(code, br), unit, round(a["val"]), avg]
+            if b["status"] == "fold":
+                continue
+            if not usable:
+                if code.startswith(E.MTO_PREFIXES):
+                    mto[br] += 1
+                    continue
+                where = ("ทุนผลิตเอง — ผบ. กำหนด (ไม่มีใบรับใน Express)" if not any(
+                    code in (D.book.per_branch.get(x) or {}) for x in BRANCHES) and code not in D.book.any
+                    else "บันทึกรับเข้า/ปรับสต็อกการ์ด Express ของสาขานี้")
+                no_cost.append(base + [rate1, where])
+            elif b["status"] == "ask":                      # Rate 1 ต่ำกว่า GP 10%
+                cost = usable["cost"]
+                low_r1.append(base + [rate1, r1src, cost, E.ceil_to(E.p_at(cost, E.GP_MGR), 1 if cost >= 50 else 0.05),
+                                      E.ceil_to(E.p_at(cost, E.GP_SELF), 1 if cost >= 50 else 0.05)])
+            elif rate1 is None:
+                cost = usable["cost"]
+                no_r1.append(base + [cost, E.ceil_to(E.p_at(cost, E.GP_SELF), 1 if cost >= 50 else 0.05)])
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "สรุป"
+    ws.append([f"ข้อมูลที่ต้องเติม — Approve007 · สร้าง {today():%d/%m/%Y} · มีทุน ห้ามส่งให้เซล"])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([])
+    ws.append(["ชีต", "ขาดอะไร", "ใครเติม / เติมที่ไหน", "BK", "SKN", "PPS"])
+    cnt = lambda rows, br: sum(1 for r in rows if r[0] == br)
+    ws.append(["1 ไม่มีทุน", "ทุน (สินค้าทั่วไป)", "จัดซื้อ: บันทึกรับเข้า Express · ของผลิตเอง: ผบ. กำหนดทุนผลิต",
+               *[cnt(no_cost, b) for b in BRANCHES]])
+    ws.append(["2 Rate1 ต่ำกว่าเกณฑ์", "ราคาป้ายต่ำกว่าทุน+GP 10% → ถามก่อนขาย", "ผบ.: ขึ้นราคาในใบราคาขายแผ่น / ราคาขาย 1 ใน Express",
+               *[cnt(low_r1, b) for b in BRANCHES]])
+    ws.append(["3 ไม่มี Rate1", "ราคาป้าย → ยืนราคาขึ้น –", "จัดซื้อ/ผบ.: ใส่ราคาขาย 1 ใน Express (หรือเพิ่มในใบราคาขายแผ่น)",
+               *[cnt(no_r1, b) for b in BRANCHES]])
+    ws.append(["(ไฟล์แยก)", "ทุนรีดตามสั่ง (ลอนรั้ว/ผนัง/พาแนล/สแนปล็อค)", "ผบ.: AutoExport/scripts/" + MTO_FILE,
+               *[mto[b] for b in BRANCHES]])
+    ws.append([])
+    ws.append(["หมายเหตุ: เฉพาะรายการที่อยู่ในตารางช่วงราคา (ยอดขาย 80% แรก + กลุ่มแผ่นหลัก) · ราคาขายเฉลี่ย = ยอดขาย/จำนวน 90 วันจาก Express · "
+               "เกรดทั้งบิลใช้ทุนเดียวกัน — เติมแล้วมีผลภายใน 15 นาที (ทุนจาก Express ตามรอบ costbook 06:45/12:15)"])
+    sheets = [("1 ไม่มีทุน", ["สาขา", "รหัส", "ชื่อสินค้า", "หน่วย", "ยอดขาย 90 วัน (บ.)", "ราคาขายเฉลี่ย", "Rate 1", "เติมที่ไหน"], no_cost),
+              ("2 Rate1 ต่ำกว่าเกณฑ์", ["สาขา", "รหัส", "ชื่อสินค้า", "หน่วย", "ยอดขาย 90 วัน (บ.)", "ราคาขายเฉลี่ย", "Rate 1 ตอนนี้",
+                                       "มาจาก", "ทุน", "Rate 1 ขั้นต่ำให้หายถามก่อนขาย (GP 10%)", "Rate 1 ถึงเป้า GP 20%"], low_r1),
+              ("3 ไม่มี Rate1", ["สาขา", "รหัส", "ชื่อสินค้า", "หน่วย", "ยอดขาย 90 วัน (บ.)", "ราคาขายเฉลี่ย", "ทุน",
+                                "ราคาขั้นต่ำ GP 20% (อ้างอิง)"], no_r1)]
+    for title, hdr, rows in sheets:
+        w = wb.create_sheet(title)
+        w.append(hdr)
+        for c in w[1]:
+            c.font = Font(bold=True)
+        for r in sorted(rows, key=lambda r: -r[4]):
+            w.append(r)
+        for col, width in zip("ABCDEFGHIJK", (6, 22, 40, 7, 16, 13, 12, 16, 10, 22, 18)):
+            w.column_dimensions[col].width = width
+        w.freeze_panes = "A2"
+    for col, width in zip("ABCDEF", (22, 38, 70, 6, 6, 6)):
+        ws.column_dimensions[col].width = width
+    os.makedirs(L.private, exist_ok=True)
+    t = today()
+    out = os.path.join(L.private, f"ข้อมูลที่ต้องเติม_{(t.year + 543) % 100:02d}{t:%m%d}.xlsx")   # ปี พ.ศ. เหมือนไฟล์อื่นในโฟลเดอร์
+    wb.save(out)
+    print("เขียน", out, "· ไม่มีทุน", len(no_cost), "· Rate1 ต่ำ", len(low_r1), "· ไม่มี Rate1", len(no_r1),
+          "· รีดตามสั่ง", sum(mto.values()))
+
+
 # ------------------------------------------------------------------ ป้ายเงื่อนไข (POLICY_TAGS.json — ผบ. แก้คนเดียว)
 PURCH_DIR = ("Purchase Order (PO)", "รายงานสถานะสต็อค")
 PURCH_MAX_AGE_DAYS = 3        # รายงาน Purch เก่ากว่านี้ = ไม่ใช้ป้ายห้ามลด (กันล็อกของที่เติมแล้ว)
@@ -1047,6 +1127,8 @@ def main(argv):
                   next((a for a in rest if a in ("SALES", "MGR", "GEM")), "SALES"))
     elif cmd == "push":
         cmd_push(L, full="--full" in argv[2:])
+    elif cmd == "missing-report":
+        cmd_missing_report(L)
     elif cmd == "mto-template":
         cmd_mto_template(L)
     elif cmd == "pull-log":
