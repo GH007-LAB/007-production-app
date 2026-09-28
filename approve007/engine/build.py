@@ -600,6 +600,7 @@ SO_CHUNK = 1500
 
 def api_call(method, action, body=None, query=""):
     """เรียก API พร้อมลองใหม่ 4 ครั้ง (5/15/30 วิ) เมื่อ timeout · เน็ตหลุด · 5xx — 4xx ไม่ลองซ้ำ"""
+    import http.client
     import socket
     import time
     import urllib.error
@@ -618,7 +619,7 @@ def api_call(method, action, body=None, query=""):
             if e.code < 500 or wait is None:
                 raise
             err = f"HTTP {e.code}"
-        except (urllib.error.URLError, socket.timeout, ConnectionError) as e:
+        except (urllib.error.URLError, socket.timeout, ConnectionError, http.client.HTTPException, ValueError) as e:
             if wait is None:
                 raise
             err = type(e).__name__
@@ -714,10 +715,20 @@ def cmd_push(L, full=False):
         if not os.path.exists(L.dbf(br, "OESOIT.DBF")):
             continue
         cut, by = so_rows_recent(L, br)
-        prev = state["so"].setdefault(br, {})
-        cur = {so: _digest(rows) for so, rows in by.items()}
+        prev = state["so"].setdefault(br, {})     # so → [hash, sodat]
+        cur = {so: [_digest(rows), rows[0]["sodat"]] for so, rows in by.items()}
+        if prev and not cur:
+            print(f"  ⚠️ {br}: อ่าน OESOIT ได้ 0 SO (ไฟล์กำลังซิงก์?) — ข้ามสาขานี้รอบนี้", file=sys.stderr)
+            continue
         changed = [so for so in sorted(by) if full or prev.get(so) != cur[so]]
-        gone = sorted(so for so in prev if so not in cur)   # ลบใน Express หรือเลยช่วง 60 วัน
+        aged = sorted(so for so, v in prev.items() if so not in cur and v[1] < cut.isoformat())
+        missing = sorted(so for so, v in prev.items() if so not in cur and v[1] >= cut.isoformat())
+        # read_dbf หยุดเงียบเมื่อไฟล์สั้นกว่าที่ header บอก (Express/Drive กำลังเขียน) — SO หายเป็นกลุ่มใหญ่ = อ่านไม่ครบ ไม่ใช่ลบจริง
+        guard = len(missing) > max(20, len(prev) // 5)
+        if guard:
+            print(f"  ⚠️ {br}: SO หาย {len(missing)} ใบในรอบเดียว — สงสัยอ่านไฟล์ไม่ครบ ไม่ลบรอบนี้", file=sys.stderr)
+            missing = []
+        gone = aged + missing                      # ลบใน Express หรือเลยช่วง 60 วัน
         batches, chunk = [], []
         for so in changed:                         # ไม่ตัด SO เดียวข้ามชุด (เซิร์ฟเวอร์แทนที่ทีละ SO)
             chunk.append(so)
@@ -731,7 +742,9 @@ def cmd_push(L, full=False):
             body = {"kind": "so_lines", "branch": br, "since": cut.isoformat(), "first": i == 0, "rows": rows}
             if i == 0 and gone:
                 body["delete_sos"] = gone
-            if not rows and not body.get("delete_sos") and not (full and body["first"]):
+            if i == 0 and full and not guard:      # รอบเต็ม: ให้เซิร์ฟเวอร์ลบ SO ที่ค้างแต่ในเครื่องไม่รู้จัก
+                body["keep_sos"] = sorted(by)
+            if not rows and not body.get("delete_sos") and not (full and i == 0):
                 continue                           # ไม่มีอะไรเปลี่ยน — ไม่เรียก API เลย (ประหยัดโควตา Vercel)
             api_call("POST", "push", body)
             for so in sos:

@@ -167,12 +167,12 @@ class Api(unittest.TestCase):
 
     def test_push_filled_server(self):
         self.assertEqual(self.push.returncode, 0, self.push.stdout + self.push.stderr)
-        self.assertEqual(len(self.sb.t["approve_snapshot"]), 1)
+        self.assertGreaterEqual(len(self.sb.t["approve_snapshot"]), 1)   # เทสอื่นสั่ง push --full เพิ่มได้
         self.assertNotIn("pins", json.dumps(self.sb.t["approve_snapshot"][0]["payload"]["rules"]))
         self.assertTrue(any(r["sonum"] == "SO6903141" and r["branch"] == "PPS" for r in self.sb.t["approve_so_line"]))
 
     def test_push_second_run_sends_only_changes(self):
-        n = len(self.sb.t["approve_so_line"])
+        n, snaps = len(self.sb.t["approve_so_line"]), len(self.sb.t["approve_snapshot"])
         again = subprocess.run([sys.executable, os.path.join(ROOT, "engine", "build.py"), "push"], env=self.penv,
                                capture_output=True, text=True, timeout=120)
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
@@ -180,7 +180,7 @@ class Api(unittest.TestCase):
         self.assertIn("PPS: ส่ง 0 บรรทัด (0 SO เปลี่ยน · ลบ 0", again.stdout)
         self.assertNotIn("รอบนี้ส่งครบ", again.stdout)
         self.assertEqual(len(self.sb.t["approve_so_line"]), n)
-        self.assertEqual(len(self.sb.t["approve_snapshot"]), 1)
+        self.assertEqual(len(self.sb.t["approve_snapshot"]), snaps)
 
     def test_push_delete_sos_removes_only_that_branch(self):
         self.sb.t["approve_so_line"] += [{"branch": "BK", "sonum": "SO9999999", "seq": 1, "sodat": "2099-01-01"},
@@ -191,6 +191,46 @@ class Api(unittest.TestCase):
         left = [r["branch"] for r in self.sb.t["approve_so_line"] if r["sonum"] == "SO9999999"]
         self.assertEqual(left, ["SKN"])
         self.sb.t["approve_so_line"] = [r for r in self.sb.t["approve_so_line"] if r["sonum"] != "SO9999999"]
+
+    def _state(self, mutate):
+        p = os.path.join(self.aoc, "AutoExport", "agent_status", "approve007_push_state.json")
+        with open(p, encoding="utf-8") as f:
+            st = json.load(f)
+        mutate(st)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+
+    def _push(self, *extra):
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "engine", "build.py"), "push", *extra], env=self.penv,
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r
+
+    def test_push_deletes_vanished_so_but_guards_mass_disappearance(self):
+        recent = "2099-01-01"
+        fake = lambda n: {f"SO88{i:05d}": ["x", recent] for i in range(n)}
+        rows = lambda n: [{"branch": "BK", "sonum": f"SO88{i:05d}", "seq": 1, "sodat": recent} for i in range(n)]
+        # SO หาย 1 ใบ (ลบใน Express) → ลบบนเซิร์ฟเวอร์
+        self.sb.t["approve_so_line"] += rows(1)
+        self._state(lambda st: st["so"]["BK"].update(fake(1)))
+        r = self._push()
+        self.assertIn("ลบ 1", r.stdout)
+        self.assertFalse(any(x["sonum"].startswith("SO88") for x in self.sb.t["approve_so_line"]))
+        # SO หาย 500 ใบรอบเดียว (> 20% ของทั้งสาขา) → สงสัยอ่านไฟล์ไม่ครบ ไม่ลบ
+        self.sb.t["approve_so_line"] += rows(500)
+        self._state(lambda st: st["so"]["BK"].update(fake(500)))
+        r = self._push()
+        self.assertIn("ไม่ลบรอบนี้", r.stderr)
+        self.assertEqual(sum(x["sonum"].startswith("SO88") for x in self.sb.t["approve_so_line"]), 500)
+        # รอบเต็มแต่ยังโดน guard → ไม่ส่ง keep_sos ก็ต้องไม่ลบ
+        r = self._push("--full")
+        self.assertEqual(sum(x["sonum"].startswith("SO88") for x in self.sb.t["approve_so_line"]), 500)
+        # ล้าง state ของ SO ปลอม แล้วรอบเต็ม → keep_sos ลบ SO ค้างที่ในเครื่องไม่รู้จัก
+        self._state(lambda st: [st["so"]["BK"].pop(k) for k in list(st["so"]["BK"]) if k.startswith("SO88")])
+        r = self._push("--full")
+        self.assertIn("รอบนี้ส่งครบ", r.stdout)
+        self.assertFalse(any(x["sonum"].startswith("SO88") for x in self.sb.t["approve_so_line"]))
+        self.assertTrue(any(x["sonum"] == "SO6903141" and x["branch"] == "PPS" for x in self.sb.t["approve_so_line"]))
 
     def test_push_needs_token(self):
         st, out = self.call("push", {"kind": "snapshot"}, headers={"X-Approve-Token": "wrong" * 8})
