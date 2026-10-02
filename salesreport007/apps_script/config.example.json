@@ -1,0 +1,10 @@
+{
+  "_note": "ก๊อปไปเป็น All_on_Cloud/AutoExport/sales_report/config.json (โฟลเดอร์นี้ห้ามแชร์ให้พนักงาน — มี out.json ที่มียอดเงินสดที่ควรมี)",
+  "times": {"ready": "16:00", "cutoff": "16:30", "deadline": "16:55"},
+  "summary_viewers": ["อีเมล ผบ.", "อีเมล Finny"],
+  "branches": {
+    "BK":  {"float": 0, "receipt_folder_id": "", "staff": [{"name": "ชื่อพนักงาน", "email": "someone@gmail.com"}]},
+    "SKN": {"float": 0, "receipt_folder_id": "", "staff": [{"name": "ชื่อพนักงาน", "email": "someone@gmail.com"}]},
+    "PPS": {"float": 0, "receipt_folder_id": "", "staff": [{"name": "ชื่อพนักงาน", "email": "someone@gmail.com"}]}
+  }
+}

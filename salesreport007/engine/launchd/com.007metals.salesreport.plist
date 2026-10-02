@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- รายงานขายอัตโนมัติ (สเปก v4 ข้อ 6) · export YYMMDD_in.json 2 รอบ: 15:55 (ready → แท็บพร้อม 16:00) · 16:30 (cutoff)
+     รอบดูจากเวลาที่รัน (ก่อน 16:15 = ready) · ติดตั้งด้วย install_macmini.sh (__ENGINE__ / __AOC__ ถูกแทนตอนติดตั้ง) -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.007metals.salesreport</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string><string>python3</string>
+    <string>__ENGINE__/salesreport.py</string><string>export</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>APPROVE007_ALL_ON_CLOUD</key><string>__AOC__</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>55</integer></dict>
+    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/tmp/salesreport.out.log</string>
+  <key>StandardErrorPath</key><string>/tmp/salesreport.err.log</string>
+</dict>
+</plist>

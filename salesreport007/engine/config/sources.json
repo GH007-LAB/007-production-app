@@ -1,0 +1,25 @@
+{
+  "_note": "Step 0 (สเปก v4 ข้อ 2): ชื่อไฟล์/ฟิลด์ข้างล่างเดาจากโครง Express ที่ so_push.py ใช้จริง (ARTRN · DOCNUM ขึ้นต้น IV/AI) — ต้องรัน `salesreport.py inspect` เทียบกับฟอร์มปัจจุบันของเมื่อวานก่อนออกรายงานใบแรก ฟิลด์ใส่ได้หลายชื่อ ตัวแรกที่มีในไฟล์ถูกใช้",
+  "sources": [
+    {"file": "ARTRN.DBF", "num": ["DOCNUM"], "date": ["DOCDAT"], "customer": ["CUSCOD"],
+     "total": ["NETAMT", "NETVAL", "AMOUNT"], "remain": ["REMAMT"],
+     "types": ["IV", "AI", "SR", "HS", "RE"]},
+    {"file": "ARRCPT.DBF", "num": ["RCPNUM", "DOCNUM"], "date": ["RCPDAT", "DOCDAT"], "customer": ["CUSCOD"],
+     "total": ["NETAMT", "RCVAMT", "AMOUNT"],
+     "types": ["RE"]}
+  ],
+  "receipt_links": [
+    {"file": "ARRCPIT.DBF", "receipt": ["RCPNUM", "DOCNUM"], "doc": ["DOCNUM", "IVNUM", "REFNUM"]}
+  ],
+  "cancel": {"fields": ["DOCSTAT"], "values": ["C"]},
+  "customers": {"file": "ARMAS.DBF", "code": "CUSCOD", "name": ["PRENAM", "CUSNAM"]},
+
+  "receive_types": ["RE", "AI", "HS"],
+  "refund_types": ["SR"],
+  "credit_types": ["IV"],
+
+  "_interbranch": "รหัสลูกค้าที่เป็นสาขาด้วยกัน — HS ของลูกค้าเหล่านี้คือขายระหว่างสาขา ไม่ขึ้นรายงาน (HS อื่นขึ้นเป็นแถวรับเงิน + แจ้ง ผบ.)",
+  "interbranch_customers": {"BK": [], "SKN": [], "PPS": []},
+
+  "carry_lookback_days": 14
+}
