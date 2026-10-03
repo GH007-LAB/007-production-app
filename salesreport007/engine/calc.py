@@ -1,12 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-สูตรสรุปผล (สเปก v4 ข้อ 5) — ตัวเดียวกับ computeSummary() ใน apps_script/Code.gs
+สูตรสรุปผล (สเปก v5) — ตัวเดียวกับ computeSummary() ใน apps_script/Code.gs
 คิดเป็นสตางค์ (int) ทั้งหมดเพื่อให้ Python กับ JS ได้ผลตรงกันทุกสตางค์ · tests/test_apps_script.mjs เทียบสองฝั่ง 200 เคส
+
+v5: เงินสด/โอน/เช็ค ของแต่ละใบมาจาก RE/AI ที่พนักงานออกใน Express (ไม่มีการติ๊กในรายงาน)
+    RE ที่หักลดหนี้ ยอดรับในช่องทางคือยอดหลังหักแล้ว → ใช้ยอดช่องทาง ไม่ใช้ยอดเอกสาร
+  รับเงินสด      = Σ เงินสด ของ RE/AI/HS ในรอบ
+  รับโอน/QR     = Σ โอน   ของ RE/AI/HS ในรอบ        (เช็ค/อื่น ๆ แยกช่องของมันเอง)
+  คืนเงินสด      = Σ เงินสด ของ SR ในรอบ (ลดหนี้ที่หักใน RE ไม่มีเงินสด = 0)
+  เงินสดที่ควรมี  = float + รับเงินสด − คืนเงินสด − รายจ่ายประจำวัน (เฉพาะที่มีรูปบิล)
+  ส่วนต่าง       = เงินสดนับจริง − เงินสดที่ควรมี
+  ยอดนำฝาก      = เงินสดนับจริง − float
 """
 import math
 
 RECEIVE_TYPES = ("RE", "AI", "HS")
 REFUND_TYPES = ("SR",)
+MONEY_KEYS = ("cash_in", "transfer_in", "cheque_in", "other_in", "cash_refund", "cash_expense",
+              "cash_expected", "diff", "deposit")
 
 
 def satang(v):
@@ -23,34 +34,25 @@ def baht(s):
 
 
 def expense_counts(e):
-    """ไม่มีรูปบิล = ไม่นับเป็นค่าใช้จ่าย (ข้อ 9.6) · receipt_found=False = ใส่ชื่อไฟล์แต่หาไฟล์ใน Drive ไม่เจอ"""
+    """ไม่มีรูปบิล = ไม่นับเป็นรายจ่าย · receipt_found=False = ใส่ชื่อไฟล์แต่หาไฟล์ใน Drive ไม่เจอ"""
     return bool(str(e.get("receipt") or "").strip()) and e.get("receipt_found") is not False
 
 
 def summarize(docs, expenses, cash_counted, float_amt=0, receive_types=RECEIVE_TYPES, refund_types=REFUND_TYPES):
-    cash_in = transfer_in = cash_refund = cash_expense = 0
-    unticked = []
+    cash_in = transfer_in = cheque_in = other_in = cash_refund = cash_expense = 0
+    no_channel = []
     for d in docs:
-        ch, t = d.get("channel"), d.get("type")
-        tot, cash = satang(d.get("total")), satang(d.get("cash_amount"))
-        if ch not in ("cash", "transfer", "mixed"):
-            unticked.append(d.get("doc_no"))
-            continue
-        if ch == "mixed":
-            cash = min(cash, tot)
+        t = d.get("type")
         if t in receive_types:
-            if ch == "cash":
-                cash_in += tot
-            elif ch == "transfer":
-                transfer_in += tot
-            else:
-                cash_in += cash
-                transfer_in += tot - cash
+            if not d.get("pay_known"):
+                no_channel.append(d.get("doc_no"))
+                continue
+            cash_in += satang(d.get("cash"))
+            transfer_in += satang(d.get("transfer"))
+            cheque_in += satang(d.get("cheque"))
+            other_in += satang(d.get("other"))
         elif t in refund_types:
-            if ch == "cash":
-                cash_refund += tot
-            elif ch == "mixed":
-                cash_refund += cash
+            cash_refund += satang(d.get("cash"))
     no_receipt = []
     for e in expenses:
         if expense_counts(e):
@@ -61,8 +63,8 @@ def summarize(docs, expenses, cash_counted, float_amt=0, receive_types=RECEIVE_T
     counted = satang(cash_counted)
     expected = fl + cash_in - cash_refund - cash_expense
     return {
-        "cash_in": baht(cash_in), "transfer_in": baht(transfer_in), "cash_refund": baht(cash_refund),
-        "cash_expense": baht(cash_expense), "cash_expected": baht(expected),
-        "diff": baht(counted - expected), "deposit": baht(counted - fl),
-        "unticked": unticked, "expense_no_receipt": no_receipt,
+        "cash_in": baht(cash_in), "transfer_in": baht(transfer_in), "cheque_in": baht(cheque_in),
+        "other_in": baht(other_in), "cash_refund": baht(cash_refund), "cash_expense": baht(cash_expense),
+        "cash_expected": baht(expected), "diff": baht(counted - expected), "deposit": baht(counted - fl),
+        "no_channel": no_channel, "expense_no_receipt": no_receipt,
     }

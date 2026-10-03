@@ -1,7 +1,10 @@
 /**
- * รายงานขายอัตโนมัติ (สเปก CTO v4 ข้อ 7) — Apps Script แบบ standalone ของบัญชีบริษัทที่ CTO ดูแล
+ * รายงานขายประจำวัน (สเปก v5) — Apps Script แบบ standalone ของบัญชีบริษัทที่ CTO ดูแล
  *
- * ทำไมไม่ผูกกับไฟล์: สเปกให้ 1 ไฟล์ ต่อสาขา ต่อเดือน → ถ้าผูกสคริปต์ทีละไฟล์ต้องก๊อปโค้ด 36 ชุด/ปี
+ * v5: ทุกบรรทัดมาจากเอกสารที่พนักงานคีย์ใน Express ตามเดิม — IV · AI · ลดหนี้ (SR) · RE (ออกทันทีตอนรับชำระ/วางบิล)
+ *     ช่องทางเงินสด/โอน มาจาก RE/AI ใน Express · ในรายงานพนักงานกรอกแค่ รายจ่ายประจำวัน · เงินสดนับได้ · ผู้จัดทำ · ส่ง
+ *
+ * ทำไมไม่ผูกกับไฟล์: 1 ไฟล์ ต่อสาขา ต่อเดือน → ถ้าผูกสคริปต์ทีละไฟล์ต้องก๊อปโค้ด 36 ชุด/ปี
  * สคริปต์ตัวเดียวนี้สร้างไฟล์ประจำเดือนเอง แล้วติด trigger onEdit ให้แต่ละไฟล์ (ผลเหมือนผูกกับไฟล์)
  *
  * ติดตั้ง (ครั้งเดียว): ดู salesreport007/README.md
@@ -9,33 +12,35 @@
  *   แล้วรัน setup() จาก editor
  *
  * กติกาที่โค้ดนี้บังคับ:
- *   - ไม่มีสูตร/ยอดรวมเงินในแท็บพนักงาน (ข้อ 4 · 9.1) — สรุปไปอยู่ไฟล์ "สรุป" ที่เห็นเฉพาะ CTO/ผบ./Finny
- *   - เพิ่มแถวต่อท้ายอย่างเดียว ไม่แตะแถวเดิม (ข้อ 7.2)
- *   - ไม่มีค่าเริ่มต้นช่องทาง · ส่งได้เมื่อเลือกครบ + กรอกยอดนับ + เติมรอบ 16:30 แล้ว (ข้อ 9.2)
- *   - ส่ง หรือถึง 16:55 → ล็อกทั้งแท็บ · เขียน YYMMDD_out.json · เผยเฉพาะส่วนต่าง (ข้อ 5 · 9.3)
+ *   - แถวเอกสารแก้ไม่ได้ (ระบบเติมจาก Express) · ไม่มีสูตร/ยอดรวมเงินในแท็บพนักงาน — สรุปอยู่ไฟล์ "สรุป" (CTO/ผบ./Finny)
+ *   - แถวเรียงตามลำดับที่เข้ามา เพิ่มต่อท้ายอย่างเดียว · ก่อนตัดรอบ ยอด/ช่องทางอัปเดตตาม Express (สาขาแก้ RE ได้)
+ *   - ส่งได้เมื่อ: เติมรอบ 16:30 แล้ว · กรอกเงินสดนับ · เลือกผู้จัดทำ · รายจ่ายทุกแถวมี หมวด+รายการ+จำนวนเงิน
+ *   - ส่ง หรือถึง 16:55 → ล็อกทั้งแท็บ · เขียน YYMMDD_out.json · เผยเฉพาะส่วนต่าง
  */
 
 var TZ = 'Asia/Bangkok';
 var BRANCHES = ['BK', 'SKN', 'PPS'];
 var BR_NAME = { BK: 'บึงกาฬ', SKN: 'สกลนคร', PPS: 'โพนพิสัย' };
 var DEFAULT_TIMES = { ready: '16:00', cutoff: '16:30', deadline: '16:55' };
-var POLL_WINDOW = ['15:45', '17:30'];       // นอกช่วงนี้ poll() ออกทันที (ประหยัดโควตา trigger)
+var POLL_WINDOW = ['08:00', '17:30'];       // นอกช่วงนี้ poll() ออกทันที (ประหยัดโควตา trigger)
 var RECEIVE_TYPES = ['RE', 'AI', 'HS'];
 var REFUND_TYPES = ['SR'];
-var CHANNELS = { 'เงินสด': 'cash', 'โอน-QR': 'transfer', 'ผสม': 'mixed' };
+var PAY_KEYS = ['cash', 'transfer', 'cheque', 'other'];
+var DEFAULT_EXPENSE_CATEGORIES = ['น้ำมัน/ค่าเดินทาง', 'ค่าขนส่ง/ค่าส่งของ', 'ค่าแรงรายวัน', 'อาหาร/น้ำดื่ม',
+  'วัสดุสิ้นเปลือง/อุปกรณ์', 'ค่าซ่อมบำรุง', 'ค่าสาธารณูปโภค', 'อื่น ๆ (ระบุในรายการ)'];
 var TH_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
 // ---- ผังแท็บ (แถว/คอลัมน์ 1-based) ----
 var L = {
   counted: 'B3', preparer: 'D3', submit: 'F3', status: 'G3', qr: 'B4', diff: 'E4',
   cutoff: 'B2', counts: 'E2', round: 'G2',
-  docHeader: 6, docFirst: 7, docCols: 8,          // A–H: กลุ่ม เลข วันที่ ประเภท ลูกค้า ยอด ช่องทาง ยอดเงินสด
-  colChannel: 7, colCash: 8,
-  expCol: 10, expRows: 20,                          // J–L: รายการ จำนวนเงิน ชื่อไฟล์รูปบิล
-  ivCol: 14,                                        // N–P: ค้างรับ (ดูอย่างเดียว)
+  docHeader: 6, docFirst: 7, docCols: 8,   // A–H: กลุ่ม เลข วันที่ ประเภท ลูกค้า ยอด ช่องทาง(Express) หมายเหตุ
+  expCol: 10, expCols: 6, expRows: 25,     // J–O: หมวด รายการ จ่ายให้ จำนวนเงิน เลขที่บิล ชื่อไฟล์รูปบิล
+  ivCol: 17,                               // Q–T: IV วันนี้ (ยอดขายเชื่อ) ดูอย่างเดียว
 };
+var EXP_HEAD = ['หมวด', 'รายการ', 'จ่ายให้ (ร้าน/คน)', 'จำนวนเงิน', 'เลขที่บิล/ใบเสร็จ', 'ชื่อไฟล์รูปบิล'];
 
-// ===================================================================== สูตร (ข้อ 5) — ตรงกับ engine/calc.py
+// ===================================================================== สูตร — ตรงกับ engine/calc.py
 function satang_(v) {
   var n = Number(v);
   if (!isFinite(n)) return 0;
@@ -46,18 +51,15 @@ function expenseCounts_(e) {
   return String(e.receipt || '').trim() !== '' && e.receipt_found !== false;
 }
 function computeSummary(docs, expenses, cashCounted, floatAmt) {
-  var cashIn = 0, transferIn = 0, cashRefund = 0, cashExpense = 0, unticked = [], noReceipt = [];
+  var cashIn = 0, transferIn = 0, chequeIn = 0, otherIn = 0, cashRefund = 0, cashExpense = 0;
+  var noChannel = [], noReceipt = [];
   docs.forEach(function (d) {
-    var ch = d.channel, t = d.type, tot = satang_(d.total), cash = satang_(d.cash_amount);
-    if (ch !== 'cash' && ch !== 'transfer' && ch !== 'mixed') { unticked.push(d.doc_no); return; }
-    if (ch === 'mixed') cash = Math.min(cash, tot);
-    if (RECEIVE_TYPES.indexOf(t) >= 0) {
-      if (ch === 'cash') cashIn += tot;
-      else if (ch === 'transfer') transferIn += tot;
-      else { cashIn += cash; transferIn += tot - cash; }
-    } else if (REFUND_TYPES.indexOf(t) >= 0) {
-      if (ch === 'cash') cashRefund += tot;
-      else if (ch === 'mixed') cashRefund += cash;
+    if (RECEIVE_TYPES.indexOf(d.type) >= 0) {
+      if (!d.pay_known) { noChannel.push(d.doc_no); return; }
+      cashIn += satang_(d.cash); transferIn += satang_(d.transfer);
+      chequeIn += satang_(d.cheque); otherIn += satang_(d.other);
+    } else if (REFUND_TYPES.indexOf(d.type) >= 0) {
+      cashRefund += satang_(d.cash);
     }
   });
   expenses.forEach(function (e) {
@@ -67,10 +69,10 @@ function computeSummary(docs, expenses, cashCounted, floatAmt) {
   var fl = satang_(floatAmt), counted = satang_(cashCounted);
   var expected = fl + cashIn - cashRefund - cashExpense;
   return {
-    cash_in: baht_(cashIn), transfer_in: baht_(transferIn), cash_refund: baht_(cashRefund),
-    cash_expense: baht_(cashExpense), cash_expected: baht_(expected),
+    cash_in: baht_(cashIn), transfer_in: baht_(transferIn), cheque_in: baht_(chequeIn), other_in: baht_(otherIn),
+    cash_refund: baht_(cashRefund), cash_expense: baht_(cashExpense), cash_expected: baht_(expected),
     diff: baht_(counted - expected), deposit: baht_(counted - fl),
-    unticked: unticked, expense_no_receipt: noReceipt,
+    no_channel: noChannel, expense_no_receipt: noReceipt,
   };
 }
 
@@ -182,7 +184,7 @@ function monthlySpreadsheet_(br, iso) {
   var key = 'ss_' + br + '_' + monthKey_(iso);
   var id = props_().getProperty(key);
   if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { /* ไฟล์ถูกลบ → สร้างใหม่ */ } }
-  var ss = SpreadsheetApp.create('รายงานรับเงิน_' + br + '_' + monthKey_(iso));
+  var ss = SpreadsheetApp.create('รายงานขายประจำวัน_' + br + '_' + monthKey_(iso));
   ss.setSpreadsheetTimeZone(TZ);
   ss.setSpreadsheetLocale('th_TH');
   var file = DriveApp.getFileById(ss.getId());
@@ -212,26 +214,33 @@ function readIn_(br, iso) {
   return j.date === iso && j.branch === br ? j : null;    // Drive sync ยังไม่มา = ไฟล์ของเมื่อวาน → รอ
 }
 
+function header_(sh, row, col, values) {
+  sh.getRange(row, col, 1, values.length).setValues([values]).setFontWeight('bold').setBackground('#eeeeee');
+}
+
 function createTab_(ss, br, iso) {
   var name = tabName_(iso);
   var sh = ss.getSheetByName(name);
   if (sh) return sh;
   sh = ss.insertSheet(name, 0);
   var staff = (brCfg_(br).staff || []).map(function (s) { return s.name; }).filter(String);
-  sh.getRange('A1').setValue('รายงานรับเงิน สาขา' + (BR_NAME[br] || br) + ' (' + br + ') · ' + tabName_(iso))
+  var cats = config_().expense_categories || DEFAULT_EXPENSE_CATEGORIES;
+  sh.getRange('A1').setValue('รายงานขายประจำวัน สาขา' + (BR_NAME[br] || br) + ' (' + br + ') · ' + tabName_(iso))
     .setFontWeight('bold').setFontSize(13);
   sh.getRange('A2:G2').setValues([['ตัดรอบ', '', 'จำนวนเอกสาร', '', '', '', '']]);
   sh.getRange('A3:G3').setValues([['เงินสดนับจริง', '', 'ผู้จัดทำ', '', 'ส่งรายงาน', false, '']]);
   sh.getRange('A4:E4').setValues([['รูปสรุป QR (ชื่อไฟล์)', '', '', 'ส่วนต่าง (เห็นหลังส่ง)', '']]);
-  sh.getRange('A5').setValue('B. รายการรับเงิน — เลือกช่องทางให้ครบทุกแถว (B1 ยกมา อยู่บนสุด)').setFontWeight('bold');
-  sh.getRange(5, L.expCol).setValue('C. ค่าใช้จ่ายเงินสดในรอบ (ต้องแนบรูปบิล)').setFontWeight('bold');
-  sh.getRange(5, L.ivCol).setValue('B3. ค้างรับ — ดูอย่างเดียว ไม่ต้องเลือก').setFontWeight('bold');
-  sh.getRange(L.docHeader, 1, 1, L.docCols).setValues([['กลุ่ม', 'เลขเอกสาร', 'วันที่เอกสาร', 'ประเภท', 'ลูกค้า',
-    'ยอดรวม VAT', 'ช่องทาง', 'ยอดเงินสด (เฉพาะผสม)']]).setFontWeight('bold').setBackground('#eeeeee');
-  sh.getRange(L.docHeader, L.expCol, 1, 3).setValues([['รายการ', 'จำนวนเงิน', 'ชื่อไฟล์รูปบิล (ขึ้นต้น ' +
-    yymmdd_(iso) + ')']]).setFontWeight('bold').setBackground('#eeeeee');
-  sh.getRange(L.docHeader, L.ivCol, 1, 3).setValues([['เลขเอกสาร', 'ลูกค้า', 'ยอด']])
-    .setFontWeight('bold').setBackground('#eeeeee');
+  sh.getRange('A5').setValue('A. รับเงิน/ลดหนี้ — จาก RE · AI · SR ที่ออกใน Express (ช่องทางผิด → แก้ RE ใน Express ก่อน 16:30)')
+    .setFontWeight('bold');
+  sh.getRange(5, L.expCol).setValue('B. รายจ่ายประจำวัน (จ่ายจากเงินสดในลิ้นชัก · ต้องมีรูปบิล ไม่งั้นไม่นับ)')
+    .setFontWeight('bold');
+  sh.getRange(5, L.ivCol).setValue('C. ขายเชื่อวันนี้ (IV) — ดูอย่างเดียว').setFontWeight('bold');
+  header_(sh, L.docHeader, 1, ['กลุ่ม', 'เลขเอกสาร', 'วันที่เอกสาร', 'ประเภท', 'ลูกค้า', 'ยอดเอกสาร', 'ช่องทาง (จาก Express)',
+    'หมายเหตุ']);
+  var eh = EXP_HEAD.slice();
+  eh[5] = 'ชื่อไฟล์รูปบิล (ขึ้นต้น ' + yymmdd_(iso) + ')';
+  header_(sh, L.docHeader, L.expCol, eh);
+  header_(sh, L.docHeader, L.ivCol, ['เลข IV', 'ลูกค้า', 'ยอด', 'สถานะ']);
   sh.getRange(L.submit).insertCheckboxes();
   sh.getRange(L.counted).setDataValidation(SpreadsheetApp.newDataValidation()
     .requireNumberGreaterThanOrEqualTo(0).setAllowInvalid(false).build()).setNumberFormat('#,##0.00')
@@ -242,20 +251,25 @@ function createTab_(ss, br, iso) {
   }
   sh.getRange(L.preparer).setBackground('#fff8c4');
   sh.getRange(L.qr).setBackground('#fff8c4');
-  var exp = sh.getRange(L.docFirst, L.expCol, L.expRows, 3);
-  exp.setBackground('#fff8c4');
-  sh.getRange(L.docFirst, L.expCol + 1, L.expRows, 1).setNumberFormat('#,##0.00').setDataValidation(
+  sh.getRange(L.docFirst, L.expCol, L.expRows, L.expCols).setBackground('#fff8c4');
+  sh.getRange(L.docFirst, L.expCol, L.expRows, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(cats, true).setAllowInvalid(false).build());
+  sh.getRange(L.docFirst, L.expCol + 3, L.expRows, 1).setNumberFormat('#,##0.00').setDataValidation(
     SpreadsheetApp.newDataValidation().requireNumberGreaterThan(0).setAllowInvalid(false).build());
   sh.setFrozenRows(L.docHeader);
-  sh.setColumnWidth(5, 220);
-  sh.setColumnWidth(L.expCol, 180);
-  sh.setColumnWidth(L.expCol + 2, 200);
-  sh.setColumnWidth(L.ivCol + 1, 200);
-  // ทั้งแท็บป้องกัน · เปิดเฉพาะช่องพนักงาน (อัปเดตทุกครั้งที่เพิ่มแถว)
-  var p = sh.protect().setDescription('ระบบเติม — แก้ได้เฉพาะเจ้าของไฟล์');
+  sh.setColumnWidth(5, 200);
+  sh.setColumnWidth(7, 170);
+  sh.setColumnWidth(L.expCol, 150);
+  sh.setColumnWidth(L.expCol + 1, 180);
+  sh.setColumnWidth(L.expCol + 5, 180);
+  sh.setColumnWidth(L.ivCol + 1, 180);
+  // ทั้งแท็บป้องกัน · เปิดเฉพาะช่องพนักงาน
+  var p = sh.protect().setDescription('ระบบเติมจาก Express — แก้ได้เฉพาะเจ้าของไฟล์');
   p.addEditor(Session.getEffectiveUser());
   p.removeEditors(p.getEditors().filter(function (u) { return u.getEmail() !== Session.getEffectiveUser().getEmail(); }));
   if (p.canDomainEdit()) p.setDomainEdit(false);
+  p.setUnprotectedRanges([sh.getRange(L.counted), sh.getRange(L.preparer), sh.getRange(L.submit), sh.getRange(L.qr),
+    sh.getRange(L.docFirst, L.expCol, L.expRows, L.expCols)]);
   // ลบแท็บเปล่าตอนสร้างไฟล์
   var blank = ss.getSheets().filter(function (s) { return s.getName() !== name && s.getLastRow() === 0; });
   if (blank.length && ss.getSheets().length > 1) blank.forEach(function (s) { ss.deleteSheet(s); });
@@ -271,13 +285,10 @@ function docRowCount_(sh) {
   return n;
 }
 
-function setInputRanges_(sh, nDocs) {
-  var p = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET)[0];
-  if (!p) return;
-  var r = [sh.getRange(L.counted), sh.getRange(L.preparer), sh.getRange(L.submit), sh.getRange(L.qr),
-           sh.getRange(L.docFirst, L.expCol, L.expRows, 3)];
-  if (nDocs) r.push(sh.getRange(L.docFirst, L.colChannel, nDocs, 2));
-  p.setUnprotectedRanges(r);
+function noteOf_(d) {
+  if (d.type === 'HS') return d.note || 'HS — แจ้ง ผบ.';
+  if (RECEIVE_TYPES.indexOf(d.type) >= 0 && !d.pay_known) return 'แก้ RE/AI ใน Express ให้ระบุเงินสด/โอน';
+  return '';
 }
 
 function ingest_(br, iso) {
@@ -292,50 +303,54 @@ function ingest_(br, iso) {
     var ss = monthlySpreadsheet_(br, iso);
     var sh = createTab_(ss, br, iso);
     var n = docRowCount_(sh);
+    var byNo = {}, all = [];
+    (j.carried_in || []).forEach(function (d) { byNo[d.doc_no] = d; all.push(['ยกมา', d]); });
+    (j.docs || []).forEach(function (d) { byNo[d.doc_no] = d; all.push(['วันนี้', d]); });
     var have = {};
-    if (n) sh.getRange(L.docFirst, 2, n, 1).getValues().forEach(function (r) { have[String(r[0]).trim()] = true; });
-    var add = [];
-    (j.carried_in || []).forEach(function (d) { if (!have[d.doc_no]) add.push(['ยกมา', d, true]); });
-    (j.docs || []).forEach(function (d) { if (!have[d.doc_no]) add.push(['วันนี้', d, false]); });
+    if (n) {
+      // แถวเดิม: ลำดับคงที่ · ยอด/ช่องทาง/หมายเหตุ อัปเดตตาม Express ล่าสุด (พนักงานแก้ช่องเหล่านี้ไม่ได้อยู่แล้ว)
+      var rows = sh.getRange(L.docFirst, 2, n, 1).getValues();
+      var cur = sh.getRange(L.docFirst, 6, n, 3).getValues();
+      var upd = rows.map(function (r, i) {
+        var no = String(r[0]).trim(), d = byNo[no];
+        have[no] = true;
+        return d ? [Number(d.total) || 0, d.channel || '', noteOf_(d)] : cur[i];
+      });
+      sh.getRange(L.docFirst, 6, n, 3).setValues(upd);
+    }
+    var add = all.filter(function (a) { return !have[a[1].doc_no]; });
     if (add.length) {
       var start = L.docFirst + n;
-      sh.getRange(start, 1, add.length, 6).setValues(add.map(function (a) {
+      sh.getRange(start, 1, add.length, L.docCols).setValues(add.map(function (a) {
         var d = a[1];
-        return [a[0], d.doc_no, d.doc_date || iso, d.type, d.customer || '', Number(d.total) || 0];
+        return [a[0], d.doc_no, d.doc_date || iso, d.type, d.customer || '', Number(d.total) || 0,
+                d.channel || '', noteOf_(d)];
       }));
       sh.getRange(start, 2, add.length, 1).setNumberFormat('@');
       sh.getRange(start, 6, add.length, 1).setNumberFormat('#,##0.00');
-      sh.getRange(start, L.colChannel, add.length, 1).setDataValidation(SpreadsheetApp.newDataValidation()
-        .requireValueInList(Object.keys(CHANNELS), true).setAllowInvalid(false).build());
-      sh.getRange(start, L.colCash, add.length, 1).setNumberFormat('#,##0.00').setDataValidation(
-        SpreadsheetApp.newDataValidation().requireNumberGreaterThan(0).setAllowInvalid(false).build());
-      sh.getRange(start, L.colChannel, add.length, 2).setBackground('#fff8c4');
-      if (meta && meta.round) {   // แถวที่เติมรอบหลัง → ไฮไลต์ให้เห็นว่าเพิ่งมา
-        sh.getRange(start, 1, add.length, 6).setBackground('#e3f2fd');
-      }
-      add.forEach(function (a, i) {
-        if (a[1].type === 'HS') sh.getRange(start + i, 5).setNote(a[1].note || 'HS — แจ้ง ผบ.');
-      });
+      if (meta && meta.round) sh.getRange(start, 1, add.length, L.docCols).setBackground('#e3f2fd');  // เพิ่งมา
       n += add.length;
     }
-    // B3 ค้างรับ: เขียนทับทั้งก้อนทุกรอบ (ไม่ใช่ช่องที่พนักงานกรอก)
-    var iv = j.unpaid_iv || [];
+    // C. IV วันนี้: เขียนทับทั้งก้อนทุกรอบ (ไม่ใช่ช่องที่พนักงานกรอก)
+    var iv = j.iv || (j.unpaid_iv || []).map(function (d) { return Object.assign({ unpaid: true }, d); });
     var ivRows = Math.max(sh.getLastRow() - L.docHeader, iv.length, 1);
-    sh.getRange(L.docFirst, L.ivCol, ivRows, 3).clearContent();
+    sh.getRange(L.docFirst, L.ivCol, ivRows, 4).clearContent();
     if (iv.length) {
-      sh.getRange(L.docFirst, L.ivCol, iv.length, 3).setValues(iv.map(function (d) {
-        return [d.doc_no, d.customer || '', Number(d.total) || 0];
+      sh.getRange(L.docFirst, L.ivCol, iv.length, 4).setValues(iv.map(function (d) {
+        return [d.doc_no, d.customer || '', Number(d.total) || 0, d.unpaid ? 'ค้างรับ' : 'รับแล้ว'];
       }));
       sh.getRange(L.docFirst, L.ivCol + 2, iv.length, 1).setNumberFormat('#,##0.00');
     }
     var counts = j.counts || {};
     sh.getRange(L.cutoff).setValue(j.round === 'cutoff' ? Utilities.formatDate(new Date(j.cutoff_at), TZ, 'HH:mm') +
-      ' (ตัดรอบแล้ว)' : 'รอบ 16:30 ยังไม่มา');
+      ' (ตัดรอบแล้ว)' : 'อัปเดต ' + Utilities.formatDate(new Date(j.cutoff_at), TZ, 'HH:mm') + ' · รอตัดรอบ 16:30');
     sh.getRange(L.counts).setValue(Object.keys(counts).sort().map(function (k) { return k + ' ' + counts[k]; })
-      .join(' · ') + ((j.carried_in || []).length ? ' · ยกมา ' + j.carried_in.length : ''));
-    sh.getRange(L.round).setValue(j.round === 'cutoff' ? 'เติมรอบสุดท้ายแล้ว — เลือกช่องทางแถวสีฟ้า · นับเงิน · ส่ง'
-      : 'เริ่มทำได้ — 16:30 จะมีรายการเพิ่มต่อท้าย');
-    setInputRanges_(sh, n);
+      .join(' · ') + ((j.carried_in || []).length ? ' · ยกมา ' + j.carried_in.length : '') +
+      (iv.length ? ' · IV ' + iv.length : ''));
+    var noCh = (j.no_channel || []).length;
+    sh.getRange(L.round).setValue((j.round === 'cutoff' ? 'ตัดรอบแล้ว — นับเงิน · กรอกยอดนับ · ส่ง'
+      : 'ลงรายจ่ายได้ตลอดวัน — 16:30 ตัดรอบแล้วนับเงิน') +
+      (noCh ? ' · ⚠️ ' + noCh + ' ใบไม่ระบุช่องทาง แก้ใน Express' : ''));
     setMeta_({ branch: br, date: iso, ssId: ss.getId(), sheet: sh.getName(), round: j.round,
                cutoffAt: j.cutoff_at, rows: n, locked: false, warnings: j.warnings || [],
                cutoffRows: j.round === 'cutoff' ? n : (meta && meta.cutoffRows) || null });
@@ -362,18 +377,24 @@ function onSheetEdit(e) {
   if (e.range.getA1Notation() === L.submit && e.range.getValue() === true) trySubmit_(meta, sh);
 }
 
+/** อ่านแท็บ: แถวเอกสารจากแท็บ (= สิ่งที่พนักงานเห็น) + ยอดเงินสด/โอนรายใบจาก in.json (ไม่ได้อยู่ในแท็บ) */
 function readTab_(sh, meta) {
-  var n = docRowCount_(sh);
+  var n = docRowCount_(sh), j = readIn_(meta.branch, meta.date) || {}, byNo = {};
+  (j.carried_in || []).concat(j.docs || []).forEach(function (d) { byNo[d.doc_no] = d; });
   var docs = n ? sh.getRange(L.docFirst, 1, n, L.docCols).getValues().map(function (r) {
-    var ch = CHANNELS[String(r[6]).trim()] || null;
+    var no = String(r[1]).trim(), src = byNo[no] || {};
     var dd = r[2] instanceof Date ? Utilities.formatDate(r[2], TZ, 'yyyy-MM-dd') : String(r[2]);
-    return { doc_no: String(r[1]).trim(), doc_date: dd, type: String(r[3]).trim(), total: Number(r[5]) || 0,
-             carried: r[0] === 'ยกมา', channel: ch,
-             cash_amount: ch === 'mixed' ? (Number(r[7]) || 0) : (ch === 'cash' ? Number(r[5]) || 0 : 0) };
+    var d = { doc_no: no, doc_date: dd, type: String(r[3]).trim(), total: Number(r[5]) || 0,
+              carried: r[0] === 'ยกมา', channel: String(r[6]), pay_known: !!src.pay_known };
+    PAY_KEYS.forEach(function (k) { d[k] = Number(src[k]) || 0; });
+    return d;
   }) : [];
-  var expenses = sh.getRange(L.docFirst, L.expCol, L.expRows, 3).getValues()
-    .filter(function (r) { return String(r[0]).trim() || String(r[1]).trim() || String(r[2]).trim(); })
-    .map(function (r) { return { item: String(r[0]).trim(), amount: Number(r[1]) || 0, receipt: String(r[2]).trim() }; });
+  var expenses = sh.getRange(L.docFirst, L.expCol, L.expRows, L.expCols).getValues()
+    .map(function (r, i) {
+      return { row: i + 1, category: String(r[0]).trim(), item: String(r[1]).trim(), payee: String(r[2]).trim(),
+               amount: Number(r[3]) || 0, bill_no: String(r[4]).trim(), receipt: String(r[5]).trim() };
+    })
+    .filter(function (e) { return e.category || e.item || e.payee || e.amount || e.bill_no || e.receipt; });
   var counted = sh.getRange(L.counted).getValue();
   return { docs: docs, expenses: expenses,
            cash_counted: counted === '' ? null : Number(counted),
@@ -383,18 +404,11 @@ function readTab_(sh, meta) {
 
 function validate_(t, meta) {
   var err = [];
-  if (meta.round !== 'cutoff') err.push('รอรายการรอบ 16:30 ขึ้นก่อน');
-  var miss = t.docs.filter(function (d) { return !d.channel; }).length;
-  if (miss) err.push('ยังไม่เลือกช่องทาง ' + miss + ' แถว');
-  t.docs.forEach(function (d) {
-    if (d.channel === 'mixed' && !(d.cash_amount > 0 && d.cash_amount < Math.abs(d.total))) {
-      err.push(d.doc_no + ': ผสม ต้องกรอกยอดเงินสดมากกว่า 0 และน้อยกว่ายอดเอกสาร');
-    }
-  });
+  if (meta.round !== 'cutoff') err.push('รอตัดรอบ 16:30 ก่อน');
   if (t.cash_counted === null || !(t.cash_counted >= 0)) err.push('กรอกเงินสดนับจริง');
   if (!t.preparer) err.push('เลือกผู้จัดทำ');
-  t.expenses.forEach(function (e, i) {
-    if (!e.item || !(e.amount > 0)) err.push('ค่าใช้จ่ายแถว ' + (i + 1) + ': ต้องมีทั้งรายการและจำนวนเงิน');
+  t.expenses.forEach(function (e) {
+    if (!e.category || !e.item || !(e.amount > 0)) err.push('รายจ่ายแถว ' + e.row + ': ต้องมี หมวด + รายการ + จำนวนเงิน');
   });
   return err;
 }
@@ -445,13 +459,14 @@ function finalize_(br, iso, reason) {
     t.expenses.forEach(function (e) { if (rn && e.receipt) e.receipt_found = !!rn[e.receipt]; });
     var fl = Number(brCfg_(br).float || 0);
     var s = computeSummary(t.docs, t.expenses, t.cash_counted, fl);
+    var summary = {};
+    ['cash_in', 'transfer_in', 'cheque_in', 'other_in', 'cash_refund', 'cash_expense', 'cash_expected', 'diff',
+     'deposit'].forEach(function (k) { summary[k] = s[k]; });
     var out = {
-      branch: br, date: iso, cutoff_at: meta.cutoffAt, submitted_at: submitted ? n.iso : null,
+      version: 5, branch: br, date: iso, cutoff_at: meta.cutoffAt, submitted_at: submitted ? n.iso : null,
       locked_at: n.iso, lock_reason: reason, preparer: t.preparer, qr_image: t.qr_image,
-      docs: t.docs, expenses: t.expenses, cash_counted: t.cash_counted, float: fl,
-      summary: { cash_in: s.cash_in, transfer_in: s.transfer_in, cash_refund: s.cash_refund,
-                 cash_expense: s.cash_expense, cash_expected: s.cash_expected, diff: s.diff, deposit: s.deposit },
-      unticked: s.unticked, expense_no_receipt: s.expense_no_receipt,
+      docs: t.docs, expenses: t.expenses, cash_counted: t.cash_counted, float: fl, summary: summary,
+      no_channel: s.no_channel, expense_no_receipt: s.expense_no_receipt,
       doc_count_at_cutoff: meta.cutoffRows || t.docs.length, warnings: meta.warnings || [],
     };
     writeOut_(br, iso, out);
@@ -478,14 +493,14 @@ function writeOut_(br, iso, out) {
 }
 
 var SUMMARY_HEAD = ['วันที่', 'สาขา', 'ตัดรอบ', 'ส่งเมื่อ', 'สถานะ', 'ผู้จัดทำ', 'เอกสาร', 'รับเงินสด', 'รับโอน/QR',
-  'คืนเงินสด', 'ค่าใช้จ่ายเงินสด', 'float', 'เงินสดที่ควรมี', 'นับจริง', 'ส่วนต่าง', 'ยอดนำฝาก', 'ยังไม่เลือกช่องทาง',
-  'ค่าใช้จ่ายไม่มีบิล', 'เตือนจาก Express'];
+  'รับเช็ค', 'รับอื่น ๆ', 'คืนเงินสด (SR)', 'รายจ่ายประจำวัน', 'float', 'เงินสดที่ควรมี', 'นับจริง', 'ส่วนต่าง', 'ยอดนำฝาก',
+  'ไม่ระบุช่องทางใน Express', 'รายจ่ายไม่มีบิล', 'เตือนจาก Express'];
 
 function summarySheet_() {
   var id = props_().getProperty('SUMMARY_SPREADSHEET_ID'), ss = null;
   if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; } }
   if (!ss) {
-    ss = SpreadsheetApp.create('สรุปรายงานรับเงิน (CTO · ผบ. · Finny เท่านั้น)');
+    ss = SpreadsheetApp.create('สรุปรายงานขายประจำวัน (CTO · ผบ. · Finny เท่านั้น)');
     ss.setSpreadsheetTimeZone(TZ);
     var file = DriveApp.getFileById(ss.getId());
     file.moveTo(subFolder_(rootFolder_(), '_sheets', true));
@@ -503,8 +518,8 @@ function summarySheet_() {
 function appendSummary_(o) {
   var s = o.summary;
   summarySheet_().appendRow([o.date, o.branch, o.cutoff_at, o.submitted_at || '', o.submitted_at ? 'ส่งแล้ว' :
-    'ล็อกอัตโนมัติ (' + o.lock_reason + ')', o.preparer, o.docs.length, s.cash_in, s.transfer_in, s.cash_refund,
-    s.cash_expense, o.float, s.cash_expected, o.cash_counted === null ? '' : o.cash_counted, s.diff, s.deposit,
-    o.unticked.join(' '), o.expense_no_receipt.join(' · '),
+    'ล็อกอัตโนมัติ (' + o.lock_reason + ')', o.preparer, o.docs.length, s.cash_in, s.transfer_in, s.cheque_in,
+    s.other_in, s.cash_refund, s.cash_expense, o.float, s.cash_expected, o.cash_counted === null ? '' : o.cash_counted,
+    s.diff, s.deposit, o.no_channel.join(' '), o.expense_no_receipt.join(' · '),
     (o.warnings || []).map(function (w) { return w.doc_no + ':' + w.issue; }).join(' ')]);
 }

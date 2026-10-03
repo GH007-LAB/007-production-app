@@ -1,6 +1,6 @@
 #!/bin/bash
 # ติดตั้งรายงานขายอัตโนมัติบน Mac mini — รันจาก clone ของ repo:  bash salesreport007/engine/launchd/install_macmini.sh
-# ก๊อปโค้ด (+ dbf.py/paths.py ตัวเดียวกับ approve007) → MD5SUMS → launchd 15:55/16:30 → preflight → inspect เมื่อวาน
+# ก๊อปโค้ด (+ dbf.py/paths.py ตัวเดียวกับ approve007) → MD5SUMS → launchd 08:30–16:30 → preflight → inspect + inspect-pay เมื่อวาน
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"          # salesreport007/engine
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -22,9 +22,10 @@ PLIST="$HOME/Library/LaunchAgents/com.007metals.salesreport.plist"
 sed -e "s|__ENGINE__|$DEST/engine|" -e "s|__AOC__|$AOC|" "$HERE/launchd/com.007metals.salesreport.plist" > "$PLIST"
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
-echo "✅ launchd ติดตั้งแล้ว (15:55 · 16:30 ทุกวัน) → $PLIST"
+echo "✅ launchd ติดตั้งแล้ว (08:30 · 10:30 · 12:30 · 14:30 · 15:55 · 16:30 ทุกวัน) → $PLIST"
 
 export APPROVE007_ALL_ON_CLOUD="$AOC"
 python3 "$DEST/engine/salesreport.py" preflight
 python3 "$DEST/engine/salesreport.py" inspect
-echo "👉 Step 0: เทียบยอดข้างบน (เมื่อวาน) กับฟอร์มปัจจุบันของแต่ละสาขา ก่อนเปิดใช้"
+python3 "$DEST/engine/salesreport.py" inspect-pay
+echo "👉 Step 0: เทียบยอดข้างบน (เมื่อวาน) กับฟอร์มเดิม · หาฟิลด์เงินสด/โอนของ RE จาก inspect-pay แล้วใส่ใน sources.json ก่อนเปิดใช้"

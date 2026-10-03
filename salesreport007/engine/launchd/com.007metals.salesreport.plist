@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- รายงานขายอัตโนมัติ (สเปก v4 ข้อ 6) · export YYMMDD_in.json 2 รอบ: 15:55 (ready → แท็บพร้อม 16:00) · 16:30 (cutoff)
+<!-- รายงานขายประจำวัน (สเปก v5) · export YYMMDD_in.json: 08:30 (แท็บพร้อมให้ลงรายจ่ายทั้งวัน) · 10:30 · 12:30 · 14:30 · 15:55 · 16:30 (cutoff)
      รอบดูจากเวลาที่รัน (ก่อน 16:15 = ready) · ติดตั้งด้วย install_macmini.sh (__ENGINE__ / __AOC__ ถูกแทนตอนติดตั้ง) -->
 <plist version="1.0">
 <dict>
@@ -17,6 +17,10 @@
   </dict>
   <key>StartCalendarInterval</key>
   <array>
+    <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
     <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>55</integer></dict>
     <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
   </array>

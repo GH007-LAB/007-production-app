@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-รายงานขายอัตโนมัติ (สเปก CTO v4) — ฝั่ง Mac mini
+รายงานขายประจำวัน (สเปก v5) — ฝั่ง Mac mini
 อ่าน DBF ของ Express แบบ read-only → เขียน YYMMDD_in.json ให้ Apps Script เติมแท็บ Google Sheet
+ทุกบรรทัดมาจากเอกสารที่พนักงานคีย์ใน Express ตามเดิม (IV · AI · ลดหนี้ SR · RE ตอนรับชำระ/วางบิล)
+ช่องทางเงินสด/โอน อ่านจาก RE/AI ใน Express · พนักงานกรอกในรายงานแค่ รายจ่ายประจำวัน + เงินสดนับได้
 
 usage:  python3 salesreport.py preflight
         python3 salesreport.py inspect [YYYY-MM-DD]        Step 0: นับเอกสารแต่ละประเภทของวันนั้น (ค่าเริ่ม = เมื่อวาน)
+        python3 salesreport.py inspect-pay [YYYY-MM-DD]    Step 0: ฟิลด์ตัวเลขทุกตัวของ RE/AI → หาว่าฟิลด์ไหนคือเงินสด/โอน
         python3 salesreport.py export [ready|cutoff] [--date YYYY-MM-DD] [--branch SKN] [--force]
                                                             ไม่ใส่รอบ = ดูจากเวลา (ก่อน 16:15 = ready · หลังจากนั้น = cutoff)
         python3 salesreport.py reconcile YYYY-MM-DD        ข้อ 9.4 + ข้อ 10 ให้ Finny: เอกสารครบทุกใบไหม · ยอดหลังตัดรอบ
@@ -97,6 +100,7 @@ def resolve_source(path, src):
     """คืน {role: field} ของไฟล์นี้ · None ถ้าขาดฟิลด์บังคับ (num/date/total)"""
     names = {n for n, _, _ in fields_of(path)}
     m = {role: _pick(names, src.get(role)) for role in ("num", "date", "customer", "total", "remain")}
+    m["pay"] = {k: f for k, f in ((k, _pick(names, v)) for k, v in (src.get("pay") or {}).items()) if f}
     return m if m["num"] and m["date"] and m["total"] else None
 
 
@@ -130,7 +134,8 @@ def express_docs(L, br, cfg, since, until):
         m = resolve_source(p, src)
         if not m:
             continue
-        keep = {v for v in m.values() if v} | set((cfg.get("cancel") or {}).get("fields") or ())
+        keep = {v for k, v in m.items() if v and k != "pay"} | set(m["pay"].values()) | \
+            set((cfg.get("cancel") or {}).get("fields") or ())
         types = set(src.get("types") or ())
         for r in read_dbf(p, keep=keep):
             no = str(r.get(m["num"]) or "").strip()
@@ -145,6 +150,8 @@ def express_docs(L, br, cfg, since, until):
                    "customer": names.get(cus) or cus, "total": round(abs(float(r.get(m["total"]) or 0)), 2)}
             if m["remain"]:
                 doc["_remain"] = float(r.get(m["remain"]) or 0)
+            if m["pay"]:
+                doc["pay"] = {k: round(abs(float(r.get(f) or 0)), 2) for k, f in m["pay"].items()}
             out[no] = doc
     return out
 
@@ -168,18 +175,33 @@ def paid_iv_numbers(L, br, cfg):
     return found
 
 
-def unpaid_iv(docs, paid, D, cfg):
+def sales_iv(docs, paid, D, cfg):
+    """IV ของวันนี้ทุกใบ (ยอดขายเชื่อ = แถว IV ในฟอร์มเดิม) + ค้างรับหรือยัง"""
     out = []
     for d in docs.values():
         if d["type"] not in cfg["credit_types"] or d["doc_date"] != D.isoformat():
             continue
         if paid is not None:
-            if d["doc_no"] in paid:
-                continue
-        elif "_remain" in d and abs(d["_remain"]) < 0.005:
-            continue
-        out.append({"doc_no": d["doc_no"], "customer": d["customer"], "total": d["total"]})
+            unpaid = d["doc_no"] not in paid
+        else:
+            unpaid = not ("_remain" in d and abs(d["_remain"]) < 0.005)
+        out.append({"doc_no": d["doc_no"], "customer": d["customer"], "total": d["total"], "unpaid": unpaid})
     return sorted(out, key=lambda x: x["doc_no"])
+
+
+PAY_KEYS = ("cash", "transfer", "cheque", "other")
+PAY_TH = {"cash": "เงินสด", "transfer": "โอน", "cheque": "เช็ค", "other": "อื่น ๆ"}
+
+
+def channel_label(d):
+    """ช่องทางที่พนักงานเลือกตอนออก RE/AI ใน Express → ข้อความในรายงาน (ไม่โชว์ยอดแยก)"""
+    pay = d.get("pay")
+    used = [k for k in PAY_KEYS if pay and pay.get(k, 0) >= 0.005]
+    if d["type"] == "SR" and not (pay or {}).get("cash"):
+        return "ลดหนี้ (ไม่กระทบเงินสด)"
+    if not used:
+        return "⚠️ ไม่ระบุช่องทางใน Express"
+    return PAY_TH[used[0]] if len(used) == 1 else "ผสม (" + "+".join(PAY_TH[k] for k in used) + ")"
 
 
 def report_types(cfg):
@@ -218,7 +240,10 @@ def seen_doc_numbers(reports):
 # ------------------------------------------------------------------ export
 def public(d):
     x = {"doc_no": d["doc_no"], "doc_date": d["doc_date"], "type": d["type"], "customer": d["customer"],
-         "total": d["total"]}
+         "total": d["total"], "channel": channel_label(d),
+         "pay_known": bool(d.get("pay")) and any(v >= 0.005 for v in d["pay"].values())}
+    for k in PAY_KEYS:
+        x[k] = (d.get("pay") or {}).get(k, 0.0)
     if d["type"] == "HS":
         x["note"] = "HS ไม่ใช่ขายระหว่างสาขา — แจ้ง ผบ."
     return x
@@ -244,20 +269,23 @@ def build_in(L, br, cfg, D, rnd, at, existing=None):
     ex = existing or {}
     warnings = list(ex.get("warnings") or ())
     out_lists = {}
-    added = []
+    added, updated = [], []
     for key, fresh, is_carry in (("carried_in", carried, True), ("docs", today, False)):
-        keep = list(ex.get(key) or ())                       # แถวเดิมห้ามแตะ · เพิ่มต่อท้ายอย่างเดียว
-        have = {d["doc_no"] for d in keep}
-        for d in keep:
+        keep = []                                            # ลำดับแถวเดิมคงที่ · เพิ่มต่อท้ายอย่างเดียว
+        have = set()
+        for d in ex.get(key) or ():
+            have.add(d["doc_no"])
             now_d = express.get(d["doc_no"])
-            issue = None
-            if not now_d:
-                issue = "missing_in_express"
-            elif abs(now_d["total"] - float(d.get("total") or 0)) >= 0.005:
-                issue = "total_changed"
-            if issue and not any(w.get("doc_no") == d["doc_no"] and w.get("issue") == issue for w in warnings):
-                warnings.append({"doc_no": d["doc_no"], "issue": issue, "at": at.isoformat(timespec="seconds"),
-                                 **({"express_total": now_d["total"]} if now_d else {})})
+            if not now_d:                                    # ถูกลบ/ยกเลิกใน Express หลังขึ้นรายงาน → คงแถว + เตือน
+                if not any(w.get("doc_no") == d["doc_no"] and w.get("issue") == "missing_in_express" for w in warnings):
+                    warnings.append({"doc_no": d["doc_no"], "issue": "missing_in_express",
+                                     "at": at.isoformat(timespec="seconds")})
+                keep.append(d)
+                continue
+            fresh_d = public(now_d)                          # ก่อนตัดรอบ: ยอด/ช่องทางตาม Express ล่าสุด (สาขาแก้ RE ได้)
+            if any(fresh_d[k] != d.get(k) for k in ("total", "channel") + PAY_KEYS):
+                updated.append(d["doc_no"])
+            keep.append(fresh_d)
         for d in fresh:
             if d["doc_no"] not in have:
                 keep.append(public(d))
@@ -271,9 +299,12 @@ def build_in(L, br, cfg, D, rnd, at, existing=None):
     data = {
         "branch": br, "date": D.isoformat(), "round": rnd, "cutoff_at": at.isoformat(timespec="seconds"),
         "rounds": list(ex.get("rounds") or ()) + [{"round": rnd, "at": at.isoformat(timespec="seconds"),
-                                                   "added": len(added)}],
+                                                   "added": len(added), "updated": updated}],
         "carried_in": out_lists["carried_in"], "docs": out_lists["docs"],
-        "unpaid_iv": unpaid_iv(express, paid, D, cfg),
+        "iv": sales_iv(express, paid, D, cfg),
+        "unpaid_iv": [x for x in sales_iv(express, paid, D, cfg) if x["unpaid"]],
+        "no_channel": [d["doc_no"] for d in out_lists["docs"] + out_lists["carried_in"]
+                       if d["type"] in cfg["receive_types"] and not d.get("pay_known")],
         "counts": counts, "warnings": warnings,
         "hs_rows": hs,
         "unpaid_iv_source": "ARRCPIT" if paid is not None else ("REMAMT" if any("_remain" in d for d in express.values()) else "none"),
@@ -308,6 +339,7 @@ def cmd_export(L, cfg, rnd=None, D=None, branches=BRANCHES, force=False):
         print(f"{br}: {rnd} {at:%H:%M} · วันนี้ {len(data['docs'])} · ยกมา {len(data['carried_in'])} · "
               f"เพิ่มรอบนี้ {len(added)} · ค้างรับ IV {len(data['unpaid_iv'])}"
               + (f" · ⚠️ {len(data['warnings'])} เตือน" if data["warnings"] else "")
+              + (f" · ⚠️ ไม่ระบุช่องทาง {len(data['no_channel'])} ใบ" if data["no_channel"] else "")
               + (f" · HS {len(data['hs_rows'])} ใบ (แจ้ง ผบ.)" if data["hs_rows"] else ""))
     return ok
 
@@ -316,10 +348,11 @@ def rows_csv(rows):
     import io
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["กลุ่ม", "เลขเอกสาร", "วันที่เอกสาร", "ประเภท", "ลูกค้า", "ยอดรวม VAT"])
+    w.writerow(["กลุ่ม", "เลขเอกสาร", "วันที่เอกสาร", "ประเภท", "ลูกค้า", "ยอดรวม VAT", "ช่องทาง (Express)",
+                "เงินสด", "โอน", "เช็ค", "อื่น ๆ"])
     for d in rows:
         w.writerow(["ยกมา" if d.get("carried") else "วันนี้", d["doc_no"], d["doc_date"], d["type"],
-                    d["customer"], f"{d['total']:.2f}"])
+                    d["customer"], f"{d['total']:.2f}", d["channel"]] + [f"{d[k]:.2f}" for k in PAY_KEYS])
     return "﻿" + buf.getvalue()
 
 
@@ -335,7 +368,10 @@ def cmd_preflight(L, cfg):
                 ok = ok and src is not cfg["sources"][0]
                 continue
             m = resolve_source(p, src)
-            print(f"  {br} {src['file']}: " + (", ".join(f"{k}={v}" for k, v in m.items() if v) if m else
+            print(f"  {br} {src['file']}: " + (", ".join(f"{k}={v}" for k, v in m.items() if v and k != "pay") +
+                                                (" · ช่องทาง " + ", ".join(f"{k}={v}" for k, v in m["pay"].items())
+                                                 if m["pay"] else " · ⚠️ ไม่เจอฟิลด์ช่องทางรับเงิน → รัน inspect-pay")
+                                                if m else
                                                 "❌ ขาดฟิลด์ num/date/total — แก้ config/sources.json"))
             ok = ok and bool(m)
         paid = paid_iv_numbers(L, br, cfg)
@@ -368,6 +404,32 @@ def cmd_inspect(L, cfg, D):
             for (t, c), (n, s) in sorted(agg.items()):
                 use = "✓" if t in src.get("types", ()) else " "
                 print(f"   {use} {t:<3} {c:<6} {n:>4} ใบ  {s:>14,.2f}")
+
+
+def cmd_inspect_pay(L, cfg, D, branches=BRANCHES):
+    """Step 0 (v5): ฟิลด์ตัวเลขทุกตัวของ RE/AI วัน D ที่ไม่เป็น 0 — ฟิลด์ที่รวมกันได้เท่ายอดรับคือช่องทางรับเงิน
+    เทียบกับใบ RE ที่รู้ว่ารับเงินสด/โอน แล้วใส่ชื่อฟิลด์ใน sources.json → "pay" """
+    for br in branches:
+        for src in cfg["sources"]:
+            p = L.dbf(br, src["file"])
+            if not os.path.exists(p):
+                continue
+            m = resolve_source(p, src)
+            if not m:
+                continue
+            numeric = [n for n, t, _ in fields_of(p) if t in ("N", "F", "B", "Y", "I")]
+            shown = 0
+            for r in read_dbf(p):
+                no = str(r.get(m["num"]) or "").strip()
+                if _as_date(r.get(m["date"])) != D or no[:2].upper() not in set(cfg["receive_types"]) | {"SR"}:
+                    continue
+                nz = {n: r.get(n) for n in numeric if abs(float(r.get(n) or 0)) >= 0.005}
+                if shown == 0:
+                    print(f"\n== {br} {src['file']} {D} · ใช้อยู่: {m['pay'] or 'ไม่มี'} ==")
+                print(f"  {no}: " + " · ".join(f"{k}={v:,.2f}" for k, v in nz.items()))
+                shown += 1
+                if shown >= 15:
+                    break
 
 
 # ------------------------------------------------------------------ reconcile (Finny ข้อ 9.4 / 10)
@@ -404,8 +466,10 @@ def cmd_reconcile(L, cfg, D, branches=BRANCHES):
                 issues.append(f"{no} {e['type']} {e['total']:,.2f} ไม่อยู่ในรอบ {D} และไม่ถูกยกไปรอบถัดไป")
             elif abs(float(got.get("total") or 0) - e["total"]) >= 0.005:
                 issues.append(f"{no} ยอดในรายงาน {float(got['total']):,.2f} ≠ Express {e['total']:,.2f} (แก้ยอดหลังตัดรอบ)")
-            elif "channel" in got and got.get("channel") not in ("cash", "transfer", "mixed"):
-                issues.append(f"{no} ยังไม่ได้เลือกช่องทาง")
+            elif any(abs(float(got.get(k) or 0) - (e.get("pay") or {}).get(k, 0.0)) >= 0.005 for k in PAY_KEYS):
+                issues.append(f"{no} เงินสด/โอนในรายงานไม่ตรง RE ใน Express ตอนนี้ (แก้ RE หลังตัดรอบ)")
+            elif e["type"] in cfg["receive_types"] and not got.get("pay_known", True):
+                issues.append(f"{no} ไม่ระบุช่องทางรับเงินใน Express — ให้สาขาแก้ RE/AI")
         for no, d in sorted({**in_round, **later}.items()):
             if no not in express:
                 issues.append(f"{no} อยู่ในรายงานแต่ไม่มี/ถูกยกเลิกใน Express (ลบหลังตัดรอบ)")
@@ -422,7 +486,7 @@ def cmd_reconcile(L, cfg, D, branches=BRANCHES):
         s = rep.get("summary")
         if s:
             print(f"  เงินสดควรมี {s['cash_expected']:,.2f} · นับจริง {float(rep.get('cash_counted') or 0):,.2f} · "
-                  f"ส่วนต่าง {s['diff']:,.2f} · โอน/QR {s['transfer_in']:,.2f}")
+                  f"ส่วนต่าง {s['diff']:,.2f} · โอน/QR {s['transfer_in']:,.2f} · รายจ่าย {s['cash_expense']:,.2f}")
         for w in rep.get("warnings") or ():
             issues.append(f"{w['doc_no']} {w['issue']} (พบตอน export {w.get('at', '')})")
         for x in issues:
@@ -441,7 +505,7 @@ def cmd_summarize(path):
     s = calc.summarize(j.get("docs") or [], j.get("expenses") or [], j.get("cash_counted"), j.get("float", 0))
     print(json.dumps(s, ensure_ascii=False, indent=1))
     got = j.get("summary") or {}
-    bad = [k for k in ("cash_in", "transfer_in", "cash_refund", "cash_expense", "cash_expected", "diff", "deposit")
+    bad = [k for k in calc.MONEY_KEYS
            if k in got and abs(float(got[k]) - s[k]) >= 0.005]
     print("✅ ตรงกับ summary ใน out.json" if not bad else f"❌ ไม่ตรง: {bad}")
     return not bad
@@ -468,6 +532,10 @@ def main(argv):
         D = datetime.date.fromisoformat(argv[2]) if len(argv) > 2 and not argv[2].startswith("-") \
             else now().date() - datetime.timedelta(days=1)
         cmd_inspect(L, cfg, D)
+    elif cmd == "inspect-pay":
+        D = datetime.date.fromisoformat(argv[2]) if len(argv) > 2 and not argv[2].startswith("-") \
+            else now().date() - datetime.timedelta(days=1)
+        cmd_inspect_pay(L, cfg, D, branches)
     elif cmd == "reconcile":
         D = datetime.date.fromisoformat(argv[2]) if len(argv) > 2 and not argv[2].startswith("-") \
             else now().date() - datetime.timedelta(days=1)
