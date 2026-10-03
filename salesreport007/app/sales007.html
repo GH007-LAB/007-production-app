@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales007 รายงานขายประจำวัน</title>
+<!-- Sales007 (salesreport007 v6) · production.007metals.com/sales007 · ล็อกอินกลาง (cookie SSO *.007metals.com)
+     ข้อมูลทุกบรรทัดมาจาก Express (sales_push.py ทุก 1 นาที) · หน้านี้ไม่เคยได้รับยอดรวม/เงินสดที่ควรมี ในโหมดพนักงาน -->
+<style>
+  :root{ --ink:#141517; --green:#1E7A4F; --ok:#1a7f37; --okbg:#e6f4ea; --warn:#9a6700; --warnbg:#fff4d6;
+         --bad:#b3261e; --badbg:#fde7e7; --grey:#6d7370; --line:#d9ddd9; --bg:#eef1ef; --card:#fff; --blue:#1d4ed8; --bluebg:#e5edff; }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  [hidden]{display:none !important;}
+  body{font-family:'Leelawadee UI','Sarabun','Thonburi','Loma',sans-serif; background:var(--bg); color:var(--ink); font-size:15px;}
+  .bar{background:var(--ink); color:#fff; padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; position:sticky; top:0; z-index:5;}
+  .logo{font-weight:800; font-size:18px;} .logo b{color:#39c07f;}
+  .tag{font-size:12px; color:#bbb;}
+  .bar .right{margin-left:auto; display:flex; gap:6px; align-items:center;}
+  .bar select,.bar input{padding:6px 8px; border-radius:6px; border:0; font:inherit;}
+  .tabs{display:flex; gap:6px; padding:10px 16px 0; max-width:900px; margin:auto;}
+  .tabs button{flex:1; padding:10px; border:0; border-radius:10px 10px 0 0; background:#dfe4e0; font:inherit; font-weight:700; cursor:pointer;}
+  .tabs button.on{background:var(--card); color:var(--green);}
+  main{max-width:900px; margin:0 auto 40px; background:var(--card); border-radius:0 0 12px 12px; padding:14px 16px;}
+  .banner{padding:10px 14px; border-radius:8px; margin:10px auto 0; max-width:900px; font-weight:700;}
+  .banner.bad{background:var(--bad); color:#fff;} .banner.info{background:#fff; color:var(--grey); font-weight:400; font-size:13px;}
+  h2{font-size:16px; margin:18px 0 8px; display:flex; gap:8px; align-items:center;} h2:first-child{margin-top:4px;}
+  h2 .cnt{font-size:12px; padding:2px 8px; border-radius:99px; background:var(--warnbg); color:var(--warn);}
+  h2 .cnt.done{background:var(--okbg); color:var(--ok);}
+  .doc{border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px;}
+  .doc.need{border-color:#d4a72c; background:#fffbea;} .doc.new{box-shadow:0 0 0 2px var(--blue) inset;}
+  .doc .top{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;}
+  .doc .no{font-weight:800;} .doc .amt{margin-left:auto; font-weight:800; font-variant-numeric:tabular-nums; font-size:16px;}
+  .pill{display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; font-weight:700; white-space:nowrap; background:#eee; color:#555;}
+  .pill.RE{background:var(--okbg); color:var(--ok);} .pill.AI{background:var(--bluebg); color:var(--blue);}
+  .pill.SR{background:var(--badbg); color:var(--bad);} .pill.HS{background:var(--warnbg); color:var(--warn);}
+  .pill.carry{background:#efe7ff; color:#5b21b6;}
+  .mut{color:var(--grey); font-size:12.5px;}
+  .ch{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;}
+  .ch button{flex:1; min-width:92px; padding:10px 6px; border:2px solid var(--line); border-radius:9px; background:#fff; font:inherit; font-weight:700; cursor:pointer;}
+  .ch button.on{border-color:var(--green); background:var(--okbg); color:var(--ok);}
+  .ch button:disabled{cursor:default; opacity:.85;}
+  table{width:100%; border-collapse:collapse;} th{font-size:12.5px; text-align:left; padding:6px; background:#f3f5f3;}
+  td{padding:7px 6px; border-bottom:1px solid #eef0ee;} td.n{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;}
+  .form{display:grid; grid-template-columns:1fr 1fr; gap:8px; background:#f7f8f7; padding:10px; border-radius:10px;}
+  .form label{font-size:12.5px; color:var(--grey); display:flex; flex-direction:column; gap:3px;}
+  .form input,.form select{padding:9px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:16px; background:#fff;}
+  .form .wide{grid-column:1/-1;}
+  .btn{padding:11px 18px; border:0; border-radius:8px; background:var(--green); color:#fff; font:inherit; font-weight:700; cursor:pointer;}
+  .btn.ghost{background:#fff; color:var(--ink); border:1px solid var(--line);} .btn.small{padding:6px 10px; font-size:13px;}
+  .btn:disabled{opacity:.5; cursor:default;}
+  .sum{margin:12px 0; padding:12px 14px; border-radius:10px; font-size:16px; font-weight:800;}
+  .sum.ok{background:var(--okbg); color:var(--ok);} .sum.mgr{background:var(--warnbg); color:var(--warn);} .sum.gem{background:var(--badbg); color:var(--bad);}
+  .sum small{display:block; font-size:13px; font-weight:400; color:var(--ink); margin-top:4px;}
+  .close{border:2px solid var(--green); border-radius:12px; padding:12px; margin-top:16px;}
+  .close input{width:100%; padding:12px; font:inherit; font-size:22px; font-weight:800; text-align:right; border:2px solid var(--line); border-radius:9px;}
+  .kv{display:grid; grid-template-columns:1fr auto; gap:3px 12px;} .kv b{text-align:right; font-variant-numeric:tabular-nums;}
+  .br{border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px;}
+  .warnl{color:var(--bad); font-size:13px;}
+  @media (max-width:560px){ .form{grid-template-columns:1fr;} .bar .right{margin-left:0; width:100%;} }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="logo">Sales<b>007</b></div><div class="tag">รายงานขายประจำวัน · live จาก Express</div>
+  <div class="right"><select id="br" hidden onchange="load(false)"></select><input id="date" type="date" onchange="load(false)"></div>
+</div>
+<div id="banner"></div>
+<div class="tabs" id="tabs" hidden><button id="t_day" class="on" onclick="tab('day')">รายงานวันนี้</button><button id="t_audit" onclick="tab('audit')">ตรวจ (ผบ./Finny)</button></div>
+<main id="main"><p class="mut">กำลังโหลด…</p></main>
+
+<script>
+const $ = id => document.getElementById(id);
+const API = window.__S7_API__ || '/api/sales';
+const SB_URL = 'https://syvfdbvmwaeyokytckwb.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5dmZkYnZtd2FleW9reXRja3diIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTI3ODEsImV4cCI6MjEwMDc2ODc4MX0.I1RwZX2S1PAsj-d53oba5kxSQu0VShY4CoTMxvNmS8k';
+const SB_COOKIE_DOMAIN = location.hostname.endsWith('007metals.com') ? '.007metals.com' : '';
+const SB_CHUNK = 3180;
+function _b2bin(b){ let s=''; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return s; }
+function _b64urlEnc(str){ const b=new TextEncoder().encode(str); return btoa(_b2bin(b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function _b64urlDec(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const bin=atob(s); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new TextDecoder().decode(u); }
+function _ckRead(name){ const m=document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'=([^;]*)')); return m?m[1]:null; }
+function _ckWrite(name,val){ let c=name+'='+val+'; path=/; max-age=34560000; samesite=lax'; if(location.protocol==='https:') c+='; secure'; if(SB_COOKIE_DOMAIN) c+='; domain='+SB_COOKIE_DOMAIN; document.cookie=c; }
+function _ckDel(name){ let c=name+'=; path=/; max-age=0; samesite=lax'; if(location.protocol==='https:') c+='; secure'; if(SB_COOKIE_DOMAIN) c+='; domain='+SB_COOKIE_DOMAIN; document.cookie=c; }
+const cookieStorage = {
+  getItem(key){ let raw=_ckRead(key); if(raw===null){ let s='',i=0,p; while((p=_ckRead(key+'.'+i))!==null){ s+=p; i++; } raw=s||null; }
+    if(!raw) return null; if(raw.startsWith('base64-')){ try{ return _b64urlDec(raw.slice(7)); }catch(e){ return null; } } return raw; },
+  setItem(key,value){ this.removeItem(key); const enc='base64-'+_b64urlEnc(value);
+    if(enc.length<=SB_CHUNK) _ckWrite(key,enc); else for(let i=0,o=0;o<enc.length;i++,o+=SB_CHUNK) _ckWrite(key+'.'+i, enc.slice(o,o+SB_CHUNK)); },
+  removeItem(key){ _ckDel(key); for(let i=0;i<24;i++){ if(_ckRead(key+'.'+i)!==null) _ckDel(key+'.'+i); else break; } }
+};
+let SB = null;
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+async function token(){
+  if(window.__S7_TOKEN__) return window.__S7_TOKEN__;
+  if(!SB){ await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js');
+    SB = window.supabase.createClient(SB_URL, SB_ANON, {auth:{storage:cookieStorage, storageKey:'sb-syvfdbvmwaeyokytckwb-auth-token',
+      persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}}); }
+  const {data:{session}} = await SB.auth.getSession();
+  return session && session.access_token;
+}
+const ERR = {'unauthorized':'ยังไม่ได้เข้าสู่ระบบ — เข้าผ่าน app.007metals.com ก่อน',
+  'no-app-access':'บัญชีนี้ยังไม่ได้รับสิทธิ์ Sales007 — ให้แอดมินติ๊กให้ที่ app.007metals.com/admin/access',
+  'not-linked':'บัญชีนี้ยังไม่ผูกกับทะเบียนพนักงาน — แจ้งแอดมิน', 'no-branch':'ทะเบียนพนักงานยังไม่ระบุสาขา — แจ้งแอดมิน',
+  'locked':'รายงานวันนี้ล็อกแล้ว แก้ไม่ได้', 'not-today':'แก้ได้เฉพาะรายงานวันนี้', 'before-cutoff':'ยังไม่ถึงเวลาตัดรอบ',
+  'doc-not-open':'เอกสารนี้อยู่ในรายงานที่ล็อกแล้ว หรือถูกยกเลิกใน Express', 'bad-photo':'รูปบิลใช้ไม่ได้ ลองถ่ายใหม่',
+  'bad-expense':'กรอก หมวด + รายการ + จำนวนเงิน ให้ครบ', 'cash-counted-required':'กรอกเงินสดที่นับได้ก่อน', 'other-branch':'ดูได้เฉพาะสาขาตัวเอง'};
+async function api(action, body, query){
+  const t = await token();
+  if(!t){ location.replace('https://app.007metals.com/'); throw new Error('unauthorized'); }
+  const res = await fetch(API+'/'+action+(query?'?'+new URLSearchParams(query):''), {method: body ? 'POST' : 'GET',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+t}, body: body ? JSON.stringify(body) : undefined});
+  let j = null; try{ j = await res.json(); }catch(e){}
+  if(!res.ok) throw new Error((j && j.error) || ('http-'+res.status));
+  return j;
+}
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = n => n==null ? '–' : Number(n).toLocaleString('th-TH',{minimumFractionDigits:2, maximumFractionDigits:2});
+const thDate = s => { const [y,m,d]=s.split('-'); return `${+d}/${+m}/${+y+543}`; };
+const hhmm = s => s ? new Date(s).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit', timeZone:'Asia/Bangkok'}) : '–';
+const TYPE_TH = {RE:'รับชำระ', AI:'มัดจำ/ขายสด', SR:'ลดหนี้', HS:'ขายสด', IV:'ขายเชื่อ'};
+
+let D = null, TAB = 'day', SEEN = null, BUSY = false, TIMER = null;
+function banner(msg, cls='bad'){ $('banner').innerHTML = msg ? `<div class="banner ${cls}">${msg}</div>` : ''; }
+
+async function load(quiet){
+  if(BUSY) return;
+  try{
+    const q = {}; if($('date').value) q.date = $('date').value; if(!$('br').hidden && $('br').value) q.branch = $('br').value;
+    D = await api('day', null, q);
+    if(!$('date').value) $('date').value = D.date;
+    if(D.viewer.audit && $('br').hidden){
+      $('br').innerHTML = ['BK','SKN','PPS'].map(b=>`<option ${b===D.branch?'selected':''}>${b}</option>`).join('');
+      $('br').hidden = false; $('tabs').hidden = false;
+    }
+    banner('');
+    if(TAB==='day') renderDay();
+  }catch(e){ if(!quiet) banner('⛔ '+(ERR[e.message]||('ต่อระบบไม่ได้ ('+esc(e.message)+')'))); }
+}
+
+function docCard(d, editable){
+  const opts = Object.entries(d.options||{});
+  const fresh = SEEN && !SEEN.has(d.doc_no);
+  return `<div class="doc ${!d.channel && opts.length?'need':''} ${fresh?'new':''}" id="doc-${esc(d.doc_no)}">
+    <div class="top"><span class="pill ${d.type}">${d.type} ${TYPE_TH[d.type]||''}</span>${d.carried?'<span class="pill carry">ยกมา '+thDate(d.doc_date)+'</span>':''}
+      <span class="no">${esc(d.doc_no)}</span><span class="amt">${fmt(d.total)}</span></div>
+    <div class="mut">${esc(d.customer||'')}${d.refs&&d.refs.length?' · ตัดชำระ '+d.refs.map(esc).join(', '):''}${d.channel_by?' · เลือกโดย '+esc(d.channel_by):''}</div>
+    ${opts.length?`<div class="ch">${opts.map(([k,lab])=>`<button class="${d.channel===k?'on':''}" ${editable?'':'disabled'}
+      onclick="setChannel('${esc(d.doc_no)}','${k}')">${{cash:'💵 ',transfer:'🏦 ',qr:'📱 ',deduct:'↩️ ',refund_cash:'💵 '}[k]||''}${lab}</button>`).join('')}</div>`:''}
+  </div>`;
+}
+
+function renderDay(){
+  const d = D, open = d.status==='open', editable = open && !d.viewer.audit;
+  const pend = d.docs.filter(x=>!x.channel).length;
+  let h = `<div class="mut" style="margin-bottom:6px">สาขา <b>${esc(d.branch)}</b> · ${thDate(d.date)} · อัปเดตจาก Express ล่าสุด <b>${hhmm(d.feed_at)}</b>
+    · ตัดรอบ ${d.cutoff} · ส่งภายใน ${d.deadline}</div>`;
+  if(d.status==='submitted') h += `<div class="sum ok">✅ ส่งแล้ว ${hhmm(d.submitted_at)} โดย ${esc(d.preparer||'')} · ล็อกแล้ว
+      ${d.diff!=null?`<small>ส่วนต่างเงินสด: <b>${d.diff>0?'+':''}${fmt(d.diff)}</b> บาท ${d.diff===0?'— ตรง 👍':'— แจ้งหัวหน้า/ผบ.'}</small>`:''}</div>`;
+  else if(d.status==='locked') h += `<div class="sum gem">🔒 ล็อกอัตโนมัติ ${hhmm(d.locked_at)} — ไม่ได้กดส่งภายใน ${d.deadline}</div>`;
+  else if(d.status==='not-reported') h += `<div class="sum mgr">วันนี้ไม่มีรายงาน — เอกสารยกไปรายงานวันทำการถัดไป</div>`;
+
+  h += `<h2>💰 รับเงิน / ลดหนี้ — เลือกช่องทาง <span class="cnt ${pend?'':'done'}">${pend?'เหลือ '+pend+' ใบ':'ครบแล้ว'}</span></h2>`;
+  h += d.docs.length ? d.docs.map(x=>docCard(x, editable)).join('') : '<p class="mut">ยังไม่มี RE / AI / ลดหนี้ ในรอบนี้ — ออก RE ใน Express แล้วจะขึ้นที่นี่ภายใน 1–2 นาที</p>';
+  if(d.next && d.next.length) h += `<h2>⏭️ ออกหลังตัดรอบ ${d.cutoff} — ไปรายงานวันถัดไป <span class="cnt">${d.next.length} ใบ</span></h2>
+    <p class="mut" style="margin-bottom:6px">เลือกช่องทางไว้ได้เลย · เงินของบิลเหล่านี้แยกไว้ ไม่นับรวมกับเงินที่นับวันนี้</p>` + d.next.map(x=>docCard(x, editable)).join('');
+
+  h += `<h2>🧾 ขายเชื่อวันนี้ (IV) — live</h2>`;
+  h += d.iv.length ? `<table><tr><th>เลข IV</th><th>ลูกค้า</th><th style="text-align:right">ยอด</th><th>สถานะ</th></tr>${d.iv.map(i=>`<tr>
+      <td><b>${esc(i.doc_no)}</b></td><td>${esc(i.customer||'')}</td><td class="n">${fmt(i.total)}</td>
+      <td>${i.paid?`<span class="pill RE">ตัดชำระแล้ว${i.paid_by&&i.paid_by.length?' '+i.paid_by.map(esc).join(', '):''}</span>`:'<span class="pill">ค้างรับ</span>'}</td></tr>`).join('')}</table>`
+    : '<p class="mut">ยังไม่มี IV วันนี้</p>';
+
+  h += `<h2>💸 รายจ่ายประจำวัน (จ่ายจากลิ้นชักเงินสด)</h2>`;
+  if(d.expenses.length) h += `<table><tr><th>หมวด / รายการ</th><th>จ่ายให้ · บิล</th><th style="text-align:right">จำนวน</th><th></th></tr>${d.expenses.map(e=>`<tr>
+      <td>${esc(e.item)}<div class="mut">${esc(e.category)}</div></td><td>${esc(e.payee||'')}<div class="mut">${esc(e.bill_no||'')}</div></td>
+      <td class="n">${fmt(e.amount)}</td><td>${e.has_receipt?(e.receipt_url?`<a href="${esc(e.receipt_url)}" target="_blank">📷 รูปบิล</a>`:'📷 มีรูป'):
+        `<span class="warnl">ไม่มีรูปบิล = ไม่นับ</span>${editable?` <label class="btn ghost small">📷 แนบ<input type="file" accept="image/*" capture="environment" hidden onchange="attach(${e.id},this)"></label>`:''}`}
+      ${editable?` <button class="btn ghost small" onclick="delExp(${e.id})">ลบ</button>`:''}</td></tr>`).join('')}</table>`;
+  else h += '<p class="mut">ยังไม่มีรายจ่าย</p>';
+  if(editable) h += `<div class="form" style="margin-top:8px">
+      <label>หมวด<select id="e_cat">${d.categories.map(c=>`<option>${esc(c)}</option>`).join('')}</select></label>
+      <label>จำนวนเงิน (บาท)<input id="e_amt" type="number" inputmode="decimal" min="0" step="0.01"></label>
+      <label class="wide">รายการ<input id="e_item" placeholder="เช่น เติมน้ำมันรถส่งของ"></label>
+      <label>จ่ายให้ (ร้าน/คน)<input id="e_payee"></label>
+      <label>เลขที่บิล/ใบเสร็จ<input id="e_bill"></label>
+      <label class="wide">รูปบิล (บังคับ — ไม่มีรูป = ไม่นับ)<input id="e_photo" type="file" accept="image/*" capture="environment"></label>
+      <div class="wide"><button class="btn" onclick="addExp()">+ เพิ่มรายจ่าย</button> <span id="e_msg" class="mut"></span></div></div>`;
+
+  if(open && !d.viewer.audit){
+    h += `<div class="close"><h2 style="margin-top:0">🔐 ปิดยอด ${d.after_cutoff?'':'<span class="cnt">เปิดหลัง '+d.cutoff+'</span>'}</h2>`;
+    if(!d.after_cutoff) h += `<p class="mut">ถึง ${d.cutoff} แล้วนับเงินสดในลิ้นชัก (ไม่รวมเงินบิลหลังตัดรอบ) แล้วกรอกที่นี่ · ส่งภายใน ${d.deadline}</p>`;
+    else h += `<label class="mut">เงินสดที่นับได้ (บาท)</label><input id="counted" type="number" inputmode="decimal" min="0" step="0.01">
+      <p class="mut" style="margin:6px 0">ผู้จัดทำ: <b>${esc(d.viewer.name)}</b> · กดส่งแล้วแก้ไม่ได้ · ระบบบอกเฉพาะส่วนต่างหลังส่ง</p>
+      <button class="btn" style="width:100%" onclick="submitDay()" ${pend?'disabled':''}>${pend?'เลือกช่องทางให้ครบก่อน ('+pend+' ใบ)':'ส่งรายงาน'}</button><div id="s_msg"></div>`;
+    h += `</div>`;
+  }
+  $('main').innerHTML = h;
+  SEEN = new Set(d.docs.concat(d.next||[]).map(x=>x.doc_no));
+}
+
+async function act(body){
+  BUSY = true;
+  try{ return await api('act', Object.assign({date: D.date, branch: D.branch}, body)); }
+  finally{ BUSY = false; }
+}
+async function setChannel(no, ch){
+  try{ await act({op:'channel', doc_no:no, channel:ch}); await load(); }
+  catch(e){ banner('⛔ '+(ERR[e.message]||e.message)); }
+}
+function photoData(file){
+  return new Promise((res, rej)=>{
+    if(!file) return res(null);
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = ()=>{ const k = Math.min(1, 1600/Math.max(img.width, img.height)); const c = document.createElement('canvas');
+      c.width = Math.round(img.width*k); c.height = Math.round(img.height*k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.72)); };
+    img.onerror = ()=>rej(new Error('bad-photo')); img.src = url;
+  });
+}
+async function addExp(){
+  $('e_msg').textContent = 'กำลังบันทึก…';
+  try{
+    const photo = await photoData($('e_photo').files[0]);
+    await act({op:'expense_add', category:$('e_cat').value, item:$('e_item').value.trim(), payee:$('e_payee').value.trim(),
+               amount:$('e_amt').value, bill_no:$('e_bill').value.trim(), photo});
+    await load();
+  }catch(e){ $('e_msg').textContent = '⛔ '+(ERR[e.message]||e.message); }
+}
+async function attach(id, input){
+  try{ await act({op:'expense_photo', id, photo: await photoData(input.files[0])}); await load(); }
+  catch(e){ banner('⛔ '+(ERR[e.message]||e.message)); }
+}
+async function delExp(id){
+  if(!confirm('ลบรายจ่ายนี้?')) return;
+  try{ await act({op:'expense_del', id}); await load(); }catch(e){ banner('⛔ '+(ERR[e.message]||e.message)); }
+}
+async function submitDay(){
+  const v = $('counted').value;
+  if(v===''){ $('s_msg').innerHTML = '<div class="sum mgr">กรอกเงินสดที่นับได้ก่อน</div>'; return; }
+  if(!confirm(`ยืนยันส่งรายงาน — เงินสดนับได้ ${fmt(v)} บาท? ส่งแล้วแก้ไม่ได้`)) return;
+  try{
+    const r = await act({op:'submit', cash_counted: v});
+    if(!r.ok){ $('s_msg').innerHTML = `<div class="sum mgr">ยังไม่ได้เลือกช่องทาง: ${r.docs.map(esc).join(', ')}</div>`; await load(); return; }
+    await load();
+  }catch(e){ $('s_msg').innerHTML = `<div class="sum gem">⛔ ${ERR[e.message]||esc(e.message)}</div>`; }
+}
+
+/* ---------------- ตรวจ (ผบ. / Finny / CTO) ---------------- */
+const CH_TH = {cash:'เงินสด', transfer:'เงินโอน', qr:'QR Code', deduct:'หักใน RE', refund_cash:'คืนเงินสด'};
+async function renderAudit(){
+  $('main').innerHTML = '<p class="mut">กำลังโหลด…</p>';
+  try{
+    const a = await api('audit', null, $('date').value ? {date: $('date').value} : null);
+    $('main').innerHTML = `<p class="mut">ตรวจรายงาน ${thDate(a.date)} · เทียบคู่กับฟอร์ม Excel เดิม</p>` + a.branches.map(b=>{
+      const s = b.summary, et = b.express_by_type || {};
+      let h = `<div class="br"><h2 style="margin-top:0">${b.branch} · ${b.status==='submit'?'✅ ส่งแล้ว '+hhmm(b.submitted_at)+' ('+esc(b.preparer||'')+')':
+        b.status==='deadline'?'🔒 ล็อกอัตโนมัติ (ไม่ได้ส่ง)':b.status==='none'?'— ไม่มีรายงาน':esc(b.status)}</h2>`;
+      h += `<div class="kv"><span>Express ตามวันที่เอกสาร: IV / AI / SR / RE / HS</span><b>${['IV','AI','SR','RE','HS'].map(t=>fmt(et[t]||0)).join(' / ')}</b>`;
+      if(s) h += `<span>รับเงินสด</span><b>${fmt(s.cash_in)}</b><span>รับโอน</span><b>${fmt(s.transfer_in)}</b><span>รับ QR</span><b>${fmt(s.qr_in)}</b>
+        <span>คืนเงินสด (SR)</span><b>${fmt(s.cash_refund)}</b><span>รายจ่ายประจำวัน (มีบิล)</span><b>${fmt(s.cash_expense)}</b>
+        <span>float</span><b>${fmt(b.float)}</b><span>เงินสดที่ควรมี</span><b>${fmt(s.cash_expected)}</b>
+        <span>เงินสดนับจริง</span><b>${fmt(b.cash_counted)}</b><span>ส่วนต่าง</span><b class="${s.diff?'warnl':''}">${fmt(s.diff)}</b>
+        <span>ยอดนำฝาก</span><b>${fmt(s.deposit)}</b>`;
+      h += `<span>เอกสารหลังตัดรอบ (ยกไปวันถัดไป)</span><b>${b.after_cutoff.count} ใบ · ${fmt(b.after_cutoff.total)}</b></div>`;
+      const w = [];
+      if(s && s.unchosen.length) w.push('ไม่ได้เลือกช่องทาง: '+s.unchosen.map(esc).join(', '));
+      if(s && s.expense_no_receipt.length) w.push('รายจ่ายไม่มีบิล (ไม่นับ): '+s.expense_no_receipt.map(esc).join(', '));
+      (b.changed_after_lock||[]).forEach(c=>w.push(esc(c.doc_no)+' '+esc(c.issue)));
+      if(b.carried && b.carried.length) w.push('เอกสารยกมา: '+b.carried.map(esc).join(', '));
+      if(w.length) h += `<ul class="warnl" style="margin:8px 0 0 18px">${w.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+      if(b.channels) h += `<details style="margin-top:8px"><summary class="mut">ช่องทางรายใบ (จับคู่ statement) · รายจ่าย</summary>
+        <table>${b.channels.map(c=>`<tr><td>${esc(c.doc_no)}</td><td>${esc(c.customer||'')}</td><td class="n">${fmt(c.total)}</td><td>${CH_TH[c.channel]||'⚠️ ไม่ได้เลือก'}</td></tr>`).join('')}</table>
+        <table style="margin-top:6px">${(b.expenses||[]).map(e=>`<tr><td>${esc(e.category)} · ${esc(e.item)}</td><td>${esc(e.payee||'')}</td><td class="n">${fmt(e.amount)}</td>
+          <td>${e.receipt_url?`<a href="${esc(e.receipt_url)}" target="_blank">📷</a>`:'<span class="warnl">ไม่มีบิล</span>'}</td></tr>`).join('')}</table></details>`;
+      return h + '</div>';
+    }).join('');
+  }catch(e){ $('main').innerHTML = `<div class="sum gem">⛔ ${ERR[e.message]||esc(e.message)}</div>`; }
+}
+function tab(t){
+  TAB = t; $('t_day').classList.toggle('on', t==='day'); $('t_audit').classList.toggle('on', t==='audit');
+  if(t==='audit'){ if(!$('date').value || $('date').value===D.today){ const y=new Date(D.today); y.setDate(y.getDate()-1); $('date').value=y.toISOString().slice(0,10); } renderAudit(); }
+  else load();
+}
+$('date').addEventListener('change', ()=>{ if(TAB==='audit') renderAudit(); });
+load();
+TIMER = setInterval(()=>{ if(TAB==='day' && !document.hidden && !document.activeElement.matches('input,select')) load(true); }, 20000);
+</script>
+</body>
+</html>

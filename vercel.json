@@ -3,6 +3,10 @@
     "api/approve/*.py": {
       "includeFiles": "approve007/{engine,server}/**",
       "maxDuration": 15
+    },
+    "api/sales/*.py": {
+      "includeFiles": "salesreport007/{engine,server}/**",
+      "maxDuration": 30
     }
   },
   "redirects": [
@@ -44,6 +48,16 @@
     {
       "source": "/approve007",
       "destination": "/approve007/app/approve007.html"
+    },
+    {
+      "source": "/sales007",
+      "destination": "/salesreport007/app/sales007.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/sales/cron",
+      "schedule": "56 9 * * *"
     }
   ]
 }

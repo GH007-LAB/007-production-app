@@ -3,5 +3,8 @@
 approve007/tests
 approve007/engine/launchd
 approve007/*.md
-# รายงานขายอัตโนมัติ: โค้ด Mac mini / Apps Script ไม่ใช่ของหน้าเว็บ
-salesreport007
+# Sales007: เสิร์ฟเฉพาะ app/ server/ engine/ — feeder (เครื่องสาขา) · macmini · tests · เอกสาร ไม่ขึ้นเว็บ
+salesreport007/feeder
+salesreport007/macmini
+salesreport007/tests
+salesreport007/*.md
