@@ -89,7 +89,8 @@ def identify(sb, token, env):
     user = sb.get_user(token)
     if not user or not user.get("id"):
         raise ApiError(401, "unauthorized")
-    meta = user.get("user_metadata") or {}
+    # C1: line_id ต้องมาจาก app_metadata (server ตั้ง) — user_metadata ผู้ใช้แก้เองได้
+    meta = user.get("app_metadata") or {}
     line_id = meta.get("line_id")
     email = (user.get("email") or "").lower()
     if email.endswith("@line.007metals.local"):

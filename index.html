@@ -2475,7 +2475,8 @@ async function enterByEmail(em){
   if(s){ enterAsStaff(s, "email"); return; }
   // ไม่อยู่ในตาราง staff → ลองพนักงานกลาง (prod_enter สร้างแถว staff ให้เอง)
   try{
-    const {data,error}=await sb.rpc("prod_enter",{p_email:em}).maybeSingle();
+    // ตัวตนมาจาก JWT ฝั่ง DB (C1) — ไม่ส่งอีเมลไปให้เชื่อ
+    const {data,error}=await sb.rpc("prod_enter",{}).maybeSingle();
     if(error) throw error;
     if(data){ enterAsStaff(data, "email"); return; }
   }catch(e){ console.error("prod_enter:", e); }
@@ -2509,17 +2510,11 @@ async function handleLineToken(){
 async function enterByLineId(session, lineId){
   let row=null;
   try{
-    const {data,error}=await sb.rpc("prod_enter",{p_line_id:lineId}).maybeSingle();
+    // ตัวตนมาจาก JWT ฝั่ง DB (C1) — ไม่ส่ง line_id ไปให้เชื่อ · staff_by_line_id เลิกใช้ (ปิดสิทธิ์แล้ว)
+    const {data,error}=await sb.rpc("prod_enter",{}).maybeSingle();
     if(error) throw error;
     row=data;
   }catch(e){ console.error("prod_enter:", e); }
-  if(!row){
-    try{
-      const {data,error}=await sb.rpc("staff_by_line_id",{p_line_id:lineId}).maybeSingle();
-      if(error) throw error;
-      row=data;
-    }catch(e){ console.error("staff by line_id:", e); }
-  }
   if(row){ enterAsStaff(row, "line"); return; }
   /* ยังไม่เจอ → ให้เซิร์ฟเวอร์เทียบทะเบียนพนักงานกลางให้
      ผ่าน = สร้างแถว staff ให้อัตโนมัติแล้วเข้าเลย
@@ -2580,7 +2575,7 @@ async function boot(){
 
   // 2) เช็ค session "ก่อน" โหลดข้อมูล — ยังไม่ล็อกอิน → เด้งล็อกอินกลางทันที (ไม่โชว์ฟอร์ม/ไม่โหลดเปล่า)
   const _lineErr=await handleLineToken();  // เผื่อกลับจาก #lt (legacy)
-  const {data:{session:_ses}}=await sb.auth.getSession();
+  let {data:{session:_ses}}=await sb.auth.getSession();
   if(!(_ses&&_ses.user)){
     if(location.hostname.endsWith("007metals.com")){ location.replace("https://app.007metals.com/"); return; }
     bootNoCentral(_lineErr||"กรุณาเข้าผ่าน production.007metals.com (ล็อกอินกลาง)"); return;
@@ -2600,7 +2595,15 @@ async function boot(){
     bootNoCentral("ต่อฐานข้อมูลไม่ได้ — เช็คอินเทอร์เน็ตแล้วรีเฟรช"); return; }
 
   // 4) เข้าตามตัวตนใน session (LINE line_id → email)
-  const _lid=_ses.user.user_metadata&&_ses.user.user_metadata.line_id;
+  // C1: line_id จาก app_metadata (server ตั้ง) เท่านั้น — user_metadata ผู้ใช้แก้เองได้
+  //   token เก่าก่อน backfill ยังไม่มี claim นี้ → refresh 1 ครั้งเพื่อดึง JWT ใหม่
+  let _lid=_ses.user.app_metadata&&_ses.user.app_metadata.line_id;
+  if(!_lid && /@line\.007metals\.local$/i.test(_ses.user.email||"")){
+    try{
+      const {data:_r}=await sb.auth.refreshSession();
+      if(_r&&_r.session){ _ses=_r.session; _lid=_ses.user.app_metadata&&_ses.user.app_metadata.line_id; }
+    }catch(e){ console.error("refreshSession:", e); }
+  }
   if(_lid){ await enterByLineId(_ses,_lid); return; }
   const _em=_ses.user.email?_ses.user.email.toLowerCase():null;
   if(_em){ enterByEmail(_em); return; }

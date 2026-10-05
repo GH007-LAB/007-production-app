@@ -82,7 +82,8 @@ module.exports = async function handler(req, res) {
       res.status(401).json({ error: "unauthorized" });
       return;
     }
-    const lineId = (user.user_metadata && user.user_metadata.line_id) || null;
+    // C1: line_id ต้องมาจาก app_metadata (server ตั้ง) เท่านั้น — user_metadata ผู้ใช้แก้เองได้
+    const lineId = (user.app_metadata && user.app_metadata.line_id) || null;
     // อีเมล session ของ LINE เป็นอีเมลสังเคราะห์ (line_<id>@line.007metals.local) — ใช้เทียบไม่ได้
     const realEmail =
       user.email && !/@line\.007metals\.local$/i.test(user.email)

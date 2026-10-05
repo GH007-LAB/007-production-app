@@ -17,4 +17,7 @@ as $func$
 $func$;
 
 revoke all on function public.staff_by_line_id(text) from public;
-grant execute on function public.staff_by_line_id(text) to anon, authenticated;
+-- ⚠️ 5 ต.ค. 69 (C1): เชื่อพารามิเตอร์ + เปิดให้ anon = ใครก็ดึงแถว staff จาก line_id ได้
+--   ปิดสิทธิ์ client ทั้งหมดแล้วใน ~/SP-TT-dashboard/db/c1_line_id_app_metadata.sql
+--   (prod_enter อ่านตัวตนจาก JWT ครอบหน้าที่นี้แล้ว · index.html เลิกเรียก) — ห้าม grant กลับ
+revoke all on function public.staff_by_line_id(text) from public, anon, authenticated;
