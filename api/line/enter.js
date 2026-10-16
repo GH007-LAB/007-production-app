@@ -115,7 +115,11 @@ module.exports = async function handler(req, res) {
 
     // 0) บัญชีทดสอบ? — เช็คก่อนทุกทาง (รวมทางลัด staff เดิม) เพื่อส่ง is_test ให้หน้าเว็บกันเขียนทุกคำสั่ง
     //    (fail-closed: ไม่เช็ค active เหมือน current_is_test()) (CTO 16 ต.ค. 69)
-    const isTest = await isTestIdentity(admin, lineId, realEmail);
+    // รีวิว: ถ้าเช็คล้มชั่วคราว ห้ามทำให้คนจริงเข้าไม่ได้ (500) → ถือว่าไม่ใช่บัญชีทดสอบ
+    //   ยังปลอดภัย: หน้าเว็บเช็ค rpc current_is_test ซ้ำ + DB trigger _test_guard กันเขียนอีกชั้น
+    let isTest = false;
+    try { isTest = await isTestIdentity(admin, lineId, realEmail); }
+    catch (e) { console.error("isTestIdentity failed", e && e.message); }
 
     // 1) staff เดิมที่ผูกไว้แล้ว
     if (lineId) {
