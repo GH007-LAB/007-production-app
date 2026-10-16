@@ -54,6 +54,22 @@ async function readJsonBody(req) {
 
 const STAFF_COLS = "id,branch,name,role,can_approve,email,active,line_id";
 
+// true ถ้า line_id/อีเมลที่พิสูจน์แล้วตรงกับแถว employees.is_test (ตรรกะเดียวกับ public.current_is_test())
+// ไม่กรอง active โดยตั้งใจ · error → throw (handler ตอบ 500 = ไม่ให้เข้าโดยไม่รู้สถานะ)
+async function isTestIdentity(admin, lineId, realEmail) {
+  if (lineId) {
+    const { data, error } = await admin.from("employees").select("id").eq("is_test", true).eq("line_id", lineId).limit(1);
+    if (error) throw error;
+    if (data && data.length) return true;
+  }
+  if (realEmail) {
+    const { data, error } = await admin.from("employees").select("id").eq("is_test", true).ilike("email", realEmail).limit(1);
+    if (error) throw error;
+    if (data && data.length) return true;
+  }
+  return false;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "method-not-allowed" });
@@ -97,18 +113,22 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // 0) บัญชีทดสอบ? — เช็คก่อนทุกทาง (รวมทางลัด staff เดิม) เพื่อส่ง is_test ให้หน้าเว็บกันเขียนทุกคำสั่ง
+    //    (fail-closed: ไม่เช็ค active เหมือน current_is_test()) (CTO 16 ต.ค. 69)
+    const isTest = await isTestIdentity(admin, lineId, realEmail);
+
     // 1) staff เดิมที่ผูกไว้แล้ว
     if (lineId) {
       const { data: rows, error } = await admin
         .from("staff").select(STAFF_COLS).eq("active", true).eq("line_id", lineId).limit(1);
       if (error) throw error;
-      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-line" }); return; }
+      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-line", is_test: isTest }); return; }
     }
     if (realEmail) {
       const { data: rows, error } = await admin
         .from("staff").select(STAFF_COLS).eq("active", true).ilike("email", realEmail).limit(1);
       if (error) throw error;
-      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-email" }); return; }
+      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-email", is_test: isTest }); return; }
     }
 
     // 2) ทะเบียนพนักงานกลาง — line_id ก่อน (อัตโนมัติ) แล้วค่อยอีเมลที่กรอก/อีเมล session
@@ -158,8 +178,8 @@ module.exports = async function handler(req, res) {
       if (data && data.length) staffRow = data[0];
     }
     // บัญชีทดสอบ: ใช้แถว staff ที่ seed ไว้ตามเดิม (ไม่ผูก line_id) · ไม่มีแถว = ไม่สร้างให้
-    if (emp.is_test) {
-      if (staffRow) { res.status(200).json({ staff: staffRow, via: "employees-test" }); return; }
+    if (isTest || emp.is_test) {
+      if (staffRow) { res.status(200).json({ staff: staffRow, via: "employees-test", is_test: true }); return; }
       res.status(403).json({ error: "test-account", message: TEST_ACCOUNT_MSG });
       return;
     }
@@ -191,7 +211,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (!staffRow) { res.status(500).json({ error: "server-error" }); return; }
-    res.status(200).json({ staff: staffRow, via: "employees" });
+    res.status(200).json({ staff: staffRow, via: "employees", is_test: false });
   } catch (e) {
     console.error("LINE enter error:", e && e.message ? e.message : e);
     res.status(500).json({ error: "server-error" });

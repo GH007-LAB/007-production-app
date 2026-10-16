@@ -432,7 +432,42 @@ const cookieStorage = {
 let sb = null;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 const STAFF_COLS = "id,branch,name,role,can_approve,active,email";
-const isTestStaff = s => /\(ทดสอบ\)/.test((s&&s.name)||"");   // บัญชีทดสอบ — ดู DB.getStaff()
+/* ================= บัญชีทดสอบ (CTO 16 ต.ค. 69) =================
+   เปิดดูได้ทุกหน้า แต่ "ไม่บันทึกข้อมูลจริง" — แอพนี้เขียนด้วย anon key + PIN/LINE ฝั่ง DB แยกตัวตนไม่ได้เสมอ
+   จึงกันที่ client กลางจุดเดียว: installTestGuard() ครอบ sb.from().insert/update/upsert/delete · sb.rpc (ยกเว้น RPC อ่าน)
+   · sb.storage อัปโหลด/ลบ → ไม่ส่งคำขอ + toast ข้อความไทย · เปิดโหมดใน enterAsStaff() จาก
+   is_test ของ /api/line/enter · rpc current_is_test() · ชื่อ staff "(ทดสอบ)" (ข้อ 6.5 ของ db/test_account_guard_2026-10-16.sql) */
+const TEST_MSG = "บัญชีทดสอบ — ไม่บันทึกข้อมูลจริง";
+const isTestStaff = s => !!s && (s.is_test===true || /\(ทดสอบ\)/.test(s.name||""));
+let TEST_MODE = false;
+try{ TEST_MODE = sessionStorage.getItem("prod007_is_test")==="1"; }catch(e){}   // fail-closed ระหว่างรีโหลดจนกว่าจะเข้าใหม่
+function setTestMode(on){
+  TEST_MODE = !!on;
+  try{ on ? sessionStorage.setItem("prod007_is_test","1") : sessionStorage.removeItem("prod007_is_test"); }catch(e){}
+}
+const READ_RPCS = new Set(["verify_pin","prod_enter","current_is_test"]);   // RPC อ่านอย่างเดียว — เพิ่ม RPC อ่านใหม่ที่นี่
+let _testToastAt = 0;
+function testBlocked(){
+  if(Date.now()-_testToastAt > 1500){ _testToastAt = Date.now(); alertBar(TEST_MSG); }
+  const res = {data:null, error:{message:TEST_MSG, code:"TEST_ACCOUNT", testBlocked:true}, count:null, status:403};
+  // ต่อ chain ได้ทุกเมธอด (.select().single().eq()…) แล้ว await ได้ {data:null, error} — ผู้เรียกเดิม throw error ตามปกติ
+  const chain = new Proxy({}, {get:(_,k)=> k==="then" ? (ok,bad)=>Promise.resolve(res).then(ok,bad) : ()=>chain});
+  return chain;
+}
+function guardMethods(obj, names){
+  names.forEach(m=>{ if(typeof obj[m]!=="function") return; const o=obj[m].bind(obj);
+    obj[m]=(...a)=> TEST_MODE ? testBlocked() : o(...a); });
+  return obj;
+}
+function installTestGuard(c){
+  const from=c.from.bind(c), rpc=c.rpc.bind(c);
+  c.from = t => guardMethods(from(t), ["insert","update","upsert","delete"]);
+  c.rpc = (fn,args,opts) => (TEST_MODE && !READ_RPCS.has(fn)) ? testBlocked() : rpc(fn,args,opts);
+  const wrapStorage = st => { if(st && !st._tg){ const sf=st.from.bind(st); st.from = b => guardMethods(sf(b), ["upload","update","remove","move","copy","uploadToSignedUrl"]); st._tg=true; } return st; };
+  const d = Object.getOwnPropertyDescriptor(c,"storage") || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c),"storage");
+  if(d && d.get) Object.defineProperty(c,"storage",{get:()=>wrapStorage(d.get.call(c))});
+  else if(c.storage) wrapStorage(c.storage);
+}
 /* ⚡ ดึงเฉพาะคอลัมน์ที่ใช้จริง — so_live/so_item_live/coil_stock มิเรอร์มาจาก DBF คอลัมน์เยอะมาก
    select("*") = ขนของเกินจำเป็นทุกรอบ (ต้นเหตุหลักที่โควตา Supabase เต็ม) */
 const COLS = {
@@ -467,9 +502,10 @@ let DB = {
         detectSessionInUrl: true,
       },
     });
+    installTestGuard(sb);   // บัญชีทดสอบ: กันเขียนทุกทางที่จุดเดียว
   },
-  /* บัญชีทดสอบ (CTO 16 ต.ค. 69): ตัดออกจากรายชื่อ PIN / ผู้อนุมัติ / ผู้รับงาน — staff ไม่มี is_test
-     จึงใช้ชื่อที่ seed ไว้ "… (ทดสอบ)" (db/test_account_guard_2026-10-16.sql ข้อ 6.5) · ตัวเองยังเข้าได้ผ่าน prod_enter */
+  /* บัญชีทดสอบ: ตัดออกจากรายชื่อ PIN / ผู้อนุมัติ / ผู้รับงาน — isTestStaff (is_test ถ้ามี · ชื่อ "(ทดสอบ)")
+     + enterAsStaff ตัดแถวของตัวเองออกเมื่อธง is_test จากเซิร์ฟเวอร์เป็นจริง · ตัวเองยังเข้าได้ผ่าน prod_enter */
   async getStaff(){ const {data,error} = await sb.from("staff").select(STAFF_COLS).eq("active",true).order("id"); if(error) throw error; return (data||[]).filter(s=>!isTestStaff(s)); },
   async verifyPin(id,pin){ const {data,error} = await sb.rpc("verify_pin",{p_staff:id,p_pin:pin}); return !error && data===true; },
   async sendOtp(email){ const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin+location.pathname}}); if(error) throw error; },
@@ -855,7 +891,8 @@ async function act(fn){
   catch(e){ console.error(e);
     /* ข้อความ error ที่เราตั้งเองเป็นภาษาไทย (เช่น "ยังไม่ได้อัปเดตฐานข้อมูล migration v8.4")
        ต้องโชว์ตรง ๆ — เคยกลืนเป็น "เช็คเน็ต" ทำให้ทีมไล่ผิดทาง (เคส ➕ เข้าร่วม เด้งออก) */
-    alertBar(e && e.message && /[ก-๙]/.test(e.message) ? e.message : "บันทึกไม่สำเร็จ — เช็คเน็ตแล้วลองใหม่"); }
+    if(!(e && e.testBlocked))   // บัญชีทดสอบ: testBlocked() toast ไปแล้ว
+      alertBar(e && e.message && /[ก-๙]/.test(e.message) ? e.message : "บันทึกไม่สำเร็จ — เช็คเน็ตแล้วลองใหม่"); }
   BUSY=false; document.body.classList.remove("busy");
   render();
 }
@@ -2452,7 +2489,7 @@ async function enterViaApi(session){
       headers:{"Content-Type":"application/json","Authorization":"Bearer "+tok},
       body:"{}"});
     let j=null; try{ j=await res.json(); }catch(e){}
-    if(res.ok && j && j.staff) return {staff:j.staff};
+    if(res.ok && j && j.staff) return {staff:{...j.staff, is_test: j.is_test===true || j.staff.is_test===true}};
     return {error:(j&&j.error)||("http-"+res.status)};
   }catch(e){ console.error("enter:", e); return {error:"network"}; }
 }
@@ -2526,14 +2563,19 @@ async function enterByLineId(session, lineId){
   if(r.staff){ enterAsStaff(r.staff, "line"); return; }
   showEnterBlocked(enterErrText(r.error));
 }
-function enterAsStaff(s, mode){
-  USER={dbid:s.id, name:s.name, role:s.role, branch:s.branch, mode,
+async function enterAsStaff(s, mode){
+  // บัญชีทดสอบ: ธงจากเซิร์ฟเวอร์ (/api/line/enter) · ชื่อ staff · หรือ JWT ของ session (current_is_test) อย่างใดอย่างหนึ่ง = โหมดทดสอบ
+  let isTest = isTestStaff(s);
+  if(!isTest){ try{ const {data}=await sb.rpc("current_is_test"); isTest = data===true; }catch(e){ console.error("current_is_test:", e); } }
+  setTestMode(isTest);
+  if(isTest) STAFF = STAFF.filter(x=>x.id!==s.id);   // ไม่โผล่เป็นผู้รับงาน/ผู้อนุมัติ
+  USER={dbid:s.id, name:s.name, role:s.role, branch:s.branch, mode, isTest,
     canFix: s.role==="planner"||s.role==="admin",
     /* 🏭 ออกใบผลิตเข้าสต็อคได้: หัวหน้าผลิต + ผจก.สาขา + ทีมขาย (Gem เคาะ — ขายเห็นของหมดหน้าร้านก่อนใคร) */
     canStock: s.role==="planner"||s.role==="admin"||s.role==="sales"};
   document.getElementById("loginbg").style.display="none";
   const uc=document.getElementById("userchip");
-  uc.style.display=""; uc.innerHTML=`👤 ${esc(USER.name)} <button onclick="logout()" title="ออกจากระบบ">✕</button>`;
+  uc.style.display=""; uc.innerHTML=`👤 ${esc(USER.name)}${isTest?' <b title="'+TEST_MSG+'">🧪 ทดสอบ</b>':''} <button onclick="logout()" title="ออกจากระบบ">✕</button>`;
   if(USER.branch!=="ALL") branch=USER.branch;
   view = ({sales:"order", planner:"plan", operator:"board", packer:"pack"})[USER.role]||"order";
   try{ localStorage.setItem("prod007_pin_user", mode==="pin"? JSON.stringify({id:s.id}) : ""); }catch(e){}
@@ -2560,6 +2602,7 @@ async function lgTry(){
 }
 async function logout(){
   try{ localStorage.removeItem("prod007_pin_user"); }catch(e){}
+  setTestMode(false);
   await DB.signOut(); location.reload();
 }
 
