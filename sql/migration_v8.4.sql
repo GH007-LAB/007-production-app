@@ -80,9 +80,11 @@ $$;
 
 
 -- 3) สิทธิ์เรียกใช้ ---------------------------------------------
-grant execute on function join_work(uuid, jsonb)  to anon, authenticated;
-grant execute on function leave_work(uuid, text, text) to anon, authenticated;
-grant execute on function close_work(uuid, text)  to anon, authenticated;
+-- SECURITY DEFINER ไม่เช็คตัวตน → ห้าม anon (16 ต.ค. 69: anon แก้ใบผลิตใดก็ได้) · แอปเรียกหลังล็อกอินเท่านั้น
+revoke execute on function join_work(uuid, jsonb), leave_work(uuid, text, text), close_work(uuid, text) from public, anon;
+grant execute on function join_work(uuid, jsonb)  to authenticated;
+grant execute on function leave_work(uuid, text, text) to authenticated;
+grant execute on function close_work(uuid, text)  to authenticated;
 
 
 -- 4) เช็คว่าลงครบ ------------------------------------------------
