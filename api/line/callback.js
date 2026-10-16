@@ -5,6 +5,7 @@
 // → ออก magic-link hashed_token แล้ว redirect กลับหน้าแอปเป็น #lt=<token>
 //   ให้ฝั่ง client (static app) เอาไป sb.auth.verifyOtp เองเพื่อเปิด session
 const { createClient } = require("@supabase/supabase-js");
+const { isRegisteredLine, notRegisteredLocation } = require("./_lineGate");
 
 // อ่านค่า cookie ตัวเดียวจาก header (เลี่ยง dependency เพิ่ม)
 function readCookie(cookieHeader, name) {
@@ -88,6 +89,18 @@ module.exports = async function handler(req, res) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const email = `line_${lineId}@line.007metals.local`;
+
+    // 3.1) ด่านทะเบียน (17 ต.ค. 69): LINE ที่ยังไม่ผูกทะเบียน → ไม่สร้าง user / ไม่ออก session
+    //      ส่งไปล็อกอินที่ hub ซึ่งมีฟอร์มขอสิทธิ์ (flow ขอสิทธิ์เดิม)
+    if (!(await isRegisteredLine(admin, lineId))) {
+      res.setHeader("Set-Cookie", [
+        `line_oauth_state=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/`,
+      ]);
+      res.statusCode = 302;
+      res.setHeader("Location", notRegisteredLocation(origin));
+      res.end();
+      return;
+    }
 
     // สร้าง user ครั้งแรก (ครั้งถัดไปจะได้ error ว่ามีอยู่แล้ว → ข้ามได้)
     await admin.auth.admin.createUser({
