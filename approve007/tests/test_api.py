@@ -359,6 +359,15 @@ class Api(unittest.TestCase):
         self.assertTrue(any(x.get("blocked") for x in rows))
         self.assertFalse(any("cost" in x or "gp" in x for x in rows))
 
+    def test_test_account_checks_but_never_logs(self):
+        # บัญชีทดสอบ (CTO 16 ต.ค. 69): เช็คราคาได้ตามปกติ แต่ไม่ลง approve_check_log
+        add_person(self.sb, "tok-test", "e77", "Tester", "BK")
+        self.sb.t["employees"][-1]["is_test"] = True
+        before = len(self.sb.t["approve_check_log"])
+        st, out = self.call("check", {"branch": "BK", "text": "PU 25 ท้องไม้ 100 ม. 110"}, token="tok-test")
+        self.assertEqual(st, 200, out)
+        self.assertEqual(len(self.sb.t["approve_check_log"]), before)
+
     def test_bands_endpoint(self):
         st, out = self.call("bands", token="tok-sale", method="GET")
         self.assertEqual(st, 200)

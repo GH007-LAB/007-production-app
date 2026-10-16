@@ -19,6 +19,9 @@
 const { createClient } = require("@supabase/supabase-js");
 
 const APP_CODE = "production";
+// บัญชีทดสอบ (employees.is_test) — ไม่สร้าง/ไม่ผูก staff ด้วย service role (CTO 16 ต.ค. 69)
+// ต้องมีแถว staff ที่ seed ไว้ (db/test_account_guard_2026-10-16.sql ข้อ 6.5) ถึงจะเข้าได้
+const TEST_ACCOUNT_MSG = "บัญชีทดสอบ — ไม่บันทึกข้อมูลจริง";
 
 // ตำแหน่งในทะเบียนกลาง → role ของแอพผลิต
 function roleFromEmployee(emp) {
@@ -109,7 +112,7 @@ module.exports = async function handler(req, res) {
     }
 
     // 2) ทะเบียนพนักงานกลาง — line_id ก่อน (อัตโนมัติ) แล้วค่อยอีเมลที่กรอก/อีเมล session
-    const empCols = "id,nickname,full_name,branch,position,is_admin,email,line_id,active";
+    const empCols = "id,nickname,full_name,branch,position,is_admin,email,line_id,active,is_test";
     let emp = null;
     if (lineId) {
       const { data, error } = await admin
@@ -153,6 +156,12 @@ module.exports = async function handler(req, res) {
         .from("staff").select(STAFF_COLS).eq("active", true).ilike("email", empEmail).limit(1);
       if (error) throw error;
       if (data && data.length) staffRow = data[0];
+    }
+    // บัญชีทดสอบ: ใช้แถว staff ที่ seed ไว้ตามเดิม (ไม่ผูก line_id) · ไม่มีแถว = ไม่สร้างให้
+    if (emp.is_test) {
+      if (staffRow) { res.status(200).json({ staff: staffRow, via: "employees-test" }); return; }
+      res.status(403).json({ error: "test-account", message: TEST_ACCOUNT_MSG });
+      return;
     }
     if (staffRow) {
       if (!staffRow.line_id && lineId) {

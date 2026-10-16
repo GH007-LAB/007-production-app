@@ -95,7 +95,7 @@ def identify(sb, token, env):
     email = (user.get("email") or "").lower()
     if email.endswith("@line.007metals.local"):
         email = ""
-    cols = "id,nickname,full_name,branch,position,is_admin,active"
+    cols = "id,nickname,full_name,branch,position,is_admin,active,is_test"
     emp = None
     if line_id:
         rows = sb.select("employees", f"select={cols}&active=eq.true&line_id=eq.{q(line_id)}&limit=1")
@@ -122,7 +122,9 @@ def identify(sb, token, env):
     else:
         role = "SALES"
     return {"id": emp["id"], "name": emp.get("nickname") or emp.get("full_name") or "",
-            "branch": (emp.get("branch") or "").upper(), "role": role}
+            "branch": (emp.get("branch") or "").upper(), "role": role,
+            # บัญชีทดสอบ (employees.is_test) — เช็คราคาได้ แต่ไม่ลง approve_check_log (CTO 16 ต.ค. 69)
+            "is_test": emp.get("is_test") is True}
 
 
 # ------------------------------------------------------------------ snapshot (ทุน · Rate 1 · สินค้า · ช่วงราคา)
@@ -231,6 +233,8 @@ def chased(sb, who, key, now=None):
 
 def log_check(sb, who, res, key, so=None, blocked=False):
     """log ทุกครั้งที่เช็ค (ไม่มีทุน/GP) — ใช้ทั้งกันไล่ราคาและส่งเรื่อง < 75% เข้า approval_requests.jsonl"""
+    if who.get("is_test"):
+        return  # บัญชีทดสอบ: service role เขียน → ต้องข้ามในโค้ด ไม่ให้ปนสถิติ/คิวอนุมัติจริง (CTO 16 ต.ค. 69)
     sb.insert("approve_check_log", [{"employee_id": who["id"], "name": who["name"], "role": who["role"],
                                      "branch": res.get("branch"), "layer": res.get("layer"), "key": key,
                                      "sonum": so, "total": res.get("total"), "grade": res.get("grade"),

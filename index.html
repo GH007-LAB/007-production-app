@@ -432,6 +432,7 @@ const cookieStorage = {
 let sb = null;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 const STAFF_COLS = "id,branch,name,role,can_approve,active,email";
+const isTestStaff = s => /\(ทดสอบ\)/.test((s&&s.name)||"");   // บัญชีทดสอบ — ดู DB.getStaff()
 /* ⚡ ดึงเฉพาะคอลัมน์ที่ใช้จริง — so_live/so_item_live/coil_stock มิเรอร์มาจาก DBF คอลัมน์เยอะมาก
    select("*") = ขนของเกินจำเป็นทุกรอบ (ต้นเหตุหลักที่โควตา Supabase เต็ม) */
 const COLS = {
@@ -467,7 +468,9 @@ let DB = {
       },
     });
   },
-  async getStaff(){ const {data,error} = await sb.from("staff").select(STAFF_COLS).eq("active",true).order("id"); if(error) throw error; return data; },
+  /* บัญชีทดสอบ (CTO 16 ต.ค. 69): ตัดออกจากรายชื่อ PIN / ผู้อนุมัติ / ผู้รับงาน — staff ไม่มี is_test
+     จึงใช้ชื่อที่ seed ไว้ "… (ทดสอบ)" (db/test_account_guard_2026-10-16.sql ข้อ 6.5) · ตัวเองยังเข้าได้ผ่าน prod_enter */
+  async getStaff(){ const {data,error} = await sb.from("staff").select(STAFF_COLS).eq("active",true).order("id"); if(error) throw error; return (data||[]).filter(s=>!isTestStaff(s)); },
   async verifyPin(id,pin){ const {data,error} = await sb.rpc("verify_pin",{p_staff:id,p_pin:pin}); return !error && data===true; },
   async sendOtp(email){ const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin+location.pathname}}); if(error) throw error; },
   async getSessionEmail(){ const {data:{session}} = await sb.auth.getSession(); return session && session.user && session.user.email ? session.user.email.toLowerCase() : null; },
