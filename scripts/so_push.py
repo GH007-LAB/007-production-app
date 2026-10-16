@@ -11,7 +11,7 @@ config file (KEY=VALUE):
   BRANCH=SKN
   SRC=Z:\\skn2569
   SUPABASE_URL=https://xxxx.supabase.co
-  SUPABASE_KEY=eyJ...        (anon key เท่านั้น — ห้ามใช้ service_role)
+  SUPABASE_KEY=eyJ...        (เลิกใช้บนเครื่องสาขาแล้ว — ตั้งแต่ 16 ต.ค. 69 anon เขียน so_live ไม่ได้ ใช้ prod-feeder บน Mac mini แทน)
   WINDOW_DAYS=45             (มองย้อน SO กี่วัน)
 
 state/log เก็บที่ %LOCALAPPDATA%\\007so_push\\ (ไม่ปนโฟลเดอร์ Drive)
