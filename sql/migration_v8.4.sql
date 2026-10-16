@@ -85,6 +85,10 @@ revoke execute on function join_work(uuid, jsonb), leave_work(uuid, text, text),
 grant execute on function join_work(uuid, jsonb)  to authenticated;
 grant execute on function leave_work(uuid, text, text) to authenticated;
 grant execute on function close_work(uuid, text)  to authenticated;
+-- INVOKER: ให้ policy ของ production_ticket ตัดสิน (เขียนได้เฉพาะ can_access('production'))
+alter function join_work(uuid, jsonb) security invoker;
+alter function leave_work(uuid, text, text) security invoker;
+alter function close_work(uuid, text) security invoker;
 
 
 -- 4) เช็คว่าลงครบ ------------------------------------------------
