@@ -11,9 +11,11 @@ let fails = 0, passes = 0;
 const ok = (c, m) => { if (c) passes++; else { fails++; console.log("FAIL " + m); } };
 
 const EMP = "U" + "a".repeat(32), ALLOW = "U" + "b".repeat(32), OUT = "U" + "c".repeat(32), GONE = "U" + "d".repeat(32);
+const GONE_ALLOW = "U" + "e".repeat(32), REHIRE = "U" + "f".repeat(32);
 const ROWS = {
-  employees: [{ line_id: EMP, active: true }, { line_id: GONE, active: false }],
-  allowed_line_ids: [{ line_id: ALLOW, active: true }],
+  employees: [{ line_id: EMP, active: true }, { line_id: GONE, active: false }, { line_id: GONE_ALLOW, active: false },
+              { line_id: REHIRE, active: false }, { line_id: REHIRE, active: true }],
+  allowed_line_ids: [{ line_id: ALLOW, active: true }, { line_id: GONE_ALLOW, active: true }],
 };
 let calls, errTable;
 const admin = {
@@ -73,6 +75,9 @@ ok(await gate.isRegisteredLine(admin, ALLOW) === true, "allowed_line_ids active 
 ok(await gate.isRegisteredLine(admin, OUT) === false, "LINE คนนอก = ไม่ลงทะเบียน");
 ok(await gate.isRegisteredLine(admin, GONE) === false, "พนักงานพ้นสภาพ = ไม่ลงทะเบียน");
 calls = [];
+ok(await gate.isRegisteredLine(admin, GONE_ALLOW) === false && !calls.includes("from:allowed_line_ids"), "พนักงานพ้นสภาพที่ค้างใน allowed_line_ids = ปฏิเสธ ไม่ไปเปิดทาง allowlist");
+ok(await gate.isRegisteredLine(admin, REHIRE) === true, "มีแถวพ้นสภาพ + แถว active = ลงทะเบียนแล้ว");
+calls = [];
 ok(await gate.isRegisteredLine(admin, "U1' or '1'='1") === false && calls.length === 0, "line_id รูปแบบผิด → false ไม่ถาม DB");
 ok(gate.notRegisteredLocation("https://production.007metals.com") === "https://app.007metals.com/auth/line/start", "โดเมนองค์กร → hub");
 ok(gate.notRegisteredLocation("https://x.vercel.app") === "https://x.vercel.app/?lineerror=notreg", "preview → ?lineerror=notreg");
@@ -84,8 +89,10 @@ ok(!calls.includes("createUser") && !calls.includes("generateLink"), "LINE ค�
 ok(!r.location.includes("lt="), "LINE คนนอก → ไม่มี token ใน URL");
 ok(/line_oauth_state=;.*Max-Age=0/.test(r.cookie), "ลบ cookie state เสมอ");
 
-r = await login(GONE);
-ok(r.location.startsWith("https://app.007metals.com/") && !calls.includes("createUser") && !calls.includes("generateLink"), "พนักงานพ้นสภาพ → ไม่ได้ session");
+for (const id of [GONE, GONE_ALLOW]) {
+  r = await login(id);
+  ok(r.location.startsWith("https://app.007metals.com/") && !calls.includes("createUser") && !calls.includes("generateLink"), `พนักงานพ้นสภาพ${id === GONE_ALLOW ? " (ค้าง allowlist)" : ""} → ไม่ได้ session`);
+}
 
 r = await login(OUT, "prod-preview.vercel.app");
 ok(r.location === "https://prod-preview.vercel.app/?lineerror=notreg" && !calls.includes("createUser"), "preview: LINE คนนอก → ?lineerror=notreg");

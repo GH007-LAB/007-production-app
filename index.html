@@ -508,7 +508,8 @@ let DB = {
      + enterAsStaff ตัดแถวของตัวเองออกเมื่อธง is_test จากเซิร์ฟเวอร์เป็นจริง · ตัวเองยังเข้าได้ผ่าน prod_enter */
   async getStaff(){ const {data,error} = await sb.from("staff").select(STAFF_COLS).eq("active",true).order("id"); if(error) throw error; return (data||[]).filter(s=>!isTestStaff(s)); },
   async verifyPin(id,pin){ const {data,error} = await sb.rpc("verify_pin",{p_staff:id,p_pin:pin}); return !error && data===true; },
-  async sendOtp(email){ const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin+location.pathname}}); if(error) throw error; },
+  /* shouldCreateUser:false — อีเมลที่ยังไม่มีผู้ใช้ต้องไม่ได้ auth user (authenticated ≠ พนักงาน, 17 ต.ค. 69) */
+  async sendOtp(email){ const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin+location.pathname, shouldCreateUser:false}}); if(error) throw error; },
   async getSessionEmail(){ const {data:{session}} = await sb.auth.getSession(); return session && session.user && session.user.email ? session.user.email.toLowerCase() : null; },
   async signOut(){ try{ await sb.auth.signOut(); }catch(e){} },
   async fetchAll(table, buildQ){
