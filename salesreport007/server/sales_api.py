@@ -176,11 +176,11 @@ def identify(sb, token, env):
     user = sb.get_user(token)
     if not user or not user.get("id"):
         raise ApiError(401, "unauthorized")
-    line_id = (user.get("user_metadata") or {}).get("line_id")
+    line_id = (user.get("app_metadata") or {}).get("line_id")      # C1: ห้ามใช้ user_metadata (ผู้ใช้แก้เองได้)
     email = (user.get("email") or "").lower()
     if email.endswith("@line.007metals.local"):
         email = ""
-    cols = "id,nickname,full_name,branch,position,is_admin,active"
+    cols = "id,nickname,full_name,branch,position,is_admin,active,is_test"
     emp = None
     if line_id:
         rows = sb.select("employees", f"select={cols}&active=eq.true&line_id=eq.{q(line_id)}&limit=1")
@@ -203,7 +203,7 @@ def identify(sb, token, env):
     if not audit and br not in BRANCHES:
         raise ApiError(403, "no-branch")
     return {"id": emp["id"], "name": emp.get("nickname") or emp.get("full_name") or "", "branch": br,
-            "audit": audit}
+            "audit": audit, "is_test": emp.get("is_test") is True}
 
 
 def branch_for(who, asked):
@@ -435,6 +435,8 @@ def _photo(sb, br, day, b64):
 
 
 def act(sb, env, who, body, now=None):
+    if who.get("is_test"):
+        raise ApiError(403, "test-account-read-only")   # บัญชีทดสอบดูได้อย่างเดียว (CTO 16 ต.ค. 69)
     now = now or now_utc()
     op = body.get("op")
     br, today = _open_today(sb, env, who, body, now)

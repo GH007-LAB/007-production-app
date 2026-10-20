@@ -22,11 +22,14 @@ class FakeSB:
     def get_user(self, token):
         return self.users.get(token)
 
-    def add_staff(self, emp_id, token, branch, name, admin=False):
+    def add_staff(self, emp_id, token, branch, name, admin=False, position="พนักงานขาย", is_test=False, app_id=11):
         self.t["employees"].append({"id": emp_id, "nickname": name, "full_name": name, "branch": branch,
-                                    "position": "พนักงานขาย", "is_admin": admin, "active": True, "line_id": "L" + str(emp_id)})
-        self.t["app_access"].append({"employee_id": emp_id, "app_id": 11})
-        self.users[token] = {"id": "u" + str(emp_id), "user_metadata": {"line_id": "L" + str(emp_id)}}
+                                    "position": position, "is_admin": admin, "active": True, "is_test": is_test,
+                                    "line_id": "L" + str(emp_id)})
+        self.t["app_access"].append({"employee_id": emp_id, "app_id": app_id})
+        # C1: line_id อยู่ใน app_metadata (server ตั้ง) · user_metadata ผู้ใช้ปลอมได้ → ใส่ค่าหลอกไว้ให้เทสจับ
+        self.users[token] = {"id": "u" + str(emp_id), "app_metadata": {"line_id": "L" + str(emp_id)},
+                             "user_metadata": {"line_id": "L9"}}
 
     # ---------- query ----------
     @staticmethod

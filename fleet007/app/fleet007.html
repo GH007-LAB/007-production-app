@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleet007 รถบริษัท</title>
+<!-- Fleet007 · production.007metals.com/fleet007 · ล็อกอินกลาง (cookie SSO *.007metals.com)
+     ใช้ได้เฉพาะ แอดมิน / HR / จัดซื้อ (API เช็คตำแหน่ง + สิทธิ์แอป fleet007) · แจ้งเตือนอีเมลทุกเช้า 08:00 -->
+<style>
+  :root{ --ink:#141517; --green:#1E7A4F; --ok:#1a7f37; --okbg:#e6f4ea; --warn:#9a6700; --warnbg:#fff4d6;
+         --bad:#b3261e; --badbg:#fde7e7; --grey:#6d7370; --line:#d9ddd9; --bg:#eef1ef; --card:#fff; --org:#c2410c; --orgbg:#ffedd5; }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  [hidden]{display:none !important;}
+  body{font-family:'Leelawadee UI','Sarabun','Thonburi','Loma',sans-serif; background:var(--bg); color:var(--ink); font-size:15px;}
+  .bar{background:var(--ink); color:#fff; padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; position:sticky; top:0; z-index:5;}
+  .logo{font-weight:800; font-size:18px;} .logo b{color:#39c07f;} .tag{font-size:12px; color:#bbb;}
+  .bar .right{margin-left:auto; font-size:13px; color:#ccc;}
+  main{max-width:1000px; margin:12px auto 40px; padding:0 12px;}
+  .banner{padding:10px 14px; border-radius:8px; margin:10px auto 0; max-width:1000px; font-weight:700;}
+  .banner.bad{background:var(--bad); color:#fff;}
+  .chips{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;}
+  .chip{padding:8px 12px; border-radius:10px; background:var(--card); font-weight:700; cursor:pointer; border:2px solid transparent;}
+  .chip.on{border-color:var(--ink);} .chip b{font-size:20px; margin-right:4px;}
+  .chip.overdue b{color:var(--bad);} .chip.due7 b{color:var(--org);} .chip.due30 b{color:var(--warn);}
+  .tools{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;}
+  .tools input,.tools select{padding:9px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff;}
+  .tools input[type=search]{flex:1; min-width:160px;}
+  .btn{padding:9px 14px; border:0; border-radius:8px; background:var(--green); color:#fff; font:inherit; font-weight:700; cursor:pointer;}
+  .btn.ghost{background:#fff; color:var(--ink); border:1px solid var(--line);} .btn.small{padding:5px 10px; font-size:13px;}
+  .btn.danger{background:#fff; color:var(--bad); border:1px solid #f0c4c0;}
+  .car{background:var(--card); border-radius:12px; padding:12px 14px; margin-bottom:10px; border-left:6px solid var(--line);}
+  .car.overdue{border-left-color:var(--bad);} .car.due7{border-left-color:var(--org);} .car.due30{border-left-color:#d4a72c;} .car.ok{border-left-color:var(--ok);}
+  .car.archived{opacity:.6;}
+  .car .head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;}
+  .plate{font-size:19px; font-weight:800; border:2px solid var(--ink); border-radius:6px; padding:0 8px; background:#fff;}
+  .mut{color:var(--grey); font-size:12.5px;}
+  .car .acts{margin-left:auto; display:flex; gap:6px;}
+  .item{display:grid; grid-template-columns:minmax(120px,1.3fr) 1fr 1.2fr auto; gap:6px 10px; align-items:center; padding:8px 0; border-top:1px solid #eef0ee;}
+  .item:first-of-type{margin-top:8px;}
+  .pill{display:inline-block; padding:3px 9px; border-radius:99px; font-size:12.5px; font-weight:700; white-space:nowrap;}
+  .pill.overdue{background:var(--badbg); color:var(--bad);} .pill.due7{background:var(--orgbg); color:var(--org);}
+  .pill.due30{background:var(--warnbg); color:var(--warn);} .pill.ok{background:var(--okbg); color:var(--ok);}
+  .item .ia{display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;}
+  details.hist{grid-column:1/-1; font-size:12.5px; color:var(--grey);} details.hist li{margin-left:18px;}
+  dialog{border:0; border-radius:14px; padding:16px; width:min(520px, 94vw); box-shadow:0 10px 40px rgba(0,0,0,.25);}
+  dialog::backdrop{background:rgba(0,0,0,.35);}
+  dialog h3{margin-bottom:10px;}
+  .form{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .form label{font-size:12.5px; color:var(--grey); display:flex; flex-direction:column; gap:3px;}
+  .form input,.form select,.form textarea{padding:9px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:16px; background:#fff;}
+  .form .wide{grid-column:1/-1;}
+  .dlg-acts{display:flex; gap:8px; justify-content:flex-end; margin-top:12px;}
+  .err{color:var(--bad); font-size:13px; margin-top:6px;}
+  .panel{background:var(--card); border-radius:12px; padding:12px 14px; margin-top:16px;}
+  .panel table{width:100%; border-collapse:collapse; font-size:13px;} .panel td{padding:5px 4px; border-top:1px solid #eef0ee;}
+  @media (max-width:640px){ .item{grid-template-columns:1fr auto;} .item .ia{grid-column:1/-1; justify-content:flex-start;} .form{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<div class="bar"><div class="logo">Fleet<b>007</b></div><div class="tag">รถบริษัท · พรบ. · ประกัน · ภาษี · ตรวจสภาพ</div><div class="right" id="who"></div></div>
+<div id="banner"></div>
+<main id="main"><p class="mut">กำลังโหลด…</p></main>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm" onsubmit="return false"></form></dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const API = window.__F7_API__ || '/api/fleet';
+const SB_URL = 'https://syvfdbvmwaeyokytckwb.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5dmZkYnZtd2FleW9reXRja3diIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTI3ODEsImV4cCI6MjEwMDc2ODc4MX0.I1RwZX2S1PAsj-d53oba5kxSQu0VShY4CoTMxvNmS8k';
+const SB_COOKIE_DOMAIN = location.hostname.endsWith('007metals.com') ? '.007metals.com' : '';
+const SB_CHUNK = 3180;
+function _b2bin(b){ let s=''; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return s; }
+function _b64urlEnc(str){ const b=new TextEncoder().encode(str); return btoa(_b2bin(b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function _b64urlDec(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const bin=atob(s); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new TextDecoder().decode(u); }
+function _ckRead(name){ const m=document.cookie.match(new RegExp('(?:^|; )'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'=([^;]*)')); return m?m[1]:null; }
+function _ckWrite(name,val){ let c=name+'='+val+'; path=/; max-age=34560000; samesite=lax'; if(location.protocol==='https:') c+='; secure'; if(SB_COOKIE_DOMAIN) c+='; domain='+SB_COOKIE_DOMAIN; document.cookie=c; }
+function _ckDel(name){ let c=name+'=; path=/; max-age=0; samesite=lax'; if(location.protocol==='https:') c+='; secure'; if(SB_COOKIE_DOMAIN) c+='; domain='+SB_COOKIE_DOMAIN; document.cookie=c; }
+const cookieStorage = {
+  getItem(key){ let raw=_ckRead(key); if(raw===null){ let s='',i=0,p; while((p=_ckRead(key+'.'+i))!==null){ s+=p; i++; } raw=s||null; }
+    if(!raw) return null; if(raw.startsWith('base64-')){ try{ return _b64urlDec(raw.slice(7)); }catch(e){ return null; } } return raw; },
+  setItem(key,value){ this.removeItem(key); const enc='base64-'+_b64urlEnc(value);
+    if(enc.length<=SB_CHUNK) _ckWrite(key,enc); else for(let i=0,o=0;o<enc.length;i++,o+=SB_CHUNK) _ckWrite(key+'.'+i, enc.slice(o,o+SB_CHUNK)); },
+  removeItem(key){ _ckDel(key); for(let i=0;i<24;i++){ if(_ckRead(key+'.'+i)!==null) _ckDel(key+'.'+i); else break; } }
+};
+let SB = null;
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+async function token(){
+  if(window.__F7_TOKEN__) return window.__F7_TOKEN__;
+  if(!SB){ await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js');
+    SB = window.supabase.createClient(SB_URL, SB_ANON, {auth:{storage:cookieStorage, storageKey:'sb-syvfdbvmwaeyokytckwb-auth-token',
+      persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}}); }
+  const {data:{session}} = await SB.auth.getSession();
+  return session && session.access_token;
+}
+const ERR = {'unauthorized':'ยังไม่ได้เข้าสู่ระบบ — เข้าผ่าน app.007metals.com ก่อน',
+  'no-app-access':'บัญชีนี้ยังไม่ได้รับสิทธิ์ Fleet007 — ให้แอดมินติ๊กให้ที่ app.007metals.com/admin/access',
+  'role-not-allowed':'Fleet007 เปิดให้เฉพาะ แอดมิน / HR / จัดซื้อ', 'not-linked':'บัญชีนี้ยังไม่ผูกกับทะเบียนพนักงาน — แจ้งแอดมิน',
+  'test-account-read-only':'บัญชีทดสอบ ดูได้อย่างเดียว', 'plate-required':'กรอกทะเบียนรถ', 'kind-and-due-required':'เลือกรายการและวันครบกำหนด',
+  'new-due-must-be-later':'วันหมดอายุใหม่ต้องหลังวันเดิม', 'duplicate':'ทะเบียนนี้มีอยู่แล้ว', 'bad-date':'วันที่ไม่ถูกต้อง',
+  'mail-not-configured':'ยังไม่ได้ตั้งค่าส่งอีเมล (RESEND_API_KEY หรือ SMTP_*) บน Vercel — แจ้ง CTO'};
+async function api(action, body){
+  const t = await token();
+  if(!t){ location.replace('https://app.007metals.com/'); throw new Error('unauthorized'); }
+  const res = await fetch(API+'/'+action, {method: body ? 'POST' : 'GET', headers:{'Content-Type':'application/json','Authorization':'Bearer '+t},
+    body: body ? JSON.stringify(body) : undefined});
+  let j = null; try{ j = await res.json(); }catch(e){}
+  if(!res.ok) throw new Error((j && j.error) || ('http-'+res.status));
+  return j;
+}
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = n => n==null ? '' : Number(n).toLocaleString('th-TH',{minimumFractionDigits:2, maximumFractionDigits:2});
+const TH_M = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const thDate = s => { if(!s) return ''; const [y,m,d]=String(s).slice(0,10).split('-'); return `${+d} ${TH_M[m-1]} ${+y+543}`; };
+const whenTxt = d => d<0 ? `เกินกำหนด ${-d} วัน` : d===0 ? 'ครบกำหนดวันนี้' : `อีก ${d} วัน`;
+const STATUS_TH = {overdue:'เกินกำหนด', due7:'ภายใน 7 วัน', due30:'ภายใน 30 วัน', ok:'ปกติ'};
+
+let D = null, FILTER = {status:'', branch:'', q:'', archived:false}, MAILMSG = '';
+function banner(m){ $('banner').innerHTML = m ? `<div class="banner bad">${m}</div>` : ''; }
+async function load(){
+  try{ D = await api('list'); banner(''); render(); }
+  catch(e){ banner('⛔ '+(ERR[e.message]||('ต่อระบบไม่ได้ ('+esc(e.message)+')'))); $('main').innerHTML=''; }
+}
+function setF(k, v){ FILTER[k] = v; render(); }
+
+function render(){
+  const ro = D.viewer.read_only;
+  $('who').textContent = `${D.viewer.name}${D.viewer.position?' · '+D.viewer.position:''}${ro?' · ดูอย่างเดียว':''}`;
+  const active = D.vehicles.filter(v=>v.active);
+  const items = active.flatMap(v=>v.items);
+  const cnt = s => items.filter(i=>i.status===s).length;
+  let h = `<div class="chips">
+    ${['overdue','due7','due30'].map(s=>`<div class="chip ${s} ${FILTER.status===s?'on':''}" onclick="setF('status', FILTER.status==='${s}'?'':'${s}')"><b>${cnt(s)}</b>${STATUS_TH[s]}</div>`).join('')}
+    <div class="chip ${!FILTER.status?'on':''}" onclick="setF('status','')"><b>${active.length}</b>คันทั้งหมด</div></div>
+  <div class="tools"><input type="search" placeholder="ค้นหาทะเบียน / รุ่น / คนขับ" value="${esc(FILTER.q)}" oninput="FILTER.q=this.value; renderList()">
+    <select onchange="setF('branch', this.value)"><option value="">ทุกสาขา</option>${D.branches.map(b=>`<option ${FILTER.branch===b?'selected':''}>${esc(b)}</option>`).join('')}</select>
+    <label class="mut" style="display:flex;align-items:center;gap:4px"><input type="checkbox" ${FILTER.archived?'checked':''} onchange="setF('archived', this.checked)"> แสดงรถที่เลิกใช้</label>
+    ${ro?'':'<button class="btn" onclick="vehicleForm()">+ เพิ่มรถ</button>'}</div><div id="list"></div>`;
+  h += `<div class="panel"><b>📧 แจ้งเตือนอีเมล</b> → ${D.alert_to.map(esc).join(', ')} · ทุกวัน 08:00 น.
+    <div class="mut">เตือนล่วงหน้าตามที่ตั้งในแต่ละรายการ (ค่าเริ่ม ${D.default_remind.join(' / ')} วัน และวันครบกำหนด) · เกินกำหนดแล้วเตือนทุก 7 วันจนกว่าจะกด "ต่ออายุแล้ว"</div>
+    ${ro?'':`<div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost small" onclick="mailAct('test_email')">ส่งอีเมลทดสอบ</button>
+      <button class="btn ghost small" onclick="mailAct('run_alerts')">ส่งแจ้งเตือนรอบนี้เลย</button><span id="mailMsg" class="mut">${esc(MAILMSG)}</span></div>`}
+    ${D.alert_log.length?`<details><summary class="mut">ประวัติการส่ง (${D.alert_log.length} ล่าสุด)</summary><table>${D.alert_log.map(l=>`<tr>
+      <td>${new Date(l.ts).toLocaleString('th-TH')}</td><td>${l.stage==='test'?'ทดสอบ':esc(l.stage)}</td><td>${esc(l.sent_to||'')}</td>
+      <td>${l.ok?'✅':'⛔ '+esc(l.error||'')}</td></tr>`).join('')}</table></details>`:''}</div>`;
+  $('main').innerHTML = h;
+  renderList();
+}
+function renderList(){
+  const ro = D.viewer.read_only, q = FILTER.q.trim().toLowerCase();
+  const vs = D.vehicles.filter(v => (FILTER.archived || v.active) && (!FILTER.branch || v.branch===FILTER.branch)
+    && (!FILTER.status || v.items.some(i=>i.status===FILTER.status))
+    && (!q || [v.plate,v.province,v.brand,v.model,v.driver,v.vtype].join(' ').toLowerCase().includes(q)))
+    .sort((a,b)=>(a.worst_days??99999)-(b.worst_days??99999));
+  $('list').innerHTML = vs.length ? vs.map(v=>`<div class="car ${v.active?v.status:'archived'}" id="car-${v.id}">
+    <div class="head"><span class="plate">${esc(v.plate)}</span><span class="mut">${esc(v.province||'')}</span>
+      <b>${esc([v.brand,v.model].filter(Boolean).join(' '))}</b><span class="mut">${esc([v.vtype, v.year].filter(Boolean).join(' · '))}</span>
+      <span class="pill ok" style="background:#eef">${esc(v.branch||'ไม่ระบุสาขา')}</span>${v.active?'':'<span class="pill overdue">เลิกใช้</span>'}
+      ${ro?'':`<span class="acts"><button class="btn ghost small" onclick="vehicleForm(${v.id})">แก้ไขรถ</button>
+        ${v.active?`<button class="btn small" onclick="itemForm(${v.id})">+ รายการ</button>`:`<button class="btn ghost small" onclick="archive(${v.id}, true)">ใช้งานอีกครั้ง</button>`}</span>`}</div>
+    <div class="mut">${v.driver?'ผู้รับผิดชอบ: '+esc(v.driver):''}${v.chassis_no?' · เลขตัวถัง '+esc(v.chassis_no):''}${v.note?' · '+esc(v.note):''}</div>
+    ${v.items.length ? v.items.map(i=>`<div class="item" id="item-${i.id}">
+        <div><b>${esc(i.kind)}</b><div class="mut">${esc([i.provider, i.policy_no, i.amount!=null ? fmt(i.amount)+' บาท' : ''].filter(Boolean).join(' · '))}</div></div>
+        <div>ครบ <b>${thDate(i.due_date)}</b></div>
+        <div><span class="pill ${i.status}">${whenTxt(i.days)}</span></div>
+        <div class="ia">${ro||!v.active?'':`<button class="btn small" onclick="renewForm(${i.id})">ต่ออายุแล้ว</button>
+          <button class="btn ghost small" onclick="itemForm(${v.id}, ${i.id})">แก้ไข</button>`}</div>
+        ${i.history.length?`<details class="hist"><summary>ประวัติต่ออายุ ${i.history.length} ครั้ง</summary><ul>${i.history.map(r=>
+          `<li>${thDate(r.old_due)} → ${thDate(r.new_due)}${r.amount!=null?' · '+fmt(r.amount)+' บาท':''}${r.provider?' · '+esc(r.provider):''} · ${esc(r.renewed_by||'')} ${new Date(r.renewed_at).toLocaleDateString('th-TH')}</li>`).join('')}</ul></details>`:''}
+      </div>`).join('') : `<div class="mut" style="margin-top:6px">ยังไม่มีรายการแจ้งเตือน${ro||!v.active?'':' — กด "+ รายการ" เพื่อเพิ่ม พรบ. / ประกัน / ภาษี'}</div>`}
+  </div>`).join('') : '<p class="mut">ไม่พบรถ</p>';
+}
+
+/* ---------------- ฟอร์ม ---------------- */
+const findV = id => D.vehicles.find(v=>v.id===id);
+const findI = id => D.vehicles.flatMap(v=>v.items).find(i=>i.id===id);
+function field(id, label, val, attrs=''){ return `<label ${attrs.includes('wide')?'class="wide"':''}>${label}<input id="${id}" value="${esc(val??'')}" ${attrs.replace('wide','')}></label>`; }
+function openDlg(title, inner, onSave){
+  $('dlgForm').innerHTML = `<h3>${title}</h3><div class="form">${inner}</div><div class="err" id="dlgErr"></div>
+    <div class="dlg-acts"><button class="btn ghost" type="button" onclick="$('dlg').close()">ยกเลิก</button><button class="btn" type="button" id="dlgSave">บันทึก</button></div>`;
+  $('dlgSave').onclick = async ()=>{ $('dlgSave').disabled = true;
+    try{ await onSave(); $('dlg').close(); await load(); }
+    catch(e){ $('dlgErr').textContent = '⛔ '+(ERR[e.message]||e.message); $('dlgSave').disabled = false; } };
+  $('dlg').showModal();
+}
+const val = id => $(id).value.trim();
+function vehicleForm(id){
+  const v = id ? findV(id) : {branch: D.branches[0]};
+  openDlg(id ? 'แก้ไขข้อมูลรถ' : 'เพิ่มรถ',
+    field('f_plate','ทะเบียนรถ *',v.plate,'placeholder="เช่น 1กข 1234"') + field('f_prov','จังหวัด',v.province,'placeholder="สกลนคร"') +
+    field('f_brand','ยี่ห้อ',v.brand,'placeholder="Isuzu"') + field('f_model','รุ่น',v.model,'placeholder="D-Max Spark 1.9"') +
+    field('f_type','ประเภทรถ',v.vtype,'list="vtypes" placeholder="กระบะ"') + field('f_year','ปี (ค.ศ.)',v.year,'type="number" inputmode="numeric"') +
+    `<label>สาขาที่ใช้รถ<select id="f_branch">${D.branches.map(b=>`<option ${v.branch===b?'selected':''}>${esc(b)}</option>`).join('')}</select></label>` +
+    field('f_driver','ผู้รับผิดชอบ/คนขับประจำ',v.driver) + field('f_chassis','เลขตัวถัง',v.chassis_no,'wide') + field('f_note','หมายเหตุ',v.note,'wide') +
+    `<datalist id="vtypes"><option>กระบะ<option>กระบะตอนเดียว<option>กระบะ 4 ประตู<option>รถเก๋ง<option>รถตู้<option>รถบรรทุก 6 ล้อ<option>รถบรรทุก 10 ล้อ<option>รถยก (โฟล์คลิฟท์)<option>รถจักรยานยนต์</datalist>` +
+    (id && v.active ? `<div class="wide"><button class="btn danger small" type="button" onclick="archive(${id}, false)">เลิกใช้รถคันนี้ (ขาย/จำหน่าย) — หยุดแจ้งเตือน</button></div>` : ''),
+    () => api('save', {op:'vehicle_save', id, plate:val('f_plate'), province:val('f_prov'), brand:val('f_brand'), model:val('f_model'),
+      vtype:val('f_type'), year:val('f_year'), branch:$('f_branch').value, driver:val('f_driver'), chassis_no:val('f_chassis'), note:val('f_note')}));
+}
+async function archive(id, active){
+  if(!active && !confirm('เลิกใช้รถคันนี้? (ข้อมูลยังเก็บไว้ แต่จะไม่แจ้งเตือนแล้ว)')) return;
+  try{ await api('save', {op:'vehicle_archive', id, active}); $('dlg').open && $('dlg').close(); await load(); }
+  catch(e){ banner('⛔ '+(ERR[e.message]||e.message)); }
+}
+function itemForm(vid, iid){
+  const v = findV(vid), it = iid ? findI(iid) : {kind:D.kinds[0], remind_days:D.default_remind};
+  const known = D.kinds.includes(it.kind);
+  openDlg(`${iid?'แก้ไขรายการ':'เพิ่มรายการแจ้งเตือน'} · ${esc(v.plate)}`,
+    `<label>รายการ<select id="i_kind" onchange="$('i_other_w').hidden = this.value!=='อื่น ๆ'">${D.kinds.map(k=>`<option ${(known?it.kind===k:k==='อื่น ๆ')?'selected':''}>${esc(k)}</option>`).join('')}</select></label>` +
+    `<label id="i_other_w" ${known?'hidden':''}>ระบุชื่อรายการ<input id="i_other" value="${known?'':esc(it.kind)}" placeholder="เช่น ใบอนุญาตขนส่ง"></label>` +
+    field('i_due','วันหมดอายุ/ครบกำหนด *',it.due_date,'type="date"') +
+    field('i_remind','เตือนล่วงหน้า (วัน คั่นด้วย ,)',(it.remind_days||[]).join(', ')) +
+    field('i_prov','บริษัทประกัน/ผู้ให้บริการ',it.provider) + field('i_pol','เลขกรมธรรม์/เลขเอกสาร',it.policy_no) +
+    field('i_amt','เบี้ย/ค่าใช้จ่าย (บาท)',it.amount,'type="number" inputmode="decimal" step="0.01"') + field('i_note','หมายเหตุ',it.note) +
+    (iid ? `<div class="wide"><button class="btn danger small" type="button" onclick="delItem(${iid})">ลบรายการนี้</button></div>` : ''),
+    () => { const kind = $('i_kind').value==='อื่น ๆ' ? val('i_other') : $('i_kind').value;
+      if(!kind) throw new Error('kind-and-due-required');
+      return api('save', {op:'item_save', id:iid, vehicle_id:vid, kind, due_date:$('i_due').value,
+        remind_days: val('i_remind').split(/[,\s]+/).filter(Boolean).map(Number), provider:val('i_prov'), policy_no:val('i_pol'),
+        amount:val('i_amt'), note:val('i_note')}); });
+}
+async function delItem(id){
+  if(!confirm('ลบรายการนี้? (จะไม่แจ้งเตือนอีก)')) return;
+  try{ await api('save', {op:'item_del', id}); $('dlg').close(); await load(); }catch(e){ $('dlgErr').textContent='⛔ '+(ERR[e.message]||e.message); }
+}
+function renewForm(iid){
+  const it = findI(iid), d = new Date(it.due_date); d.setFullYear(d.getFullYear()+1);
+  openDlg(`ต่ออายุ ${esc(it.kind)}`,
+    `<div class="wide mut">ครบกำหนดเดิม ${thDate(it.due_date)} (${whenTxt(it.days)}) — บันทึกแล้วระบบหยุดเตือนรอบเดิม และเริ่มนับรอบใหม่</div>` +
+    field('r_due','วันหมดอายุใหม่ *',d.toISOString().slice(0,10),'type="date"') +
+    field('r_amt','เบี้ย/ค่าใช้จ่ายรอบนี้ (บาท)',it.amount,'type="number" inputmode="decimal" step="0.01"') +
+    field('r_prov','บริษัทประกัน/ผู้ให้บริการ',it.provider) + field('r_pol','เลขกรมธรรม์/เลขเอกสารใหม่',it.policy_no) + field('r_note','หมายเหตุ','','wide'),
+    () => api('save', {op:'renew', id:iid, new_due:$('r_due').value, amount:val('r_amt'), provider:val('r_prov'), policy_no:val('r_pol'), note:val('r_note')}));
+}
+async function mailAct(op){
+  $('mailMsg').textContent = 'กำลังส่ง…';
+  try{ const r = await api('save', {op}); MAILMSG = op==='test_email' ? `✅ ส่งทดสอบไป ${r.to.join(', ')} แล้ว`
+      : r.sent ? `✅ ส่ง ${r.sent} รายการไป ${r.to.join(', ')} แล้ว` : 'วันนี้ไม่มีรายการที่ต้องเตือนเพิ่ม (ส่งรอบนี้ไปแล้ว)'; }
+  catch(e){ MAILMSG = '⛔ '+(ERR[e.message]||e.message); }
+  await load();                                   // ข้อความเก็บใน MAILMSG ไม่หายตอนวาดหน้าใหม่
+}
+load();
+</script>
+</body>
+</html>

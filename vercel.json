@@ -7,6 +7,10 @@
     "api/sales/*.py": {
       "includeFiles": "salesreport007/{engine,server}/**",
       "maxDuration": 30
+    },
+    "api/fleet/*.py": {
+      "includeFiles": "fleet007/server/**",
+      "maxDuration": 30
     }
   },
   "redirects": [
@@ -52,12 +56,20 @@
     {
       "source": "/sales007",
       "destination": "/salesreport007/app/sales007.html"
+    },
+    {
+      "source": "/fleet007",
+      "destination": "/fleet007/app/fleet007.html"
     }
   ],
   "crons": [
     {
       "path": "/api/sales/cron",
       "schedule": "56 9 * * *"
+    },
+    {
+      "path": "/api/fleet/cron",
+      "schedule": "0 1 * * *"
     }
   ]
 }

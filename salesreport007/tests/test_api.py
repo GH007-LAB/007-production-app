@@ -178,6 +178,17 @@ class Day(unittest.TestCase):
         self.assertEqual([d["doc_no"] for d in self.day(bkk(D1, "16:37"))["docs"]], ["RE1"])
         self.assertEqual(self.act(bkk(D1, "16:38"), {"op": "submit", "cash_counted": 600})["diff"], 0.0)
 
+    def test_identity_from_app_metadata_only_and_test_account_read_only(self):
+        self.sb.users["tok-forged"] = {"id": "ux", "user_metadata": {"line_id": "L1"}}   # ปลอม line_id เอง
+        st, out = self.call("day", bkk(D1, "09:00"), token="tok-forged")
+        self.assertEqual((st, out["error"]), (404, "not-linked"))
+        self.sb.add_staff(5, "tok-test", "SKN", "ทดสอบ", is_test=True)
+        self.push(bkk(D1, "09:00"), "SKN", [{"doc_no": "RE1", "type": "RE", "doc_date": D1.isoformat(), "total": 1}])
+        self.assertEqual(len(self.day(bkk(D1, "09:01"), token="tok-test")["docs"]), 1)
+        st, out = self.call("act", bkk(D1, "09:02"), "POST", {"op": "channel", "doc_no": "RE1", "channel": "cash"},
+                            token="tok-test")
+        self.assertEqual((st, out["error"]), (403, "test-account-read-only"))
+
     def test_push_needs_token_and_valid_rows(self):
         st, _ = self.call("push", bkk(D1, "09:00"), "POST", {"branch": "SKN", "docs": []})
         self.assertEqual(st, 401)

@@ -8,3 +8,6 @@ salesreport007/feeder
 salesreport007/macmini
 salesreport007/tests
 salesreport007/*.md
+# Fleet007: เสิร์ฟเฉพาะ app/ server/ — tests · เอกสาร ไม่ขึ้นเว็บ
+fleet007/tests
+fleet007/*.md

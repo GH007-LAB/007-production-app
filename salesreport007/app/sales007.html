@@ -103,7 +103,7 @@ const ERR = {'unauthorized':'ยังไม่ได้เข้าสู่ร
   'not-linked':'บัญชีนี้ยังไม่ผูกกับทะเบียนพนักงาน — แจ้งแอดมิน', 'no-branch':'ทะเบียนพนักงานยังไม่ระบุสาขา — แจ้งแอดมิน',
   'locked':'รายงานวันนี้ล็อกแล้ว แก้ไม่ได้', 'not-today':'แก้ได้เฉพาะรายงานวันนี้', 'before-cutoff':'ยังไม่ถึงเวลาตัดรอบ',
   'doc-not-open':'เอกสารนี้อยู่ในรายงานที่ล็อกแล้ว หรือถูกยกเลิกใน Express', 'bad-photo':'รูปบิลใช้ไม่ได้ ลองถ่ายใหม่',
-  'bad-expense':'กรอก หมวด + รายการ + จำนวนเงิน ให้ครบ', 'cash-counted-required':'กรอกเงินสดที่นับได้ก่อน', 'other-branch':'ดูได้เฉพาะสาขาตัวเอง'};
+  'bad-expense':'กรอก หมวด + รายการ + จำนวนเงิน ให้ครบ', 'test-account-read-only':'บัญชีทดสอบ ดูได้อย่างเดียว', 'cash-counted-required':'กรอกเงินสดที่นับได้ก่อน', 'other-branch':'ดูได้เฉพาะสาขาตัวเอง'};
 async function api(action, body, query){
   const t = await token();
   if(!t){ location.replace('https://app.007metals.com/'); throw new Error('unauthorized'); }
