@@ -6,7 +6,14 @@
 --   map ตำแหน่ง → role ผลิต → สร้าง/ผูกแถว staff ให้อัตโนมัติ (FK created_by/staff_id
 --   ชี้เข้า staff(id) จึงต้องมีแถวจริงเสมอ)
 -- รันบน Supabase syvfdbvmwaeyokytckwb แล้ว 2026-08-25
+-- ⚠️ 5 ต.ค. 69 (C1): เวอร์ชันด้านล่างเลิกเชื่อพารามิเตอร์ — deploy ผ่าน
+--   ~/SP-TT-dashboard/db/c1_line_id_app_metadata.sql ขั้นที่ 6 (หลัง backfill + รอ JWT) ห้ามรันไฟล์นี้ก่อน
 
+
+-- prod_enter: ตัวตนมาจาก JWT เท่านั้น (C1 5 ต.ค. 69)
+--   line_id = auth.jwt() -> 'app_metadata' ->> 'line_id' (server ตั้ง) · email = auth.jwt() ->> 'email'
+--   (ไม่นับอีเมลสังเคราะห์ @line.007metals.local) · พารามิเตอร์ p_line_id/p_email คงไว้ให้ client เก่า
+--   เรียกได้ไม่พัง แต่ "ไม่ใช้" แล้ว — เดิมเชื่อพารามิเตอร์ = ส่ง line_id/อีเมลคนอื่นมาสวมตัวได้
 create or replace function public.prod_enter(p_line_id text default null, p_email text default null)
 returns table(id bigint, branch text, name text, role text,
               can_approve boolean, email text, active boolean, line_id text)
@@ -18,22 +25,29 @@ declare
   emp record;
   st_id bigint;
   v_role text;
+  v_line text := nullif(auth.jwt() -> 'app_metadata' ->> 'line_id', '');
+  v_email text := nullif(lower(coalesce(auth.jwt() ->> 'email', '')), '');
 begin
+  -- p_line_id / p_email ถูกเพิกเฉยโดยตั้งใจ (ห้ามเชื่อค่าจาก client)
+  if v_email like '%@line.007metals.local' then v_email := null; end if;
+  if v_line is null and v_email is null then return; end if;
+
   -- 1) staff เดิมที่ผูกแล้ว
-  if p_line_id is not null then
-    select s.id into st_id from staff s where s.line_id = p_line_id and s.active limit 1;
+  if v_line is not null then
+    select s.id into st_id from staff s where s.line_id = v_line and s.active limit 1;
   end if;
-  if st_id is null and p_email is not null then
+  if st_id is null and v_email is not null then
     select s.id into st_id from staff s
-     where lower(s.email) = lower(p_email) and s.active limit 1;
+     where lower(s.email) = v_email and s.active limit 1;
   end if;
 
   -- 2) ไม่เจอ → พนักงานกลาง
   if st_id is null then
     select e.* into emp from employees e
      where e.active
-       and ((p_line_id is not null and e.line_id = p_line_id)
-         or (p_email  is not null and lower(e.email) = lower(p_email)))
+       and ((v_line  is not null and e.line_id = v_line)
+         or (v_email is not null and lower(e.email) = v_email))
+     order by e.id
      limit 1;
     if not found then return; end if;
 
@@ -56,13 +70,13 @@ begin
     select s.id into st_id from staff s
      where emp.email is not null and lower(s.email) = lower(emp.email) and s.active limit 1;
     if st_id is not null then
-      update staff s set line_id = coalesce(s.line_id, emp.line_id, p_line_id)
+      update staff s set line_id = coalesce(s.line_id, emp.line_id, v_line)
        where s.id = st_id;
     else
       insert into staff(branch, name, role, line_id, email, active, can_approve)
       values (emp.branch, emp.nickname, v_role,
-              coalesce(emp.line_id, p_line_id),
-              coalesce(emp.email, p_email),
+              coalesce(emp.line_id, v_line),
+              coalesce(emp.email, v_email),
               true, v_role in ('admin','planner'))
       returning staff.id into st_id;
     end if;
@@ -74,6 +88,5 @@ begin
 end
 $func$;
 
-revoke all on function public.prod_enter(text, text) from public;
--- เฉพาะคนที่มี session แล้วเท่านั้น (ต่างจาก staff_by_line_id เดิมที่ให้ anon ด้วย)
+revoke all on function public.prod_enter(text, text) from public, anon;
 grant execute on function public.prod_enter(text, text) to authenticated;

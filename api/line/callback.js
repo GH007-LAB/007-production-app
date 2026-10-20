@@ -1,9 +1,11 @@
 // GET /api/line/callback
 // ตรวจ state (CSRF) → แลก code เป็น token → ดึงโปรไฟล์ LINE
-// → สร้าง/หา user ใน Supabase (ผูก line_id ใน user_metadata)
+// → สร้าง/หา user ใน Supabase (ผูก line_id ใน app_metadata — แก้ได้เฉพาะ service role;
+//   user_metadata ผู้ใช้แก้เองได้ ห้ามใช้ตัดสินตัวตน · C1 5 ต.ค. 69)
 // → ออก magic-link hashed_token แล้ว redirect กลับหน้าแอปเป็น #lt=<token>
 //   ให้ฝั่ง client (static app) เอาไป sb.auth.verifyOtp เองเพื่อเปิด session
 const { createClient } = require("@supabase/supabase-js");
+const { isRegisteredLine, notRegisteredLocation } = require("./_lineGate");
 
 // อ่านค่า cookie ตัวเดียวจาก header (เลี่ยง dependency เพิ่ม)
 function readCookie(cookieHeader, name) {
@@ -88,10 +90,23 @@ module.exports = async function handler(req, res) {
     });
     const email = `line_${lineId}@line.007metals.local`;
 
+    // 3.1) ด่านทะเบียน (17 ต.ค. 69): LINE ที่ยังไม่ผูกทะเบียน → ไม่สร้าง user / ไม่ออก session
+    //      ส่งไปล็อกอินที่ hub ซึ่งมีฟอร์มขอสิทธิ์ (flow ขอสิทธิ์เดิม)
+    if (!(await isRegisteredLine(admin, lineId))) {
+      res.setHeader("Set-Cookie", [
+        `line_oauth_state=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/`,
+      ]);
+      res.statusCode = 302;
+      res.setHeader("Location", notRegisteredLocation(origin));
+      res.end();
+      return;
+    }
+
     // สร้าง user ครั้งแรก (ครั้งถัดไปจะได้ error ว่ามีอยู่แล้ว → ข้ามได้)
     await admin.auth.admin.createUser({
       email,
       email_confirm: true,
+      app_metadata: { line_id: lineId },
       user_metadata: {
         line_id: lineId,
         display_name: profile.displayName,
@@ -106,6 +121,18 @@ module.exports = async function handler(req, res) {
     });
     if (linkErr || !link || !link.properties || !link.properties.hashed_token) {
       throw new Error("generate-link-failed");
+    }
+
+    // 4.1) C1: ตั้ง app_metadata.line_id ทุกครั้ง (ผู้ใช้เก่าที่ยังไม่ backfill) — ก่อนออก session
+    const linkUser = link.user;
+    if (!linkUser || !linkUser.id || String(linkUser.email || "").toLowerCase() !== email.toLowerCase()) {
+      throw new Error("generate-link-user-mismatch");
+    }
+    if (!linkUser.app_metadata || linkUser.app_metadata.line_id !== lineId) {
+      const { error: metaErr } = await admin.auth.admin.updateUserById(linkUser.id, {
+        app_metadata: { line_id: lineId },
+      });
+      if (metaErr) throw new Error("set-app-metadata-failed");
     }
 
     // 5) ส่ง token กลับใน URL fragment (ไม่ถูกส่งไป server, client อ่านเองแล้ว verifyOtp)

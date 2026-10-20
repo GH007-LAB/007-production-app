@@ -19,6 +19,9 @@
 const { createClient } = require("@supabase/supabase-js");
 
 const APP_CODE = "production";
+// บัญชีทดสอบ (employees.is_test) — ไม่สร้าง/ไม่ผูก staff ด้วย service role (CTO 16 ต.ค. 69)
+// ต้องมีแถว staff ที่ seed ไว้ (db/test_account_guard_2026-10-16.sql ข้อ 6.5) ถึงจะเข้าได้
+const TEST_ACCOUNT_MSG = "บัญชีทดสอบ — ไม่บันทึกข้อมูลจริง";
 
 // ตำแหน่งในทะเบียนกลาง → role ของแอพผลิต
 function roleFromEmployee(emp) {
@@ -51,6 +54,22 @@ async function readJsonBody(req) {
 
 const STAFF_COLS = "id,branch,name,role,can_approve,email,active,line_id";
 
+// true ถ้า line_id/อีเมลที่พิสูจน์แล้วตรงกับแถว employees.is_test (ตรรกะเดียวกับ public.current_is_test())
+// ไม่กรอง active โดยตั้งใจ · error → throw (handler ตอบ 500 = ไม่ให้เข้าโดยไม่รู้สถานะ)
+async function isTestIdentity(admin, lineId, realEmail) {
+  if (lineId) {
+    const { data, error } = await admin.from("employees").select("id").eq("is_test", true).eq("line_id", lineId).limit(1);
+    if (error) throw error;
+    if (data && data.length) return true;
+  }
+  if (realEmail) {
+    const { data, error } = await admin.from("employees").select("id").eq("is_test", true).ilike("email", realEmail).limit(1);
+    if (error) throw error;
+    if (data && data.length) return true;
+  }
+  return false;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "method-not-allowed" });
@@ -82,7 +101,8 @@ module.exports = async function handler(req, res) {
       res.status(401).json({ error: "unauthorized" });
       return;
     }
-    const lineId = (user.user_metadata && user.user_metadata.line_id) || null;
+    // C1: line_id ต้องมาจาก app_metadata (server ตั้ง) เท่านั้น — user_metadata ผู้ใช้แก้เองได้
+    const lineId = (user.app_metadata && user.app_metadata.line_id) || null;
     // อีเมล session ของ LINE เป็นอีเมลสังเคราะห์ (line_<id>@line.007metals.local) — ใช้เทียบไม่ได้
     const realEmail =
       user.email && !/@line\.007metals\.local$/i.test(user.email)
@@ -93,22 +113,30 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // 0) บัญชีทดสอบ? — เช็คก่อนทุกทาง (รวมทางลัด staff เดิม) เพื่อส่ง is_test ให้หน้าเว็บกันเขียนทุกคำสั่ง
+    //    (fail-closed: ไม่เช็ค active เหมือน current_is_test()) (CTO 16 ต.ค. 69)
+    // รีวิว: ถ้าเช็คล้มชั่วคราว ห้ามทำให้คนจริงเข้าไม่ได้ (500) → ถือว่าไม่ใช่บัญชีทดสอบ
+    //   ยังปลอดภัย: หน้าเว็บเช็ค rpc current_is_test ซ้ำ + DB trigger _test_guard กันเขียนอีกชั้น
+    let isTest = false;
+    try { isTest = await isTestIdentity(admin, lineId, realEmail); }
+    catch (e) { console.error("isTestIdentity failed", e && e.message); }
+
     // 1) staff เดิมที่ผูกไว้แล้ว
     if (lineId) {
       const { data: rows, error } = await admin
         .from("staff").select(STAFF_COLS).eq("active", true).eq("line_id", lineId).limit(1);
       if (error) throw error;
-      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-line" }); return; }
+      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-line", is_test: isTest }); return; }
     }
     if (realEmail) {
       const { data: rows, error } = await admin
         .from("staff").select(STAFF_COLS).eq("active", true).ilike("email", realEmail).limit(1);
       if (error) throw error;
-      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-email" }); return; }
+      if (rows && rows.length) { res.status(200).json({ staff: rows[0], via: "staff-email", is_test: isTest }); return; }
     }
 
     // 2) ทะเบียนพนักงานกลาง — line_id ก่อน (อัตโนมัติ) แล้วค่อยอีเมลที่กรอก/อีเมล session
-    const empCols = "id,nickname,full_name,branch,position,is_admin,email,line_id,active";
+    const empCols = "id,nickname,full_name,branch,position,is_admin,email,line_id,active,is_test";
     let emp = null;
     if (lineId) {
       const { data, error } = await admin
@@ -153,6 +181,12 @@ module.exports = async function handler(req, res) {
       if (error) throw error;
       if (data && data.length) staffRow = data[0];
     }
+    // บัญชีทดสอบ: ใช้แถว staff ที่ seed ไว้ตามเดิม (ไม่ผูก line_id) · ไม่มีแถว = ไม่สร้างให้
+    if (isTest || emp.is_test) {
+      if (staffRow) { res.status(200).json({ staff: staffRow, via: "employees-test", is_test: true }); return; }
+      res.status(403).json({ error: "test-account", message: TEST_ACCOUNT_MSG });
+      return;
+    }
     if (staffRow) {
       if (!staffRow.line_id && lineId) {
         const { data, error } = await admin
@@ -181,7 +215,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (!staffRow) { res.status(500).json({ error: "server-error" }); return; }
-    res.status(200).json({ staff: staffRow, via: "employees" });
+    res.status(200).json({ staff: staffRow, via: "employees", is_test: false });
   } catch (e) {
     console.error("LINE enter error:", e && e.message ? e.message : e);
     res.status(500).json({ error: "server-error" });

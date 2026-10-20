@@ -105,11 +105,35 @@ class FakeSB:
 
 
 def add_person(sb, token, emp_id, position, branch, admin=False, access=True):
-    sb.users[token] = {"id": "u" + emp_id, "email": f"{emp_id}@007metals.com", "user_metadata": {}}
+    sb.users[token] = {"id": "u" + emp_id, "email": f"{emp_id}@007metals.com", "app_metadata": {}}
     sb.t["employees"].append({"id": emp_id, "nickname": "คุณ" + emp_id, "branch": branch, "position": position,
                               "is_admin": admin, "active": True, "email": f"{emp_id}@007metals.com"})
     if access:
         sb.t["app_access"].append({"employee_id": emp_id, "app_id": 7})
+
+
+class IdentityC1(unittest.TestCase):
+    """C1 (5 ต.ค. 69): line_id ต้องมาจาก app_metadata เท่านั้น — user_metadata ผู้ใช้แก้เองได้"""
+
+    def setUp(self):
+        self.sb = FakeSB()
+        self.sb.t["employees"].append({"id": "e9", "nickname": "CTO", "branch": "BK", "position": "CTO",
+                                       "is_admin": True, "active": True, "email": "cto@007metals.com",
+                                       "line_id": "Uvictim"})
+        self.sb.t["app_access"].append({"employee_id": "e9", "app_id": 7})
+
+    def test_forged_user_metadata_line_id_is_ignored(self):
+        self.sb.users["tok"] = {"id": "ux", "email": "line_uattacker@line.007metals.local",
+                                "user_metadata": {"line_id": "Uvictim"}, "app_metadata": {}}
+        with self.assertRaises(A.ApiError) as cm:
+            A.identify(self.sb, "tok", {})
+        self.assertEqual((cm.exception.status, cm.exception.code), (404, "not-linked"))
+
+    def test_app_metadata_line_id_identifies(self):
+        self.sb.users["tok"] = {"id": "uv", "email": "line_uvictim@line.007metals.local",
+                                "user_metadata": {}, "app_metadata": {"line_id": "Uvictim"}}
+        ident = A.identify(self.sb, "tok", {})
+        self.assertEqual(ident["id"], "e9")
 
 
 class Api(unittest.TestCase):
@@ -334,6 +358,15 @@ class Api(unittest.TestCase):
             rows = [json.loads(x) for x in f]
         self.assertTrue(any(x.get("blocked") for x in rows))
         self.assertFalse(any("cost" in x or "gp" in x for x in rows))
+
+    def test_test_account_checks_but_never_logs(self):
+        # บัญชีทดสอบ (CTO 16 ต.ค. 69): เช็คราคาได้ตามปกติ แต่ไม่ลง approve_check_log
+        add_person(self.sb, "tok-test", "e77", "Tester", "BK")
+        self.sb.t["employees"][-1]["is_test"] = True
+        before = len(self.sb.t["approve_check_log"])
+        st, out = self.call("check", {"branch": "BK", "text": "PU 25 ท้องไม้ 100 ม. 110"}, token="tok-test")
+        self.assertEqual(st, 200, out)
+        self.assertEqual(len(self.sb.t["approve_check_log"]), before)
 
     def test_bands_endpoint(self):
         st, out = self.call("bands", token="tok-sale", method="GET")

@@ -5,8 +5,8 @@
 --
 -- พอร์ตตรงจาก live schema เดิม (ดึงด้วย pg_policies/pg_proc/pg_publication/information_schema)
 -- - คงชื่อตารางเดิม (ไม่ชนกับ 64 ตารางในกลาง)
--- - RLS/ grants เหมือนเดิมเป๊ะ (ทุกตาราง anon CRUD ได้ ยกเว้น staff = SELECT คอลัมน์ที่ปลอดภัย)
---   จำเป็นสำหรับโหมด PIN kiosk (ใช้ anon key ไม่มี JWT)
+-- - RLS/ grants: ตารางปฏิบัติการ authenticated CRUD · anon ไม่มีสิทธิ์ (16 ต.ค. 69 — เดิม anon CRUD ได้หมด)
+--   staff = SELECT คอลัมน์ที่ปลอดภัย
 -- - รันได้ idempotent (if not exists / drop policy if exists)
 -- ⚠️ additive ล้วน — ไม่แตะ 64 ตารางเดิมของกลาง
 -- ============================================================================
@@ -175,16 +175,33 @@ create trigger trg_touch_shape before update on public.shape_drawing for each ro
 
 -- ---------- 3) RLS + GRANTS (พอร์ตตรงจาก live: roles=public/anon+authenticated) ----------
 
--- ตารางปฏิบัติการ: anon+authenticated CRUD ได้เต็ม (จำเป็นสำหรับ PIN kiosk ที่ใช้ anon key)
+-- ตารางปฏิบัติการ: อ่าน = พนักงาน/สิทธิ์แอปผลิต · เขียน = can_access('production') · anon ไม่มีสิทธิ์เลย
+--   (บัญชี LINE ทุกคนได้ authenticated จาก api/line/callback → ห้ามใช้ using(true))
+--   index.html บังคับมี session ก่อนโหลดข้อมูล (PIN kiosk ก็อยู่ใต้ session) · so_push เขียนด้วย service_role
+--   เดิม "for all to public" + grant anon = ใครถือ anon key ก็อ่าน/เขียน/ลบได้ → ปิด 16 ต.ค. 69
+--   (SP-TT-dashboard/db/anon_write_lockdown_2026-10-16.sql)
 do $$
 declare t text;
 begin
   foreach t in array array['machine','production_ticket','online_job','ticket_event','shape_drawing','so_live','so_item_live','coil_stock']
   loop
     execute format('alter table public.%I enable row level security', t);
-    execute format('grant select, insert, update, delete on public.%I to anon, authenticated', t);
+    execute format('revoke all on public.%I from anon', t);
+    execute format('grant select, insert, update, delete on public.%I to authenticated', t);
     execute format('drop policy if exists %I on public.%I', t||'_all', t);
-    execute format('create policy %I on public.%I for all to public using (true) with check (true)', t||'_all', t);
+    execute format('drop policy if exists %I on public.%I', t||'_auth', t);
+    execute format('drop policy if exists %I on public.%I', t||'_read', t);
+    execute format('drop policy if exists %I on public.%I', t||'_ins', t);
+    execute format('drop policy if exists %I on public.%I', t||'_upd', t);
+    execute format('drop policy if exists %I on public.%I', t||'_del', t);
+    execute format($p$create policy %I on public.%I for select to authenticated
+      using ((select public.current_employee_id()) is not null or (select public.can_access('production')))$p$, t||'_read', t);
+    execute format($p$create policy %I on public.%I for insert to authenticated
+      with check ((select public.can_access('production')))$p$, t||'_ins', t);
+    execute format($p$create policy %I on public.%I for update to authenticated
+      using ((select public.can_access('production'))) with check ((select public.can_access('production')))$p$, t||'_upd', t);
+    execute format($p$create policy %I on public.%I for delete to authenticated
+      using ((select public.can_access('production')))$p$, t||'_del', t);
   end loop;
 end $$;
 
@@ -197,9 +214,9 @@ grant select (id, branch, name, role, can_approve, active, email) on public.staf
 
 -- RPC grants
 revoke all on function public.verify_pin(bigint, text) from public;
-grant execute on function public.verify_pin(bigint, text) to anon, authenticated;
+grant execute on function public.verify_pin(bigint, text) to authenticated;  -- ไม่ให้ anon เดา PIN
 revoke all on function public.staff_by_line_id(text) from public;
-grant execute on function public.staff_by_line_id(text) to anon, authenticated;
+revoke execute on function public.staff_by_line_id(text) from public, anon;  -- C1 ถอนแล้ว คืน line_id ห้ามให้ anon
 
 -- ---------- 4) REALTIME (พอร์ตตรง: machine, so_live, online_job, production_ticket) ----------
 do $$
